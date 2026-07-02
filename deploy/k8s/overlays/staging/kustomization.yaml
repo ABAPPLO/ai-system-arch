@@ -9,6 +9,8 @@ resources:
   - ../../services/api-registry/deployment.yaml
   - ../../services/dispatcher/configmap.yaml
   - ../../services/dispatcher/deployment.yaml
+  - ../../services/auth/configmap.yaml
+  - ../../services/auth/deployment.yaml
 
 patches:
   - target:
@@ -25,3 +27,10 @@ patches:
       - op: replace
         path: /spec/replicas
         value: 3
+  - target:
+      kind: Deployment
+      name: auth
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2

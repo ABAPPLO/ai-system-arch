@@ -1,17 +1,15 @@
 """FastAPI 中间件 —— 鉴权 + trace + tenant context + 统一错误。"""
 
+from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Callable, Awaitable
 
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
-from apihub_core import db, redis, kafka, tracing, logging
-from apihub_core.config import Settings, get_settings
+from apihub_core import db, kafka, logging, redis, tracing
+from apihub_core.config import get_settings
 from apihub_core.errors import ApiError, api_error_handler, unhandled_exception_handler
 from apihub_core.tenant import (
-    TenantContext,
-    set_tenant_context,
     clear_tenant_context,
 )
 
@@ -57,12 +55,11 @@ def create_app(
     async def tenant_middleware(request: Request, call_next):
         path = request.url.path
         if path.startswith(skip_auth_paths):
-            return await call_next()
+            return await call_next(request)
 
         # 从 header 取 X-API-Key 或 Authorization: Bearer
-        api_key = (
-            request.headers.get("X-API-Key")
-            or _extract_bearer(request.headers.get("Authorization"))
+        api_key = request.headers.get("X-API-Key") or _extract_bearer(
+            request.headers.get("Authorization")
         )
         if not api_key:
             return JSONResponse(
@@ -72,12 +69,13 @@ def create_app(
 
         try:
             from apihub_core.auth import authenticate_request
+
             await authenticate_request(request, settings, api_key)
         except ApiError as e:
             return api_error_handler(request, e)
 
         try:
-            return await call_next()
+            return await call_next(request)
         finally:
             clear_tenant_context()
 

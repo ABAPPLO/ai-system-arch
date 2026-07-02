@@ -6,16 +6,15 @@
 详见 docs/04-data-model.md §5 RLS 策略。
 """
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator, Optional
 
 import asyncpg
 
 from apihub_core.config import Settings
 from apihub_core.tenant import get_tenant_context
 
-
-_pool: Optional[asyncpg.Pool] = None
+_pool: asyncpg.Pool | None = None
 
 
 async def init_pool(settings: Settings) -> None:
@@ -75,3 +74,29 @@ async def db_session() -> AsyncIterator[asyncpg.Connection]:
                 raise
         else:
             yield conn
+
+
+@asynccontextmanager
+async def admin_db_session() -> AsyncIterator[asyncpg.Connection]:
+    """超管 DB 会话 —— 绕过 RLS，可见所有租户数据。
+
+    使用场景（仅限平台运维 + 几个特殊服务）：
+      - auth 服务跨租户查 api_key（APIKey → tenant_id/app_id）
+      - 平台运维跨租户排查
+      - 审计聚合查询
+
+    ⚠️ 业务代码禁用，每次调用都会写 audit_events（外部可观测）。
+    """
+    if _pool is None:
+        raise RuntimeError("DB pool not initialized. Call init_pool first.")
+
+    async with _pool.acquire() as conn:
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            await conn.execute("SET LOCAL app.is_platform_admin = 'true'")
+            yield conn
+            await tr.commit()
+        except Exception:
+            await tr.rollback()
+            raise

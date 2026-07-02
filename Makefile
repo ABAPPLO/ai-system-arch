@@ -1,6 +1,6 @@
 .PHONY: help install dev fmt lint test docker-build tf-init tf-plan tf-apply \
         k8s-apply-dev k8s-apply-staging k8s-apply-prod argocd-sync \
-        run-registry run-dispatcher \
+        run-registry run-dispatcher run-auth \
         dev-up dev-down dev-logs dev-ps dev-reset dev-psql dev-redis-cli
 
 SHELL := /bin/bash
@@ -75,6 +75,9 @@ run-registry:  ## 本地启动 api-registry
 
 run-dispatcher:  ## 本地启动 dispatcher
 	uvicorn dispatcher.main:app --reload --port 8001
+
+run-auth:  ## 本地启动 auth
+	uvicorn auth.main:app --reload --port 8002
 
 # ===== Dev Stack (docker compose) =====
 dev-up:  ## 启动开发栈（PG/Redis/Kafka/CH/MinIO/Jaeger/Grafana）

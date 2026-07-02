@@ -12,13 +12,7 @@
 """
 
 from apihub_core.config import Settings, get_settings
-from apihub_core.tenant import (
-    TenantContext,
-    get_tenant_context,
-    set_tenant_context,
-    clear_tenant_context,
-    require_tenant,
-)
+from apihub_core.db import admin_db_session, db_session
 from apihub_core.errors import (
     ApiError,
     ErrorCode,
@@ -26,6 +20,13 @@ from apihub_core.errors import (
     api_error_handler,
 )
 from apihub_core.middleware import create_app
+from apihub_core.tenant import (
+    TenantContext,
+    clear_tenant_context,
+    get_tenant_context,
+    require_tenant,
+    set_tenant_context,
+)
 
 __version__ = "0.1.0"
 
@@ -41,5 +42,7 @@ __all__ = [
     "ErrorCode",
     "ErrorResponse",
     "api_error_handler",
+    "db_session",
+    "admin_db_session",
     "create_app",
 ]
