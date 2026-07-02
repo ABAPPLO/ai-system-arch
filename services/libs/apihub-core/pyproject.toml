@@ -23,9 +23,25 @@ dependencies = [
   "tenacity>=8.2",
 ]
 
+[project.optional-dependencies]
+test = [
+  "pytest>=8.0",
+  "pytest-asyncio>=0.23",
+  "pytest-cov>=5.0",
+  "fakeredis>=2.21",
+]
+
 [build-system]
 requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --showlocals"
+markers = [
+  "integration: requires live infra (PG/Redis/Kafka), skip with -m 'not integration'",
+]
