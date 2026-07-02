@@ -73,8 +73,8 @@ argocd-sync:  ## 让 ArgoCD 同步（需先有 argocd CLI）
 run-registry:  ## 本地启动 api-registry
 	uvicorn api_registry.main:app --reload --port 8000
 
-run-dispatcher:  ## 本地启动 dispatcher（TODO）
-	@echo "TODO: dispatcher 尚未实现"
+run-dispatcher:  ## 本地启动 dispatcher
+	uvicorn dispatcher.main:app --reload --port 8001
 
 # ===== Dev Stack (docker compose) =====
 dev-up:  ## 启动开发栈（PG/Redis/Kafka/CH/MinIO/Jaeger/Grafana）

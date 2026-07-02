@@ -7,6 +7,8 @@ resources:
   - ../../base/namespaces/namespaces.yaml
   - ../../services/api-registry/configmap.yaml
   - ../../services/api-registry/deployment.yaml
+  - ../../services/dispatcher/configmap.yaml
+  - ../../services/dispatcher/deployment.yaml
 
 patches:
   - target:
@@ -16,6 +18,19 @@ patches:
       - op: replace
         path: /spec/replicas
         value: 5
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 4000m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 4Gi
+  - target:
+      kind: Deployment
+      name: dispatcher
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 8
       - op: replace
         path: /spec/template/spec/containers/0/resources/limits/cpu
         value: 4000m

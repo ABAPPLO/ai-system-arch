@@ -1,0 +1,98 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: dispatcher
+  namespace: apihub-system
+  labels:
+    app.kubernetes.io/name: dispatcher
+    app.kubernetes.io/part-of: apihub
+spec:
+  replicas: 5
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dispatcher
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dispatcher
+        app.kubernetes.io/part-of: apihub
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: dispatcher
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: app
+          image: registry.apihub.internal/apihub/dispatcher:0.1.0-dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8001
+            - name: metrics
+              containerPort: 9090
+          envFrom:
+            - configMapRef:
+                name: dispatcher-config
+            - secretRef:
+                name: dispatcher-secret
+          resources:
+            # dispatcher 是核心热点服务，资源给足
+            requests:
+              cpu: 1000m
+              memory: 1Gi
+            limits:
+              cpu: 4000m
+              memory: 4Gi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: dispatcher
+  namespace: apihub-system
+spec:
+  selector:
+    app.kubernetes.io/name: dispatcher
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dispatcher
+  namespace: apihub-system
