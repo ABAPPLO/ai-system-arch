@@ -1,0 +1,16 @@
+[project]
+name = "quota"
+version = "0.1.0"
+description = "APIHub 配额与限流服务 —— Redis 原子计数 + 3-tier 决策 + 用量查询"
+requires-python = ">=3.11"
+dependencies = [
+  "apihub-core",
+  "httpx>=0.27",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

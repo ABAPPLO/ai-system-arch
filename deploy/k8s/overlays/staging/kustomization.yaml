@@ -13,6 +13,8 @@ resources:
   - ../../services/auth/deployment.yaml
   - ../../services/executor/configmap.yaml
   - ../../services/executor/deployment.yaml
+  - ../../services/quota/configmap.yaml
+  - ../../services/quota/deployment.yaml
 
 patches:
   - target:
@@ -43,3 +45,10 @@ patches:
       - op: replace
         path: /spec/replicas
         value: 3
+  - target:
+      kind: Deployment
+      name: quota
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 4

@@ -1,0 +1,105 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: quota
+  namespace: apihub-system
+  labels:
+    app.kubernetes.io/name: quota
+    app.kubernetes.io/part-of: apihub
+spec:
+  replicas: 4   # docs/03 §3.6: 5-15 副本（base 设 4，prod overlay 调到 5+）
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: quota
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: quota
+        app.kubernetes.io/part-of: apihub
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: /metrics
+        checksum/config: "TODO-by-CI"
+    spec:
+      serviceAccountName: quota
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: app
+          image: registry.apihub.internal/apihub/quota:0.1.0-dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8004
+            - name: metrics
+              containerPort: 9090
+          envFrom:
+            - configMapRef:
+                name: quota-config
+            - secretRef:
+                name: quota-secret
+          resources:
+            # quota 是延迟最敏感的服务（P99 < 1ms）—— 给小 requests + 中 limits
+            # 让 HPA 有空间扩，但单 pod 不要吃太多 CPU（避免 Redis pipeline 抖）
+            requests:
+              cpu: 250m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          readinessProbe:
+            httpGet:
+              path: /v1/quota/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5     # quota 起得快，频繁探活没成本
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /v1/quota/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 3"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: quota
+  namespace: apihub-system
+spec:
+  selector:
+    app.kubernetes.io/name: quota
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: quota
+  namespace: apihub-system

@@ -13,6 +13,8 @@ resources:
   - ../../services/auth/deployment.yaml
   - ../../services/executor/configmap.yaml
   - ../../services/executor/deployment.yaml
+  - ../../services/quota/configmap.yaml
+  - ../../services/quota/deployment.yaml
 
 patches:
   - target:
@@ -67,5 +69,19 @@ patches:
       - op: replace
         path: /spec/template/spec/containers/0/resources/limits/memory
         value: 4Gi
+  - target:
+      kind: Deployment
+      name: quota
+    patch: |-
+      # docs/03 §3.6: 5-15 副本；quota 延迟最敏感，prod 给到 8 + 高 CPU 上限
+      - op: replace
+        path: /spec/replicas
+        value: 8
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 2000m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 2Gi
 
 # prod 走 Rollout（Argo Rollouts canary），见 docs/09-deployment.md §6.3

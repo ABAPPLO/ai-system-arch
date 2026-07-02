@@ -1,6 +1,6 @@
 .PHONY: help install dev fmt lint test docker-build tf-init tf-plan tf-apply \
         k8s-apply-dev k8s-apply-staging k8s-apply-prod argocd-sync \
-        run-registry run-dispatcher run-auth run-executor \
+        run-registry run-dispatcher run-auth run-executor run-quota \
         dev-up dev-down dev-logs dev-ps dev-reset dev-psql dev-redis-cli
 
 SHELL := /bin/bash
@@ -81,6 +81,9 @@ run-auth:  ## 本地启动 auth
 
 run-executor:  ## 本地启动 executor（worker，需要 Kafka + PG + Redis）
 	uvicorn executor.main:app --reload --port 8003
+
+run-quota:  ## 本地启动 quota（延迟敏感，需要 Redis）
+	uvicorn quota.main:app --reload --port 8004
 
 # ===== Dev Stack (docker compose) =====
 dev-up:  ## 启动开发栈（PG/Redis/Kafka/CH/MinIO/Jaeger/Grafana）
