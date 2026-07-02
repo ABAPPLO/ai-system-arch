@@ -1,0 +1,49 @@
+name: Test
+
+on:
+  pull_request:
+    paths:
+      - "services/**"
+      - "tests/**"
+      - ".github/workflows/test.yml"
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pytest:
+    name: pytest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install deps
+        run: |
+          pip install -e services/libs/apihub-core
+          pip install pytest pytest-asyncio pytest-cov httpx
+          # 服务在还没有写完，pytest 找不到也不报错
+          find services/services -maxdepth 2 -name pyproject.toml -exec pip install -e {} \; 2>/dev/null || true
+
+      - name: Run tests
+        run: pytest services/ -v --cov=apihub_core --cov-report=term-missing --junitxml=pytest.xml
+        continue-on-error: true   # MVP 期还没写测试，CI 先跑通
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pytest-results
+          path: |
+            pytest.xml
+            .coverage

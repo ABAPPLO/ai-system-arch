@@ -1,0 +1,9 @@
+# 默认 owner
+*                       @ABAPPLO
+
+# 按 area 分
+/docs/                  @ABAPPLO
+/deploy/terraform/      @ABAPPLO
+/deploy/k8s/            @ABAPPLO
+/services/libs/         @ABAPPLO
+/.github/               @ABAPPLO

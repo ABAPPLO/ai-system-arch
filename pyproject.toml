@@ -1,0 +1,59 @@
+# 根级工具配置 —— 不定义项目，只配 ruff / mypy 等工具
+# 子包（services/libs/apihub-core, services/services/api-registry）各自有自己的 pyproject.toml
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+extend-exclude = [
+  ".git",
+  ".github",
+  ".venv",
+  "build",
+  "dist",
+]
+
+[tool.ruff.lint]
+# 默认开启 E/F，外加常用规则集
+select = [
+  "E",    # pycodestyle errors
+  "F",    # pyflakes
+  "I",    # isort
+  "B",    # bugbear
+  "UP",   # pyupgrade
+  "SIM",  # simplify
+  "C4",   # comprehensions
+  "ASYNC",# async lint
+  "S",    # bandit（安全）
+]
+ignore = [
+  "E501",   # line too long（交给 formatter）
+  "S101",   # assert（测试里用得到）
+  "S104",   # 0.0.0.0 binding（服务必须）
+  "B008",   # Do not perform function call in argument defaults（FastAPI Depends 需要）
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S", "E402"]
+"scripts/**" = ["E402"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+line-ending = "lf"
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+warn_unused_ignores = true
+warn_redundant_casts = true
+warn_unused_configs = true
+ignore_missing_imports = true   # 第三方无 stub 的库太多，逐步收紧
+exclude = [
+  "^build/",
+  "^dist/",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["services", "tests"]
+addopts = "-ra --strict-markers"

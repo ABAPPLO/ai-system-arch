@@ -1,0 +1,56 @@
+version: 2
+
+updates:
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    labels: [type:deps, area:ci]
+
+  # Python (apihub-core)
+  - package-ecosystem: pip
+    directory: /services/libs/apihub-core
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: [type:deps, area:python]
+
+  # Python (api-registry)
+  - package-ecosystem: pip
+    directory: /services/services/api-registry
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: [type:deps, area:python]
+
+  # Terraform providers
+  - package-ecosystem: terraform
+    directory: /deploy/terraform/modules/vpc
+    schedule:
+      interval: monthly
+    labels: [type:deps, area:terraform]
+  - package-ecosystem: terraform
+    directory: /deploy/terraform/modules/ack
+    schedule:
+      interval: monthly
+    labels: [type:deps, area:terraform]
+  - package-ecosystem: terraform
+    directory: /deploy/terraform/modules/rds
+    schedule:
+      interval: monthly
+    labels: [type:deps, area:terraform]
+  - package-ecosystem: terraform
+    directory: /deploy/terraform/envs/dev
+    schedule:
+      interval: monthly
+    labels: [type:deps, area:terraform]
+
+  # Docker base
+  - package-ecosystem: docker
+    directory: /services/services/api-registry
+    schedule:
+      interval: monthly
+    labels: [type:deps, area:docker]

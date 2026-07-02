@@ -1,0 +1,37 @@
+name: Schema Validate
+
+on:
+  pull_request:
+    paths:
+      - "schema/**"
+      - "scripts/validate-schema.py"
+      - ".github/workflows/schema.yml"
+  push:
+    branches: [main]
+    paths:
+      - "schema/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: schema-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate YAML schemas
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install PyYAML
+        run: pip install "PyYAML>=6.0"
+
+      - name: Validate
+        run: python scripts/validate-schema.py

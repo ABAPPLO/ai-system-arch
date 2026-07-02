@@ -1,0 +1,60 @@
+name: Lint
+
+on:
+  pull_request:
+    paths:
+      - "services/**"
+      - "scripts/**"
+      - "pyproject.toml"
+      - ".github/workflows/lint.yml"
+  push:
+    branches: [main]
+    paths:
+      - "services/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: lint-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ruff:
+    name: Ruff (lint + format check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install ruff
+        run: pip install "ruff==0.6.*"
+
+      - name: Ruff check
+        run: ruff check services/ scripts/
+
+      - name: Ruff format check
+        run: ruff format --check services/ scripts/
+
+  mypy:
+    name: Mypy (type check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install mypy + deps
+        run: |
+          pip install "mypy==1.11.*"
+          pip install types-PyYAML
+
+      - name: Mypy
+        run: mypy services/ || true   # 容忍现有未注解，逐步收紧
