@@ -1,0 +1,27 @@
+# dev overlay — 资源配额小、副本少
+# kustomize build deploy/k8s/overlays/dev | kubectl apply -f -
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: apihub-system
+
+resources:
+  - ../../base/namespaces/namespaces.yaml
+  - ../../services/api-registry/configmap.yaml
+  - ../../services/api-registry/deployment.yaml
+
+patches:
+  - target:
+      kind: Deployment
+      name: api-registry
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: 100m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: 128Mi

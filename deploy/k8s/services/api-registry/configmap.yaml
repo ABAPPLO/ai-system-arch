@@ -1,0 +1,50 @@
+# api-registry 服务 K8s 配置 — 详见 docs/03-services.md §3.1
+# 真实 Secret 走 Sealed Secrets，不进 Git
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: api-registry-config
+  namespace: apihub-system
+  labels:
+    app.kubernetes.io/name: api-registry
+    app.kubernetes.io/part-of: apihub
+data:
+  APP_NAME: api-registry
+  ENV: dev
+  LOG_LEVEL: INFO
+
+  # PostgreSQL 连接串（敏感字段从 Secret 注入到 env）
+  PG_HOST: apihub-rds.internal
+  PG_PORT: "5432"
+  PG_DATABASE: apihub
+  PG_POOL_MIN: "10"
+  PG_POOL_MAX: "50"
+
+  # Redis
+  REDIS_HOST: apihub-redis.internal
+  REDIS_PORT: "6379"
+
+  # Kafka
+  KAFKA_BROKERS: apihub-kafka-1:9092,apihub-kafka-2:9092,apihub-kafka-3:9092
+  KAFKA_TOPIC_CALL_EVENTS: api-call-events
+  KAFKA_TOPIC_AUDIT_EVENTS: audit-events
+
+  # APISIX admin
+  APISIX_ADMIN_URL: http://apisix-admin.apihub-ingress:9180
+
+  # OTel
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.apihub-monitoring:4317
+  OTEL_SERVICE_NAME: api-registry
+  OTEL_RESOURCE_ATTRIBUTES: deployment.environment=dev
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: api-registry-secret
+  namespace: apihub-system
+type: Opaque
+# 真实环境用 Sealed Secrets 加密，这里只示意
+# stringData:
+#   PG_PASSWORD: ...
+#   APISIX_ADMIN_KEY: ...

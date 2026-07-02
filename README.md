@@ -87,27 +87,78 @@
 - ⬜ MVP 开发
 - ⬜ 上线
 
-## 仓库结构（规划）
+## 仓库结构
 
 ```
 ai-system-arch/
 ├── README.md
-├── docs/                         # 设计文档
-├── deploy/                       # Terraform / K8s manifests / ArgoCD
-│   ├── terraform/
-│   ├── helm/
-│   └── argocd/
-├── services/                     # Python 微服务源码
-│   ├── api-registry/
-│   ├── dispatcher/
-│   ├── executor/
-│   └── ...
-├── frontend/                     # Vue 前端
-│   ├── admin/                    # 管理后台
-│   └── portal/                   # 开发者门户
-├── sdk/                          # 各语言 SDK 模板
-├── schema/                       # 接口元数据声明式样例
-└── scripts/                      # 工具脚本
+├── Makefile                       # 一键命令（install / test / tf / k8s）
+├── docs/                          # 设计文档（13 篇 + 图集）
+├── deploy/
+│   ├── terraform/                 # IaC：modules/ + envs/{dev,staging,prod}
+│   │   ├── modules/{vpc,ack,rds,redis,kafka,oss}/
+│   │   └── envs/dev/              # ✅ dev 已配齐
+│   ├── k8s/                       # K8s manifests + Kustomize overlays
+│   │   ├── base/{namespaces,apigw,shared}/
+│   │   ├── services/api-registry/
+│   │   └── overlays/{dev,staging,prod}/
+│   └── argocd/                    # ArgoCD Application 三环境
+├── services/
+│   ├── libs/apihub-core/          # ✅ 共享库（tenant/RLS/redis/kafka/otel/auth）
+│   └── services/api-registry/     # ✅ 样例服务（FastAPI + Dockerfile）
+├── schema/                        # 声明式接口 YAML（含 http/async/ai 三种类型样例）
+│   ├── user-service/
+│   └── ai-service/
+└── scripts/
+    └── validate-schema.py         # CI 校验 schema
+```
+
+## 快速开始
+
+### 1. 准备开发环境
+
+```bash
+make install                       # 安装 apihub-core + api-registry
+pip install pyyaml                 # 给 schema 校验脚本用
+```
+
+### 2. 本地起一个服务
+
+```bash
+# 准备 PG / Redis / Kafka（用 docker-compose 或远程 dev）
+export PG_HOST=localhost PG_USER=apihub PG_PASSWORD=xxx
+export REDIS_HOST=localhost KAFKA_BROKERS=localhost:9092
+
+make run-registry                  # uvicorn api_registry.main:app --reload
+curl http://localhost:8000/health/live
+```
+
+### 3. 校验 schema
+
+```bash
+python scripts/validate-schema.py  # CI 集成
+```
+
+### 4. 部署基础设施（dev）
+
+```bash
+# 准备阿里云凭据
+export ALICLOUD_ACCESS_KEY=...
+export ALICLOUD_SECRET_KEY=...
+export TF_VAR_rds_password='<强密码>'
+
+cd deploy/terraform/envs/dev
+terraform init
+terraform plan
+terraform apply                    # 输出 ACK / RDS / Redis / Kafka 连接信息
+```
+
+### 5. GitOps 部署服务
+
+```bash
+# 假设 ArgoCD 已装好
+kubectl apply -f deploy/argocd/dev.yaml
+argocd app sync apihub-dev
 ```
 
 ## 联系

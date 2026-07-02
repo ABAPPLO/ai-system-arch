@@ -1,0 +1,23 @@
+# APISIX 路由 / Consumer 配置模板 — 详见 docs/03-services.md §3.2 + docs/06-high-concurrency.md §7
+# 实际路由由 api-registry 通过 etcd 下发，这里只放固定不变的全局配置
+
+# Consumer：每个应用一个 Consumer，绑定 app_id 的 APIKey
+# 动态创建由 api-registry 服务管理，这里只是示例结构
+consumers:
+  - username: app-default
+    plugins:
+      key-auth: {}
+      limit-count:
+        count: 1000
+        time_window: 60
+        key: consumer_name
+        policy: redis-cluster
+        rejected_code: 429
+
+# 全局规则：所有路由统一加 OTel header
+global_rules:
+  - id: global-otel
+    plugins:
+      opentelemetry:
+        sampler:
+          name: always

@@ -1,0 +1,68 @@
+# 异步任务接口示例 —— user-batch-import
+# 详见 docs/05-core-flows.md §4 异步任务时序
+
+api:
+  name: user-batch-import
+  category: user-service
+  description: 批量导入用户（异步任务，最大 1w 条）
+  base_path: /user-service
+  tags: [user, batch, async]
+  owner: user-service-team
+
+version:
+  version: v1
+  backend_type: async_task          # ⭐ 异步任务
+  backend_url: task://user-import   # executor 拉起的任务类型
+  method: POST
+  path: /v1/users/batch-import
+
+  request_schema:
+    type: object
+    properties:
+      users:
+        type: array
+        maxItems: 10000
+        items:
+          type: object
+          properties:
+            name:  { type: string }
+            phone: { type: string }
+            email: { type: string }
+          required: [name, phone]
+    required: [users]
+
+  response_schema:
+    type: object
+    properties:
+      task_id:
+        type: string
+      status:
+        type: string
+        enum: [pending, running, succeeded, failed]
+      estimated_seconds:
+        type: integer
+    required: [task_id, status]
+
+  masking:
+    request:
+      - field: users[].phone
+        action: mask
+      - field: users[].email
+        action: mask
+
+  rate_limit:
+    count: 10           # 每分钟最多 10 次
+    window_seconds: 60
+
+  retry:
+    max_attempts: 3
+    backoff_seconds: 30
+    backoff_multiplier: 2.0
+
+  # 异步任务专用
+  task:
+    timeout_seconds: 1800       # 30 分钟
+    callback:
+      enabled: true             # 完成后回调 Webhook
+      retry_on_failure: true
+    result_retention_days: 7

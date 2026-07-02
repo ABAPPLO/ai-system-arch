@@ -1,0 +1,44 @@
+# APISIX Helm values — 详见 docs/03-services.md §3.2 + docs/06-high-concurrency.md
+# helm repo add apisix https://charts.apiseven.com
+# helm install apisix apisix/apisix -n apihub-ingress -f deploy/k8s/base/apigw/apisix-values.yaml
+
+apisix:
+  ssl:
+    enabled: true
+  admin_key:
+    key: "REPLACE_ME_VIA_SEALED_SECRET"
+
+gateway:
+  type: LoadBalancer
+  annotations:
+    service.beta.kubernetes.io/alibaba-cloud-loadbalancer-spec: "slb.s3.large"
+    service.beta.kubernetes.io/alibaba-cloud-loadbalancer-address-type: "intranet"
+
+ingressController:
+  enabled: true
+  config:
+    apisix:
+      adminKey: "REPLACE_ME_VIA_SEALED_SECRET"
+
+# 启用 dashboard（仅 dev / staging）
+dashboard:
+  enabled: true
+
+# 启用插件
+plugins:
+  - api-breaker
+  - limit-req
+  - limit-count
+  - limit-conn
+  - key-auth
+  - jwt-auth
+  - consumer-restriction
+  - proxy-rewrite
+  - ip-restriction
+  - ua-restriction
+  - referer-restriction
+  - body-transformer
+  - kafka-proxy       # 调用事件直接 Kafka
+  - prometheus
+  - skywalking        # 链路追踪（或用 otel）
+  - opentelemetry

@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apihub-system
+  labels:
+    app.kubernetes.io/part-of: apihub
+    pod-security.kubernetes.io/enforce: restricted
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apihub-data
+  labels:
+    app.kubernetes.io/part-of: apihub
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apihub-ingress
+  labels:
+    app.kubernetes.io/part-of: apihub
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apihub-monitoring
+  labels:
+    app.kubernetes.io/part-of: apihub
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apihub-workflow
+  labels:
+    app.kubernetes.io/part-of: apihub

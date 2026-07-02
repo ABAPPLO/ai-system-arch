@@ -1,0 +1,93 @@
+# 声明式接口定义示例 —— user-query
+# 详见 docs/05-core-flows.md §2 接口发布流程
+# 提交 PR 时 CI 自动校验 schema，合并后由 api-registry 同步到平台
+
+api:
+  name: user-query
+  category: user-service
+  description: 根据用户 ID 查询用户信息
+  base_path: /user-service
+  tags: [user, query]
+  owner: user-service-team
+
+version:
+  version: v1
+  backend_type: http
+  backend_url: http://user-service.internal/v1/users/{user_id}
+  method: GET
+  path: /v1/users/{user_id}
+
+  # 请求参数（JSON Schema）
+  request_schema:
+    type: object
+    properties:
+      user_id:
+        type: string
+        description: 用户 ID（uuid）
+    required: [user_id]
+
+  # 响应（JSON Schema）
+  response_schema:
+    type: object
+    properties:
+      user_id:
+        type: string
+      name:
+        type: string
+      phone:
+        type: string
+      email:
+        type: string
+      created_at:
+        type: string
+        format: date-time
+    required: [user_id, name]
+
+  # 字段脱敏规则 —— 详见 docs/08-observability-security.md §7.6
+  masking:
+    response:
+      - field: phone
+        action: mask       # 138****1234
+      - field: email
+        action: mask       # x***@xxx.com
+    request:
+      - field: password    # 即便有也不记录
+        action: remove
+
+  # 限流（应用×API×时间窗）
+  rate_limit:
+    count: 1000
+    window_seconds: 60
+
+  # 重试策略
+  retry:
+    max_attempts: 3
+    backoff_seconds: 1
+    backoff_multiplier: 2.0
+
+  # 缓存策略（GET 接口可缓存）
+  cache:
+    enabled: true
+    ttl_seconds: 60
+    vary_by: [user_id]
+
+  # SLA / 配额（参考）
+  sla:
+    p99_latency_ms: 200
+    availability: 0.999
+
+  # 鉴权
+  auth:
+    methods: [api_key]
+    scopes: [user:read]
+
+  # 文档自动化（自动生成 curl / Python / JS / Java 示例）
+  examples:
+    request:
+      user_id: "usr_abc123"
+    response:
+      user_id: "usr_abc123"
+      name: "张三"
+      phone: "138****1234"
+      email: "z***@example.com"
+      created_at: "2026-07-02T08:00:00Z"

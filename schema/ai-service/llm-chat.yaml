@@ -1,0 +1,74 @@
+# AI 模型接口示例 —— llm-chat（流式）
+# 详见 docs/05-core-flows.md §4.5 + ADR-004 AI 网关预留
+
+api:
+  name: llm-chat
+  category: ai-service
+  description: LLM 对话接口（流式 SSE）
+  base_path: /ai-service
+  tags: [ai, llm, sse]
+  owner: ai-team
+
+version:
+  version: v1
+  backend_type: ai_model        # ⭐ AI 模型
+  backend_url: http://llm-gateway.internal/v1/chat/completions
+  method: POST
+  path: /v1/llm/chat
+
+  ai_model: gpt-4o-mini          # 默认模型（可被请求体覆盖）
+  ai_streaming: true             # ⭐ SSE 流式响应
+
+  request_schema:
+    type: object
+    properties:
+      messages:
+        type: array
+        items:
+          type: object
+          properties:
+            role: { type: string, enum: [system, user, assistant] }
+            content: { type: string }
+      model:
+        type: string
+        description: 可选，覆盖默认模型
+      temperature:
+        type: number
+        minimum: 0
+        maximum: 2
+      max_tokens:
+        type: integer
+        maximum: 4096
+    required: [messages]
+
+  response_schema:
+    description: SSE 流（chunk 列表）
+    type: object
+
+  rate_limit:
+    count: 100
+    window_seconds: 60
+
+  # AI 特有：按 Token 计费（详见 docs/04-data-model.md §api_call_log）
+  billing:
+    type: token
+    tiers:
+      - model_prefix: "gpt-4o"
+        rate_per_1k_tokens: 0.05
+      - model_prefix: "gpt-4o-mini"
+        rate_per_1k_tokens: 0.005
+
+  task:
+    timeout_seconds: 60
+
+  examples:
+    request:
+      messages:
+        - role: user
+          content: "Hello"
+    response_chunk: |
+      data: {"id":"chat_abc","choices":[{"delta":{"content":"Hi"},"finish_reason":null}]}
+
+      data: {"id":"chat_abc","choices":[{"delta":{},"finish_reason":"stop"}]}
+
+      data: [DONE]
