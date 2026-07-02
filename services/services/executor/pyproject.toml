@@ -1,0 +1,16 @@
+[project]
+name = "executor"
+version = "0.1.0"
+description = "APIHub 异步任务执行器 —— 消费 Kafka task-requests，调用业务后端，回写 PG"
+requires-python = ">=3.11"
+dependencies = [
+  "apihub-core",
+  "httpx>=0.27",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

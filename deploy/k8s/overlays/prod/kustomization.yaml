@@ -11,6 +11,8 @@ resources:
   - ../../services/dispatcher/deployment.yaml
   - ../../services/auth/configmap.yaml
   - ../../services/auth/deployment.yaml
+  - ../../services/executor/configmap.yaml
+  - ../../services/executor/deployment.yaml
 
 patches:
   - target:
@@ -52,5 +54,18 @@ patches:
       - op: replace
         path: /spec/template/spec/containers/0/resources/limits/memory
         value: 2Gi
+  - target:
+      kind: Deployment
+      name: executor
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 10
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 4000m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 4Gi
 
 # prod 走 Rollout（Argo Rollouts canary），见 docs/09-deployment.md §6.3

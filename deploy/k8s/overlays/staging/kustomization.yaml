@@ -11,6 +11,8 @@ resources:
   - ../../services/dispatcher/deployment.yaml
   - ../../services/auth/configmap.yaml
   - ../../services/auth/deployment.yaml
+  - ../../services/executor/configmap.yaml
+  - ../../services/executor/deployment.yaml
 
 patches:
   - target:
@@ -34,3 +36,10 @@ patches:
       - op: replace
         path: /spec/replicas
         value: 2
+  - target:
+      kind: Deployment
+      name: executor
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3

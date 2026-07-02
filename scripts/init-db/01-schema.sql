@@ -155,7 +155,41 @@ CREATE INDEX idx_api_version_api ON api_version(api_id);
 CREATE INDEX idx_api_version_status ON api_version(status);
 
 -- ============================================================
--- 4. 审计日志（合规底线：在线 6 月 + OSS 永久）
+-- 4. 异步任务实例（dispatcher 写，executor 改，调用方查）
+-- ============================================================
+-- docs/04-data-model.md §2.7 + docs/05-core-flows.md §3
+-- 关键：status 状态机 pending → running → succeeded/failed/timeout/cancelled
+
+CREATE TABLE IF NOT EXISTS task (
+    id              text PRIMARY KEY,            -- "task_xxxx"（dispatcher 生成）
+    tenant_id       text NOT NULL,
+    api_id          text NOT NULL,
+    api_version_id  text NOT NULL,
+    app_id          text NOT NULL,
+    status          text NOT NULL
+                    CHECK (status IN ('pending', 'running', 'succeeded', 'failed', 'timeout', 'cancelled')),
+    payload         text,                        -- 原始请求 body（可能是非 JSON）
+    response_body   text,                        -- 后端响应 body
+    response_status integer,                     -- 后端 HTTP status
+    error_code      text,
+    error_msg       text,
+    request_id      text,
+    trace_id        text,
+    callback_url    text,                        -- 完成后回调（可选）
+    retry_count     integer NOT NULL DEFAULT 0,
+    started_at      timestamptz,
+    finished_at     timestamptz,
+    timeout_at      timestamptz,
+    created_at      timestamptz NOT NULL DEFAULT NOW(),
+    updated_at      timestamptz NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_task_tenant_status ON task(tenant_id, status);
+CREATE INDEX idx_task_tenant_app_created ON task(tenant_id, app_id, created_at DESC);
+CREATE INDEX idx_task_status_created ON task(status, created_at) WHERE status IN ('pending', 'running');
+CREATE INDEX idx_task_request_id ON task(request_id);
+
+-- ============================================================
+-- 5. 审计日志（合规底线：在线 6 月 + OSS 永久）
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS audit_log (
@@ -183,7 +217,7 @@ CREATE INDEX idx_audit_resource ON audit_log(resource_type, resource_id, created
 CREATE INDEX idx_audit_action ON audit_log(action);
 
 -- ============================================================
--- 5. RLS 策略 —— 所有带 tenant_id 的表强制隔离
+-- 6. RLS 策略 —— 所有带 tenant_id 的表强制隔离
 -- ============================================================
 -- 详见 docs/04-data-model.md §5 + docs/11-multi-tenant.md §4
 --
@@ -199,6 +233,7 @@ ALTER TABLE api_key         ENABLE ROW LEVEL SECURITY;
 ALTER TABLE api             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE api_version     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_log       ENABLE ROW LEVEL SECURITY;
+ALTER TABLE task            ENABLE ROW LEVEL SECURITY;
 
 -- 通用策略宏：用 SQL 减少重复
 -- 当前租户可见，超管可见全部
@@ -254,8 +289,14 @@ CREATE OR REPLACE POLICY tenant_isolation_modify ON audit_log
     FOR ALL USING (tenant_id = rls_tenant_filter() OR rls_is_platform_admin())
     WITH CHECK (tenant_id = rls_tenant_filter() OR rls_is_platform_admin());
 
+CREATE OR REPLACE POLICY tenant_isolation_select ON task
+    FOR SELECT USING (tenant_id = rls_tenant_filter() OR rls_is_platform_admin());
+CREATE OR REPLACE POLICY tenant_isolation_modify ON task
+    FOR ALL USING (tenant_id = rls_tenant_filter() OR rls_is_platform_admin())
+    WITH CHECK (tenant_id = rls_tenant_filter() OR rls_is_platform_admin());
+
 -- ============================================================
--- 6. updated_at 自动更新触发器
+-- 7. updated_at 自动更新触发器
 -- ============================================================
 
 CREATE OR REPLACE FUNCTION trigger_set_updated_at()
@@ -270,7 +311,7 @@ DO $$
 DECLARE t text;
 BEGIN
     FOR t IN SELECT unnest(ARRAY[
-        'tenant', 'user_account', 'app', 'api', 'api_version'
+        'tenant', 'user_account', 'app', 'api', 'api_version', 'task'
     ])
     LOOP
         EXECUTE format($f$
@@ -281,7 +322,7 @@ BEGIN
 END $$;
 
 -- ============================================================
--- 7. 测试连通性（开发期自检）
+-- 8. 测试连通性（开发期自检）
 -- ============================================================
 -- 验证 RLS：开两个 session 模拟
 --   SET app.tenant_id = 'tenant_a'; SELECT count(*) FROM api;  -- 只看到 A 的

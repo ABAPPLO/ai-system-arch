@@ -1,0 +1,108 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: executor
+  namespace: apihub-system
+  labels:
+    app.kubernetes.io/name: executor
+    app.kubernetes.io/part-of: apihub
+spec:
+  replicas: 3
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0   # worker 优雅退出靠 SIGTERM + 30s termination grace
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: executor
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: executor
+        app.kubernetes.io/part-of: apihub
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: /metrics
+        # roll on config change（ConfigMap 改了就重启 pod 拿新值）
+        checksum/config: "TODO-by-CI"
+    spec:
+      serviceAccountName: executor
+      terminationGracePeriodSeconds: 35   # > worker stop timeout (30s)
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: app
+          image: registry.apihub.internal/apihub/executor:0.1.0-dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8003
+            - name: metrics
+              containerPort: 9090
+          envFrom:
+            - configMapRef:
+                name: executor-config
+            - secretRef:
+                name: executor-secret
+          resources:
+            # executor 是 CPU/IO 密集型（HTTP 调用 backend）
+            requests:
+              cpu: 500m
+              memory: 512Mi
+            limits:
+              cpu: 2000m
+              memory: 2Gi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          # ready 只有在 consumer 起来 + DB pool 建好之后才转 true
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          # 优雅退出：k8s 发 SIGTERM，lifespan 收尾 → consumer.stop()
+          # → 处理完当前消息 → 关 client。35s 还没退就 SIGKILL。
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: executor
+  namespace: apihub-system
+spec:
+  selector:
+    app.kubernetes.io/name: executor
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: executor
+  namespace: apihub-system

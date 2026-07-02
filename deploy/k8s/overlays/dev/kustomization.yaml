@@ -14,6 +14,8 @@ resources:
   - ../../services/dispatcher/deployment.yaml
   - ../../services/auth/configmap.yaml
   - ../../services/auth/deployment.yaml
+  - ../../services/executor/configmap.yaml
+  - ../../services/executor/deployment.yaml
 
 patches:
   - target:
@@ -55,3 +57,16 @@ patches:
       - op: replace
         path: /spec/template/spec/containers/0/resources/requests/memory
         value: 128Mi
+  - target:
+      kind: Deployment
+      name: executor
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: 200m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: 256Mi
