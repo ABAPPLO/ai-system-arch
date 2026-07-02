@@ -1,0 +1,216 @@
+# APIHub 本地开发栈 —— 一键起 PG / Redis / Kafka / ClickHouse / MinIO / Jaeger / OTel / Prometheus / Grafana
+#
+# 用法：
+#   make dev-up          # 启动全部
+#   make dev-down        # 停止
+#   make dev-logs        # 看日志
+#   make dev-reset       # 清掉所有 volume 重建
+#
+# 端口对照表（详见 .env.dev）：
+#   PG          5432    Redis       6379    Kafka        9092
+#   ClickHouse  8123    MinIO       9000    Jaeger       16686
+#   Prometheus  9090    Grafana     3000    OTel         4317
+
+name: apihub-dev
+
+# 共享网络（模拟 VPC 内网）
+networks:
+  apihub:
+    driver: bridge
+    name: apihub-dev
+
+# 共享卷（持久化）
+volumes:
+  pg-data:
+  redis-data:
+  kafka-data:
+  clickhouse-data:
+  minio-data:
+  prometheus-data:
+  grafana-data:
+
+services:
+
+  # ============ 数据层 ============
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: apihub-pg
+    environment:
+      POSTGRES_DB: ${PG_DATABASE:-apihub}
+      POSTGRES_USER: ${PG_USER:-apihub}
+      POSTGRES_PASSWORD: ${PG_PASSWORD:-apihub_dev_pwd}
+    ports: ["5432:5432"]
+    volumes:
+      - pg-data:/var/lib/postgresql/data
+      - ./scripts/init-db:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-apihub} -d ${PG_DATABASE:-apihub}"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    networks: [apihub]
+
+  redis:
+    image: redis:7-alpine
+    container_name: apihub-redis
+    command: ["redis-server", "--appendonly", "yes", "--requirepass", "${REDIS_PASSWORD:-apihub_dev_pwd}"]
+    ports: ["6379:6379"]
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD:-apihub_dev_pwd}", "ping"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    networks: [apihub]
+
+  kafka:
+    # KRaft 模式（无需 Zookeeper），与阿里云 Kafka API 兼容
+    image: bitnami/kafka:3.7
+    container_name: apihub-kafka
+    environment:
+      KAFKA_CFG_NODE_ID: "1"
+      KAFKA_CFG_PROCESS_ROLES: "controller,broker"
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_CFG_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
+      KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094"
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    ports: ["9094:9094"]
+    volumes:
+      - kafka-data:/bitnami/kafka
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [apihub]
+
+  kafka-init:
+    image: bitnami/kafka:3.7
+    container_name: apihub-kafka-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "/init/create-topics.sh"]
+    volumes:
+      - ./scripts/init-kafka:/init:ro
+    networks: [apihub]
+    restart: "no"
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.3-alpine
+    container_name: apihub-clickhouse
+    environment:
+      CLICKHOUSE_DB: apihub
+      CLICKHOUSE_USER: ${CH_USER:-apihub}
+      CLICKHOUSE_PASSWORD: ${CH_PASSWORD:-apihub_dev_pwd}
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "8123:8123"   # HTTP
+      - "9000:9000"   # native
+    ulimits:
+      nofile:
+        soft: 262144
+        hard: 262144
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./scripts/init-clickhouse:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [apihub]
+
+  minio:
+    image: minio/minio:latest
+    container_name: apihub-minio
+    command: ["server", "/data", "--console-address", ":9001"]
+    environment:
+      MINIO_ROOT_USER: ${MINIO_USER:-apihub}
+      MINIO_ROOT_PASSWORD: ${MINIO_PASSWORD:-apihub_dev_pwd}
+    ports:
+      - "9000:9000"   # S3 API
+      - "9001:9001"   # Console
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [apihub]
+
+  minio-init:
+    image: minio/mc:latest
+    container_name: apihub-minio-init
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "/init/create-buckets.sh"]
+    volumes:
+      - ./scripts/init-minio:/init:ro
+    environment:
+      MINIO_USER: ${MINIO_USER:-apihub}
+      MINIO_PASSWORD: ${MINIO_PASSWORD:-apihub_dev_pwd}
+    networks: [apihub]
+    restart: "no"
+
+  # ============ 可观测层 ============
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:latest
+    container_name: apihub-otel
+    command: ["--config=/etc/otel/config.yaml"]
+    volumes:
+      - ./scripts/otel/config.yaml:/etc/otel/config.yaml:ro
+    ports:
+      - "4317:4317"   # OTLP gRPC（业务上报）
+      - "4318:4318"   # OTLP HTTP
+    depends_on: [jaeger]
+    networks: [apihub]
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    container_name: apihub-jaeger
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+      GRPC_STORAGE_PLUGIN_TARGET: ""
+    ports:
+      - "16686:16686"  # UI
+      - "14268:14268"  # Jaeger thrift HTTP
+    networks: [apihub]
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: apihub-prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.time=7d
+    volumes:
+      - prometheus-data:/prometheus
+      - ./scripts/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports: ["9090:9090"]
+    networks: [apihub]
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: apihub-grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./scripts/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./scripts/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["3000:3000"]
+    depends_on: [prometheus]
+    networks: [apihub]
+
+  # ============ 业务服务（可选，本地用 uvicorn 起） ============
+  # 不在 compose 里跑业务服务，避免代码改动后要 rebuild image
+  # 用 `make run-registry` 直接 uvicorn 起更方便

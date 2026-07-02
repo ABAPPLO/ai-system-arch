@@ -60,7 +60,8 @@
 | 09 | [部署方案](docs/09-deployment.md) | 单云、K8s、多环境、GitOps |
 | 10 | [路线图](docs/10-roadmap.md) | 4 阶段计划、团队分工、里程碑 |
 | **11** | **[多租户设计](docs/11-multi-tenant.md)** | **租户模型、隔离方式、配额、跨租户** |
-| **12** | **[架构图集](docs/diagrams.md)** | **12 张 Mermaid 图：分层、部署、时序、状态机** |
+| **12** | **[本地开发指南](docs/12-dev-guide.md)** | **`make dev-up` 一键起 PG/Redis/Kafka/CH/MinIO/Jaeger/Grafana** |
+| **13** | **[架构图集](docs/diagrams.md)** | **12 张 Mermaid 图：分层、部署、时序、状态机** |
 
 ## 核心决策一览（详见 [00-decisions.md](docs/00-decisions.md)）
 

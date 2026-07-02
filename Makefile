@@ -1,11 +1,17 @@
 .PHONY: help install dev fmt lint test docker-build tf-init tf-plan tf-apply \
         k8s-apply-dev k8s-apply-staging k8s-apply-prod argocd-sync \
-        run-registry run-dispatcher
+        run-registry run-dispatcher \
+        dev-up dev-down dev-logs dev-ps dev-reset dev-psql dev-redis-cli
 
 SHELL := /bin/bash
 
 ENV ?= dev
 SERVICE ?= api-registry
+# 优先 docker compose v2，回退 v1
+COMPOSE := $(shell \
+	command -v "docker" >/dev/null 2>&1 && docker compose version >/dev/null 2>&1 \
+		&& echo "docker compose --env-file .env.dev -f docker-compose.dev.yml" \
+		|| echo "docker-compose --env-file .env.dev -f docker-compose.dev.yml")
 
 help:  ## 显示所有可用目标
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \
@@ -69,3 +75,42 @@ run-registry:  ## 本地启动 api-registry
 
 run-dispatcher:  ## 本地启动 dispatcher（TODO）
 	@echo "TODO: dispatcher 尚未实现"
+
+# ===== Dev Stack (docker compose) =====
+dev-up:  ## 启动开发栈（PG/Redis/Kafka/CH/MinIO/Jaeger/Grafana）
+	@test -f .env.dev || cp .env.dev.example .env.dev
+	$(COMPOSE) up -d
+	@echo ""
+	@echo "✅ 开发栈已启动："
+	@echo "   PG          postgresql://apihub:apihub_dev_pwd@localhost:5432/apihub"
+	@echo "   Redis       redis-cli -a apihub_dev_pwd -h localhost -p 6379"
+	@echo "   Kafka       localhost:9094  (UI: http://localhost:9001  MinIO)"
+	@echo "   ClickHouse  http://localhost:8123  (user=apihub)"
+	@echo "   MinIO       http://localhost:9001  (apihub/apihub_dev_pwd)"
+	@echo "   Jaeger      http://localhost:16686"
+	@echo "   Grafana     http://localhost:3000  (admin/$(shell grep GRAFANA_PASSWORD .env.dev | cut -d= -f2))"
+	@echo ""
+	@echo "   停止： make dev-down"
+
+dev-down:  ## 停止开发栈（保留 volume）
+	$(COMPOSE) down
+
+dev-logs:  ## 看开发栈日志（tail -f）
+	$(COMPOSE) logs -f --tail=100
+
+dev-ps:  ## 看开发栈状态
+	$(COMPOSE) ps
+
+dev-reset:  ## ⚠️ 清掉所有 volume 重建（dev only）
+	@read -p "This wipes all dev data. Continue? [y/N] " ans; \
+		[ "$$ans" = "y" ] || { echo "Aborted"; exit 1; }
+	$(COMPOSE) down -v
+	$(COMPOSE) up -d
+
+dev-psql:  ## 进 PG psql
+	PGPASSWORD=$$(grep PG_PASSWORD .env.dev | cut -d= -f2) \
+		psql -h localhost -U $$(grep PG_USER .env.dev | cut -d= -f2) \
+		     -d $$(grep PG_DATABASE .env.dev | cut -d= -f2)
+
+dev-redis-cli:  ## 进 Redis CLI
+	redis-cli -h localhost -p 6379 -a $$(grep REDIS_PASSWORD .env.dev | cut -d= -f2)

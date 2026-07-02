@@ -1,0 +1,51 @@
+# OTel Collector 配置：业务上报 → Collector → Jaeger + Prometheus
+# 业务代码只需上报到 otel-collector:4317，下游路由由 Collector 决定
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+
+  # 采样：错误 / 慢调用全留，正常 1%
+  tail_sampling:
+    decision_wait: 10s
+    policies:
+      - name: errors
+        type: status_code
+        status_code: { status_codes: [ERROR] }
+      - name: slow
+        type: latency
+        latency: { threshold_ms: 1000 }
+      - name: sample-1pct
+        type: probabilistic
+        probabilistic: { sampling_percentage: 1 }
+
+exporters:
+  # 链路 → Jaeger
+  otlp/jaeger:
+    endpoint: jaeger:4317
+    tls:
+      insecure: true
+
+  # 指标 → Prometheus（pull 模式）
+  prometheus:
+    endpoint: 0.0.0.0:8889
+
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [tail_sampling, batch]
+      exporters: [otlp/jaeger]
+    metrics:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [prometheus]
