@@ -4,9 +4,8 @@
 """
 
 import pytest
-
 from apihub_core import redis as redis_mod
-from apihub_core.tenant import set_tenant_context, TenantContext
+from apihub_core.tenant import set_tenant_context
 
 
 class _FakeRedis:

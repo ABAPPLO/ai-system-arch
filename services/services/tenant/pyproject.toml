@@ -1,0 +1,16 @@
+[project]
+name = "tenant"
+version = "0.1.0"
+description = "APIHub 租户管理服务 —— 租户 CRUD + 成员 + 状态机 + Redis 元数据缓存"
+requires-python = ">=3.11"
+dependencies = [
+  "apihub-core",
+  "httpx>=0.27",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]

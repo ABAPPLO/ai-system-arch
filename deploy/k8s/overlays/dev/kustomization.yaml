@@ -18,6 +18,8 @@ resources:
   - ../../services/executor/deployment.yaml
   - ../../services/quota/configmap.yaml
   - ../../services/quota/deployment.yaml
+  - ../../services/tenant/configmap.yaml
+  - ../../services/tenant/deployment.yaml
 
 patches:
   - target:
@@ -75,6 +77,19 @@ patches:
   - target:
       kind: Deployment
       name: quota
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/cpu
+        value: 100m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/requests/memory
+        value: 128Mi
+  - target:
+      kind: Deployment
+      name: tenant
     patch: |-
       - op: replace
         path: /spec/replicas

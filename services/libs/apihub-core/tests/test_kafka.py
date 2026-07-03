@@ -1,7 +1,6 @@
 """Kafka emit 测试 —— tenant_id 自动注入 header + 用作分区 key。"""
 
 import pytest
-
 from apihub_core import kafka as kafka_mod
 from apihub_core.tenant import set_tenant_context
 

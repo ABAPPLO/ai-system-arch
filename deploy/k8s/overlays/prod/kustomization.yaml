@@ -15,6 +15,8 @@ resources:
   - ../../services/executor/deployment.yaml
   - ../../services/quota/configmap.yaml
   - ../../services/quota/deployment.yaml
+  - ../../services/tenant/configmap.yaml
+  - ../../services/tenant/deployment.yaml
 
 patches:
   - target:
@@ -83,5 +85,19 @@ patches:
       - op: replace
         path: /spec/template/spec/containers/0/resources/limits/memory
         value: 2Gi
+  - target:
+      kind: Deployment
+      name: tenant
+    patch: |-
+      # docs/03 §3.14: 3-5 副本
+      - op: replace
+        path: /spec/replicas
+        value: 5
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 1000m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 1Gi
 
 # prod 走 Rollout（Argo Rollouts canary），见 docs/09-deployment.md §6.3

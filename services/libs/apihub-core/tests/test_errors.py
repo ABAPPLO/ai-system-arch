@@ -1,15 +1,14 @@
 """Errors 测试 —— 错误码到 HTTP 状态映射 + ApiError 构造。"""
 
 import pytest
-from fastapi import Request
-
 from apihub_core.errors import (
+    _HTTP_STATUS_MAP,
     ApiError,
     ErrorCode,
-    _HTTP_STATUS_MAP,
     api_error_handler,
     unhandled_exception_handler,
 )
+from fastapi import Request
 
 
 class TestErrorCodeMapping:

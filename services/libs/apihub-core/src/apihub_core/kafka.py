@@ -5,14 +5,14 @@
 """
 
 import json
-from typing import Any, Optional
+from typing import Any
 
 import aiokafka
 
 from apihub_core.config import Settings
 from apihub_core.tenant import get_tenant_context
 
-_producer: Optional[aiokafka.AIOKafkaProducer] = None
+_producer: aiokafka.AIOKafkaProducer | None = None
 
 
 async def init_producer(settings: Settings) -> None:
@@ -39,8 +39,8 @@ async def close_producer() -> None:
 async def emit(
     topic: str,
     payload: dict[str, Any],
-    key: Optional[str] = None,
-    extra_headers: Optional[dict[str, str]] = None,
+    key: str | None = None,
+    extra_headers: dict[str, str] | None = None,
 ) -> None:
     """投递事件。租户上下文自动注入 header。"""
     if _producer is None:

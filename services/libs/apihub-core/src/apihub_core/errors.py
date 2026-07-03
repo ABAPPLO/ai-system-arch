@@ -4,7 +4,7 @@
 """
 
 from enum import IntEnum
-from typing import Any, Optional
+from typing import Any
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -17,6 +17,7 @@ class ErrorCode(IntEnum):
     FORBIDDEN            = 10003
     NOT_FOUND            = 10004
     RATE_LIMITED         = 10005
+    CONFLICT             = 10006   # 状态机非法转换 / 唯一约束冲突
     INTERNAL             = 10000
 
     # 租户 2xxxx
@@ -42,6 +43,7 @@ _HTTP_STATUS_MAP = {
     ErrorCode.UNAUTHORIZED:         401,
     ErrorCode.FORBIDDEN:            403,
     ErrorCode.NOT_FOUND:            404,
+    ErrorCode.CONFLICT:             409,
     ErrorCode.RATE_LIMITED:         429,
     ErrorCode.TENANT_QUOTA_EXCEEDED:429,
     ErrorCode.TENANT_NOT_FOUND:     404,
@@ -62,8 +64,8 @@ class ApiError(Exception):
         self,
         code: ErrorCode,
         message: str,
-        http_status: Optional[int] = None,
-        details: Optional[dict[str, Any]] = None,
+        http_status: int | None = None,
+        details: dict[str, Any] | None = None,
     ):
         self.code = code
         self.message = message

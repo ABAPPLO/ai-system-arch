@@ -1,0 +1,104 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tenant
+  namespace: apihub-system
+  labels:
+    app.kubernetes.io/name: tenant
+    app.kubernetes.io/part-of: apihub
+spec:
+  replicas: 3   # docs/03 §3.14: 3-5 副本（管理类服务，QPS 不高）
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tenant
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tenant
+        app.kubernetes.io/part-of: apihub
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: /metrics
+        checksum/config: "TODO-by-CI"
+    spec:
+      serviceAccountName: tenant
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: app
+          image: registry.apihub.internal/apihub/tenant:0.1.0-dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8005
+            - name: metrics
+              containerPort: 9090
+          envFrom:
+            - configMapRef:
+                name: tenant-config
+            - secretRef:
+                name: tenant-secret
+          resources:
+            # tenant-svc 是管理类：偶尔有批量操作（导入租户），平时低 QPS
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          readinessProbe:
+            httpGet:
+              path: /v1/tenant/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /v1/tenant/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 3"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tenant
+  namespace: apihub-system
+spec:
+  selector:
+    app.kubernetes.io/name: tenant
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tenant
+  namespace: apihub-system

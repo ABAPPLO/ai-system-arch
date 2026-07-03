@@ -4,14 +4,13 @@ key 规范：`t:{tenant_id}:{namespace}:{key}`
 详见 docs/04-data-model.md §7 Redis 键空间。
 """
 
-from typing import Optional
 
 import redis.asyncio as redis
 
 from apihub_core.config import Settings
 from apihub_core.tenant import get_tenant_context
 
-_client: Optional[redis.Redis] = None
+_client: redis.Redis | None = None
 
 
 async def init_redis(settings: Settings) -> None:
@@ -40,13 +39,13 @@ def _prefix(key: str) -> str:
     return key
 
 
-async def t_get(key: str) -> Optional[str]:
+async def t_get(key: str) -> str | None:
     if _client is None:
         raise RuntimeError("Redis not initialized")
     return await _client.get(_prefix(key))
 
 
-async def t_set(key: str, value: str, ex: Optional[int] = None) -> None:
+async def t_set(key: str, value: str, ex: int | None = None) -> None:
     if _client is None:
         raise RuntimeError("Redis not initialized")
     await _client.set(_prefix(key), value, ex=ex)

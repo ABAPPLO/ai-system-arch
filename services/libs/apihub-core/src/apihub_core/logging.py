@@ -4,6 +4,7 @@
 """
 
 import logging
+
 import structlog
 from opentelemetry import trace
 

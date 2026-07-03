@@ -3,15 +3,14 @@
 import asyncio
 
 import pytest
-
+from apihub_core.errors import ApiError, ErrorCode
 from apihub_core.tenant import (
     TenantContext,
-    set_tenant_context,
+    clear_tenant_context,
     get_tenant_context,
     require_tenant,
-    clear_tenant_context,
+    set_tenant_context,
 )
-from apihub_core.errors import ApiError, ErrorCode
 
 
 class TestTenantContext:

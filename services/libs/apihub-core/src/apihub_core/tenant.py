@@ -19,8 +19,8 @@ class TenantContext:
 
     tenant_id: str
     tenant_type: str           # internal / external / system
-    app_id: Optional[str] = None      # 调用方应用 ID
-    user_id: Optional[str] = None     # 后台用户 ID
+    app_id: str | None = None      # 调用方应用 ID
+    user_id: str | None = None     # 后台用户 ID
     is_platform_admin: bool = False   # 超管（跨租户）
 
     @property
@@ -33,7 +33,7 @@ def set_tenant_context(ctx: TenantContext) -> None:
     _tenant_ctx.set(ctx)
 
 
-def get_tenant_context() -> Optional[TenantContext]:
+def get_tenant_context() -> TenantContext | None:
     return _tenant_ctx.get()
 
 

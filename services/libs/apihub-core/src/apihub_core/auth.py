@@ -6,8 +6,6 @@
 详见 docs/08-observability-security.md §7
 """
 
-import time
-from typing import Optional
 
 import httpx
 from fastapi import Request
@@ -21,7 +19,7 @@ async def authenticate_request(
     request: Request,
     settings: Settings,
     api_key: str,
-    required_scopes: Optional[list[str]] = None,
+    required_scopes: list[str] | None = None,
 ) -> TenantContext:
     """通过 auth 服务校验 APIKey，回填 TenantContext。
 
@@ -36,7 +34,7 @@ async def authenticate_request(
     async with httpx.AsyncClient(timeout=2.0) as client:
         try:
             resp = await client.post(
-                f"http://auth.apihub-system/v1/apikey/verify",
+                "http://auth.apihub-system/v1/apikey/verify",
                 json={"api_key": api_key},
                 headers={"X-Internal-Service": settings.app_name},
             )

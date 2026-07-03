@@ -61,40 +61,36 @@ class TestRLSIsolation:
     """关键集成测试：证明 RLS 真隔离租户数据。"""
 
     async def test_tenant_a_cannot_see_tenant_b(self):
-        async with _connect() as conn:
-            async with conn.transaction():
-                await conn.execute("SET LOCAL app.tenant_id = 'tenant_a'")
-                rows = await conn.fetch(
-                    "SELECT id, tenant_id FROM api ORDER BY id"
-                )
+        async with _connect() as conn, conn.transaction():
+            await conn.execute("SET LOCAL app.tenant_id = 'tenant_a'")
+            rows = await conn.fetch(
+                "SELECT id, tenant_id FROM api ORDER BY id"
+            )
 
         tenant_ids = {r["tenant_id"] for r in rows}
         assert tenant_ids == {"tenant_a"}, f"泄漏了其他租户: {tenant_ids - {'tenant_a'}}"
 
     async def test_tenant_b_cannot_see_tenant_a(self):
-        async with _connect() as conn:
-            async with conn.transaction():
-                await conn.execute("SET LOCAL app.tenant_id = 'tenant_b'")
-                rows = await conn.fetch("SELECT id, tenant_id FROM api")
+        async with _connect() as conn, conn.transaction():
+            await conn.execute("SET LOCAL app.tenant_id = 'tenant_b'")
+            rows = await conn.fetch("SELECT id, tenant_id FROM api")
 
         tenant_ids = {r["tenant_id"] for r in rows}
         assert tenant_ids == {"tenant_b"}
 
     async def test_external_tenant_isolation(self):
         """外部租户看不到任何 internal 接口。"""
-        async with _connect() as conn:
-            async with conn.transaction():
-                await conn.execute("SET LOCAL app.tenant_id = 'tenant_ext_1'")
-                rows = await conn.fetch("SELECT id FROM api")
+        async with _connect() as conn, conn.transaction():
+            await conn.execute("SET LOCAL app.tenant_id = 'tenant_ext_1'")
+            rows = await conn.fetch("SELECT id FROM api")
 
         assert rows == [], "外部租户不应看到任何接口（除非显式授权）"
 
     async def test_no_tenant_context_sees_nothing(self):
         """没 set tenant_id 时应看不到任何数据（不是看全部！）。"""
-        async with _connect() as conn:
-            async with conn.transaction():
-                # 不 set，current_setting 默认空字符串
-                rows = await conn.fetch("SELECT id FROM api")
+        async with _connect() as conn, conn.transaction():
+            # 不 set，current_setting 默认空字符串
+            rows = await conn.fetch("SELECT id FROM api")
 
         # RLS WHERE tenant_id = '' —— 看不到任何行
         assert rows == []
@@ -102,11 +98,10 @@ class TestRLSIsolation:
 
 class TestPlatformAdminBypass:
     async def test_admin_sees_all_tenants(self):
-        async with _connect() as conn:
-            async with conn.transaction():
-                await conn.execute("SET LOCAL app.tenant_id = ''")
-                await conn.execute("SET LOCAL app.is_platform_admin = 'true'")
-                rows = await conn.fetch("SELECT tenant_id, count(*) FROM api GROUP BY tenant_id")
+        async with _connect() as conn, conn.transaction():
+            await conn.execute("SET LOCAL app.tenant_id = ''")
+            await conn.execute("SET LOCAL app.is_platform_admin = 'true'")
+            rows = await conn.fetch("SELECT tenant_id, count(*) FROM api GROUP BY tenant_id")
 
         tenants = {r["tenant_id"] for r in rows}
         assert {"tenant_a", "tenant_b"}.issubset(tenants)
@@ -133,29 +128,27 @@ class TestRLSEnforcement:
 
     async def test_unqualified_select_filters_automatically(self):
         """业务代码忘写 WHERE 时，RLS 兜底。"""
-        async with _connect() as conn:
-            async with conn.transaction():
-                await conn.execute("SET LOCAL app.tenant_id = 'tenant_a'")
-                # 没写 WHERE —— 但 RLS 仍然只返回 tenant_a 的
-                rows = await conn.fetch("SELECT * FROM api")
+        async with _connect() as conn, conn.transaction():
+            await conn.execute("SET LOCAL app.tenant_id = 'tenant_a'")
+            # 没写 WHERE —— 但 RLS 仍然只返回 tenant_a 的
+            rows = await conn.fetch("SELECT * FROM api")
 
         assert len(rows) > 0
         assert all(r["tenant_id"] == "tenant_a" for r in rows)
 
     async def test_cross_tenant_insert_rejected(self):
         """tenant_a 的会话不能插入 tenant_b 的数据（WITH CHECK 阻断）。"""
-        async with _connect() as conn:
-            async with conn.transaction():
-                await conn.execute("SET LOCAL app.tenant_id = 'tenant_a'")
-                with pytest.raises(Exception) as exc:
-                    await conn.execute(
-                        """
+        async with _connect() as conn, conn.transaction():
+            await conn.execute("SET LOCAL app.tenant_id = 'tenant_a'")
+            with pytest.raises(Exception) as exc:
+                await conn.execute(
+                    """
                         INSERT INTO api (id, tenant_id, name, category, base_path, status)
                         VALUES ('api_cross', 'tenant_b', 'cross', 'temp', '/cross', 'draft')
                         """
-                    )
-                # PG 行级安全策略违反
-                assert "rls" in str(exc.value).lower() or "policy" in str(exc.value).lower()
+                )
+            # PG 行级安全策略违反
+            assert "rls" in str(exc.value).lower() or "policy" in str(exc.value).lower()
             # transaction rollback，不需要 cleanup
 
 
