@@ -11,6 +11,14 @@
 - FastAPI 应用工厂
 """
 
+from apihub_core.clickhouse import (
+    ch_session,
+    close_clickhouse,
+    current_tenant_id_or_none,
+    init_clickhouse,
+    query_all,
+    query_one,
+)
 from apihub_core.config import Settings, get_settings
 from apihub_core.db import admin_db_session, db_session
 from apihub_core.errors import (
@@ -44,5 +52,11 @@ __all__ = [
     "api_error_handler",
     "db_session",
     "admin_db_session",
+    "ch_session",
+    "init_clickhouse",
+    "close_clickhouse",
+    "query_all",
+    "query_one",
+    "current_tenant_id_or_none",
     "create_app",
 ]

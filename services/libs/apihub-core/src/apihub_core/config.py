@@ -31,6 +31,14 @@ class Settings(BaseSettings):
     # Kafka
     kafka_brokers: str = Field(default="")
 
+    # ClickHouse（trace-svc / analyzer 用）
+    ch_host: str | None = None
+    ch_port: int = 8123
+    ch_username: str = "default"
+    ch_password: str = ""
+    ch_database: str = "apihub"
+    ch_pool_size: int = 10
+
     # OTel
     otel_exporter_otlp_endpoint: str | None = None
     otel_service_name: str = "apihub-service"

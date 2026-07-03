@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from apihub_core import clickhouse as ch
 from apihub_core import db, kafka, logging, redis, tracing
 from apihub_core.config import get_settings
 from apihub_core.errors import ApiError, api_error_handler, unhandled_exception_handler
@@ -36,7 +37,9 @@ def create_app(
         await db.init_pool(settings)
         await redis.init_redis(settings)
         await kafka.init_producer(settings)
+        ch.init_clickhouse(settings)
         yield
+        ch.close_clickhouse()
         await kafka.close_producer()
         await redis.close_redis()
         await db.close_pool()
