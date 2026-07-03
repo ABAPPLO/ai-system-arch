@@ -17,6 +17,8 @@ resources:
   - ../../services/quota/deployment.yaml
   - ../../services/tenant/configmap.yaml
   - ../../services/tenant/deployment.yaml
+  - ../../services/admin/configmap.yaml
+  - ../../services/admin/deployment.yaml
 
 patches:
   - target:
@@ -90,6 +92,20 @@ patches:
       name: tenant
     patch: |-
       # docs/03 §3.14: 3-5 副本
+      - op: replace
+        path: /spec/replicas
+        value: 5
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 1000m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 1Gi
+  - target:
+      kind: Deployment
+      name: admin
+    patch: |-
+      # docs/03 §3.14: 管理类 3-5 副本
       - op: replace
         path: /spec/replicas
         value: 5

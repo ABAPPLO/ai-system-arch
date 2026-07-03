@@ -17,6 +17,8 @@ resources:
   - ../../services/quota/deployment.yaml
   - ../../services/tenant/configmap.yaml
   - ../../services/tenant/deployment.yaml
+  - ../../services/admin/configmap.yaml
+  - ../../services/admin/deployment.yaml
 
 patches:
   - target:
@@ -57,6 +59,13 @@ patches:
   - target:
       kind: Deployment
       name: tenant
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+  - target:
+      kind: Deployment
+      name: admin
     patch: |-
       - op: replace
         path: /spec/replicas
