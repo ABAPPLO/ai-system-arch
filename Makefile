@@ -1,6 +1,6 @@
 .PHONY: help install dev fmt lint test docker-build tf-init tf-plan tf-apply \
         k8s-apply-dev k8s-apply-staging k8s-apply-prod argocd-sync \
-        run-registry run-dispatcher run-auth run-executor run-quota run-tenant run-admin \
+        run-registry run-dispatcher run-auth run-executor run-quota run-tenant run-admin run-docs run-trace \
         dev-up dev-down dev-logs dev-ps dev-reset dev-psql dev-redis-cli
 
 SHELL := /bin/bash
@@ -90,6 +90,12 @@ run-tenant:  ## 本地启动 tenant-svc（管理类，需要 PG + Redis）
 
 run-admin:  ## 本地启动 admin-bff（聚合 + 审计，需要 PG + tenant-svc）
 	uvicorn admin.main:app --reload --port 8006
+
+run-docs:  ## 本地启动 docs-svc（OpenAPI 生成，需要 PG）
+	uvicorn docs.main:app --reload --port 8007
+
+run-trace:  ## 本地启动 trace-svc（CH 调用日志查询，需要 PG + ClickHouse）
+	uvicorn trace_svc.main:app --reload --port 8008
 
 # ===== Dev Stack (docker compose) =====
 dev-up:  ## 启动开发栈（PG/Redis/Kafka/CH/MinIO/Jaeger/Grafana）

@@ -19,6 +19,10 @@ resources:
   - ../../services/tenant/deployment.yaml
   - ../../services/admin/configmap.yaml
   - ../../services/admin/deployment.yaml
+  - ../../services/docs/configmap.yaml
+  - ../../services/docs/deployment.yaml
+  - ../../services/trace/configmap.yaml
+  - ../../services/trace/deployment.yaml
 
 patches:
   - target:
@@ -70,3 +74,17 @@ patches:
       - op: replace
         path: /spec/replicas
         value: 3
+  - target:
+      kind: Deployment
+      name: docs
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+  - target:
+      kind: Deployment
+      name: trace
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2

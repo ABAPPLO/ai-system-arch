@@ -19,6 +19,10 @@ resources:
   - ../../services/tenant/deployment.yaml
   - ../../services/admin/configmap.yaml
   - ../../services/admin/deployment.yaml
+  - ../../services/docs/configmap.yaml
+  - ../../services/docs/deployment.yaml
+  - ../../services/trace/configmap.yaml
+  - ../../services/trace/deployment.yaml
 
 patches:
   - target:
@@ -109,6 +113,34 @@ patches:
       - op: replace
         path: /spec/replicas
         value: 5
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 1000m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 1Gi
+  - target:
+      kind: Deployment
+      name: docs
+    patch: |-
+      # docs 只读，3 副本足够（无状态、可水平扩展）
+      - op: replace
+        path: /spec/replicas
+        value: 3
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 500m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 512Mi
+  - target:
+      kind: Deployment
+      name: trace
+    patch: |-
+      # trace 只读 CH，3 副本足够（聚合查询偶发并发）
+      - op: replace
+        path: /spec/replicas
+        value: 3
       - op: replace
         path: /spec/template/spec/containers/0/resources/limits/cpu
         value: 1000m

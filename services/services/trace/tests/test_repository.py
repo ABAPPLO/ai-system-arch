@@ -1,0 +1,245 @@
+"""repository 单测 —— 验证 WHERE 拼接 + stats 聚合 + 异常降级。
+
+不连真 ClickHouse：monkeypatch ch.query_all / query_one 返回 fixture 数据。
+"""
+
+from datetime import datetime
+
+import pytest
+from trace_svc import repository as repo
+from trace_svc.models import CallQuery, CallStatusFilter
+
+
+class TestBuildWhere:
+    def test_empty(self):
+        where, params = repo._build_where(CallQuery(), viewer_tenant_id=None)
+        assert where == ""
+        assert params == {}
+
+    def test_viewer_tenant_forced(self):
+        """普通用户：强制 viewer_tenant_id 过滤。"""
+        where, params = repo._build_where(CallQuery(), viewer_tenant_id="100")
+        assert "tenant_id = %(tenant_id)s" in where
+        assert params["tenant_id"] == 100
+
+    def test_viewer_tenant_non_digit(self):
+        """tenant_id 不是数字（如 'system'）→ 0（CH UInt64 兜底）。"""
+        where, params = repo._build_where(CallQuery(), viewer_tenant_id="system")
+        assert params["tenant_id"] == 0
+
+    def test_status_success(self):
+        q = CallQuery(status=CallStatusFilter.SUCCESS)
+        where, _ = repo._build_where(q, viewer_tenant_id=None)
+        assert "is_success = 1" in where
+
+    def test_status_failed(self):
+        q = CallQuery(status=CallStatusFilter.FAILED)
+        where, _ = repo._build_where(q, viewer_tenant_id=None)
+        assert "is_success = 0" in where
+
+    def test_status_timeout(self):
+        q = CallQuery(status=CallStatusFilter.TIMEOUT)
+        where, _ = repo._build_where(q, viewer_tenant_id=None)
+        assert "is_timeout = 1" in where
+
+    def test_all_filters(self):
+        q = CallQuery(
+            api_id="api_x",
+            app_id="app_y",
+            trace_id="tr_z",
+            status=CallStatusFilter.FAILED,
+            since=datetime(2026, 7, 1),
+            until=datetime(2026, 7, 2),
+        )
+        where, params = repo._build_where(q, viewer_tenant_id=None)
+        assert "api_uuid = %(api_id)s" in where
+        assert "app_uuid = %(app_id)s" in where
+        assert "trace_id = %(trace_id)s" in where
+        assert "is_success = 0" in where
+        assert "ts >= %(since)s" in where
+        assert "ts < %(until)s" in where
+        assert params["api_id"] == "api_x"
+        assert params["app_id"] == "app_y"
+        assert params["trace_id"] == "tr_z"
+        assert params["since"] == "2026-07-01 00:00:00"
+        assert params["until"] == "2026-07-02 00:00:00"
+
+
+class TestListCalls:
+    async def test_returns_rows(self, fake_ch):
+        fake_ch["rows"] = [
+            {
+                "trace_id": "t1",
+                "api_uuid": "api_a",
+                "api_path": "/echo",
+                "api_method": "GET",
+                "api_version": "v1",
+                "app_uuid": "app_x",
+                "app_name": "myapp",
+                "caller_ip": "10.0.0.1",
+                "http_status": 200,
+                "is_success": 1,
+                "is_timeout": 0,
+                "latency_ms": 12,
+                "error_type": "",
+                "error_msg": "",
+                "ts": datetime(2026, 7, 1),
+            }
+        ]
+        rows = await repo.list_calls(CallQuery(), use_admin_session=True)
+        assert len(rows) == 1
+        assert rows[0]["trace_id"] == "t1"
+        # 验证 ch.query_all 被调用一次
+        assert len(fake_ch["calls"]) == 1
+        call_kind, sql, params, force = fake_ch["calls"][0]
+        assert call_kind == "all"
+        assert force is None  # admin session
+
+    async def test_clickhouse_unavailable_returns_empty(self, monkeypatch):
+        """CH 没初始化 → 返回空列表（不抛）。"""
+        from apihub_core import clickhouse as ch_mod
+
+        def _raise(sql, params=None, *, force_tenant_id="sentinel"):
+            raise RuntimeError("CH not initialized")
+
+        monkeypatch.setattr(ch_mod, "query_all", _raise)
+        rows = await repo.list_calls(CallQuery(), use_admin_session=True)
+        assert rows == []
+
+
+class TestGetCall:
+    async def test_found(self, fake_ch):
+        fake_ch["row"] = {
+            "trace_id": "t1",
+            "api_uuid": "api_a",
+            "api_path": "/echo",
+            "api_method": "GET",
+            "api_version": "v1",
+            "app_uuid": "app_x",
+            "app_name": None,
+            "caller_ip": "10.0.0.1",
+            "http_status": 200,
+            "is_success": 1,
+            "is_timeout": 0,
+            "latency_ms": 5,
+            "is_streaming": 0,
+            "token_prompt": 0,
+            "token_completion": 0,
+            "token_total": 0,
+            "ai_model": "",
+            "is_retry": 0,
+            "ts": datetime(2026, 7, 1),
+        }
+        row = await repo.get_call("t1", use_admin_session=True)
+        assert row["trace_id"] == "t1"
+
+    async def test_not_found(self, fake_ch):
+        fake_ch["row"] = None
+        from apihub_core.errors import ApiError
+
+        with pytest.raises(ApiError):
+            await repo.get_call("missing", use_admin_session=True)
+
+    async def test_normal_user_tenant_filter(self, fake_ch):
+        fake_ch["row"] = None
+        from apihub_core.errors import ApiError
+
+        with pytest.raises(ApiError):
+            await repo.get_call("t1", viewer_tenant_id="100")
+
+        # SQL 包含 tenant_id 过滤
+        _, sql, params, force = fake_ch["calls"][0]
+        assert "tenant_id = %(tenant_id)s" in sql
+        assert params["tenant_id"] == 100
+
+
+class TestStats:
+    async def test_full_aggregation(self, fake_ch, monkeypatch):
+        """stats 跑 3 个查询：base / top_apis / by_hour。"""
+        call_count = {"n": 0}
+
+        def _query_one(sql, params=None, *, force_tenant_id="sentinel"):
+            call_count["n"] += 1
+            return {
+                "total": 1000,
+                "success_count": 950,
+                "failed_count": 50,
+                "timeout_count": 10,
+                "p50_latency_ms": 10.0,
+                "p95_latency_ms": 100.0,
+                "p99_latency_ms": 500.0,
+                "avg_latency_ms": 25.0,
+            }
+
+        def _query_all(sql, params=None, *, force_tenant_id="sentinel"):
+            call_count["n"] += 1
+            if "GROUP BY api_uuid" in sql:
+                return [
+                    {"api_id": "api_a", "api_path": "/echo", "n": 500, "success_n": 490}
+                ]
+            if "GROUP BY ts_hour" in sql:
+                return [
+                    {"hour": "2026-07-01 00:00:00", "n": 100, "success_n": 95}
+                ]
+            return []
+
+        from apihub_core import clickhouse as ch_mod
+
+        monkeypatch.setattr(ch_mod, "query_one", _query_one)
+        monkeypatch.setattr(ch_mod, "query_all", _query_all)
+
+        result = await repo.stats(CallQuery(), use_admin_session=True)
+        assert result["total"] == 1000
+        assert result["success_count"] == 950
+        assert result["success_rate"] == 0.95
+        assert result["p95_latency_ms"] == 100.0
+        assert len(result["top_apis"]) == 1
+        assert result["top_apis"][0]["success_rate"] == 0.98
+        assert len(result["by_hour"]) == 1
+        # 3 个查询
+        assert call_count["n"] == 3
+
+    async def test_empty_when_ch_down(self, monkeypatch):
+        from apihub_core import clickhouse as ch_mod
+
+        def _raise(sql, params=None, *, force_tenant_id="sentinel"):
+            raise RuntimeError("down")
+
+        monkeypatch.setattr(ch_mod, "query_one", _raise)
+        monkeypatch.setattr(ch_mod, "query_all", _raise)
+
+        result = await repo.stats(CallQuery(), use_admin_session=True)
+        assert result["total"] == 0
+        assert result["success_rate"] == 0.0
+        assert result["top_apis"] == []
+        assert result["by_hour"] == []
+
+    async def test_qps_with_explicit_window(self, fake_ch, monkeypatch):
+        """since + until 决定 qps 时间窗口。"""
+        from apihub_core import clickhouse as ch_mod
+
+        def _query_one(sql, params=None, *, force_tenant_id="sentinel"):
+            return {
+                "total": 600,
+                "success_count": 600,
+                "failed_count": 0,
+                "timeout_count": 0,
+                "p50_latency_ms": 5,
+                "p95_latency_ms": 20,
+                "p99_latency_ms": 50,
+                "avg_latency_ms": 10,
+            }
+
+        def _query_all(sql, params=None, *, force_tenant_id="sentinel"):
+            return []
+
+        monkeypatch.setattr(ch_mod, "query_one", _query_one)
+        monkeypatch.setattr(ch_mod, "query_all", _query_all)
+
+        q = CallQuery(
+            since=datetime(2026, 7, 1, 0, 0, 0),
+            until=datetime(2026, 7, 1, 0, 10, 0),  # 600 秒
+        )
+        result = await repo.stats(q, use_admin_session=True)
+        # 600 / 600 = 1.0 qps
+        assert result["qps"] == pytest.approx(1.0, abs=0.01)
