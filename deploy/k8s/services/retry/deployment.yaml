@@ -1,0 +1,104 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: retry
+  namespace: apihub-system
+  labels:
+    app.kubernetes.io/name: retry
+    app.kubernetes.io/part-of: apihub
+spec:
+  replicas: 2   # dev 1，staging 2，prod 3-10（HPA 基于 Kafka lag）
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: retry
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: retry
+        app.kubernetes.io/part-of: apihub
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: /metrics
+        checksum/config: "TODO-by-CI"
+    spec:
+      serviceAccountName: retry
+      terminationGracePeriodSeconds: 60   # 给 consumer / worker 优雅退出留时间
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: app
+          image: registry.apihub.internal/apihub/retry:0.1.0-dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8009
+            - name: metrics
+              containerPort: 9090
+          envFrom:
+            - configMapRef:
+                name: retry-config
+            - secretRef:
+                name: retry-secret
+          resources:
+            # 后台 worker：Kafka 消费 + Redis 轮询 + HTTP 调 executor
+            requests:
+              cpu: 200m
+              memory: 256Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 15
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 5"]   # 等 consumer rebalance
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: retry
+  namespace: apihub-system
+spec:
+  selector:
+    app.kubernetes.io/name: retry
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: retry
+  namespace: apihub-system

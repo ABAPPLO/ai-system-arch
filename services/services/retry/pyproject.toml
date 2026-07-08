@@ -1,0 +1,17 @@
+[project]
+name = "retry-svc"
+version = "0.1.0"
+description = "APIHub 重试服务 —— 消费 Kafka task-failures，写 PG + Redis ZSet 延迟队列，调 executor 重试"
+requires-python = ">=3.11"
+dependencies = [
+  "apihub-core",
+  "httpx>=0.27",
+  "aiokafka>=0.10",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
