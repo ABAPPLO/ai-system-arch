@@ -1,0 +1,115 @@
+# Alertmanager 路由 + 通知模板
+#
+# 分级（详见 docs/08-observability-security.md §6.1）：
+#   P0 → 电话 + 短信 + 钉钉（值班 robot）
+#   P1 → 短信 + 钉钉
+#   P2 → 钉钉（按团队 robot）
+#   P3 → 钉钉（夜间静默 23:00-08:00）
+#
+# 团队路由（按 alert label `team` 路由到不同钉钉群）：
+#   platform   → 平台 SRE 群
+#   trading    → 交易线群（业务侧）
+#   risk       → 风控群
+#
+# secret 通过 -config.expand-env 或 secret file 注入，不硬编码。
+
+global:
+  resolve_timeout: 5m
+  # 短信 / 钉钉 webhook URL 通过环境变量注入
+  # 例如 apihub_alert_dingtalk_platform_url
+
+# ============ Templates ============
+templates:
+  - /etc/alertmanager/templates/*.tmpl
+
+# ============ 抑制规则 ============
+# 同 API 的高级别告警抑制低级别：避免 P0/P1/P2 同时炸
+inhibit_rules:
+  - source_matchers: ['severity = P0']
+    target_matchers: ['severity =~ "P1|P2|P3"']
+    equal: ['api_id', 'team']
+
+  - source_matchers: ['severity = P1']
+    target_matchers: ['severity =~ "P2|P3"']
+    equal: ['api_id', 'team']
+
+# ============ 路由 ============
+route:
+  group_by: ['alertname', 'api_id', 'team']
+  group_wait: 30s       # 同组首条延迟 30s 发（合并后续）
+  group_interval: 5m    # 同组重复间隔
+  repeat_interval: 4h   # 未恢复时每 4h 重发一次
+  receiver: dingtalk-default
+
+  routes:
+    # ----- P0：电话 + 短信 + 钉钉 -----
+    - matchers: ['severity = P0']
+      receiver: p0-critical
+      group_wait: 0s
+      repeat_interval: 30m
+
+    # ----- P1：短信 + 钉钉 -----
+    - matchers: ['severity = P1']
+      receiver: p1-urgent
+      group_wait: 30s
+      repeat_interval: 1h
+
+    # ----- P2：按 team 路由 -----
+    - matchers: ['severity = P2', 'team = platform']
+      receiver: dingtalk-platform
+      repeat_interval: 4h
+    - matchers: ['severity = P2', 'team = trading']
+      receiver: dingtalk-trading
+      repeat_interval: 4h
+    - matchers: ['severity = P2', 'team = risk']
+      receiver: dingtalk-risk
+      repeat_interval: 4h
+
+    # ----- P3：容量预警（夜间静默）-----
+    - matchers: ['severity = P3']
+      receiver: dingtalk-platform
+      active_time_intervals:
+        - business-hours
+
+# ============ Receivers ============
+receivers:
+  - name: dingtalk-default
+    webhook_configs:
+      - url: '${DINGTALK_DEFAULT_URL}'
+        send_resolved: true
+
+  - name: p0-critical
+    webhook_configs:
+      - url: '${DINGTALK_P0_URL}'          # P0 专用（含 oncall 全员）
+        send_resolved: true
+    # 短信 / 电话走第三方 webhook（阿里云短信 / 电话）
+    # 实际生产用 pagerduty / opsgenie 集成更稳
+
+  - name: p1-urgent
+    webhook_configs:
+      - url: '${DINGTALK_P1_URL}'
+        send_resolved: true
+
+  - name: dingtalk-platform
+    webhook_configs:
+      - url: '${DINGTALK_PLATFORM_URL}'
+        send_resolved: true
+
+  - name: dingtalk-trading
+    webhook_configs:
+      - url: '${DINGTALK_TRADING_URL}'
+        send_resolved: true
+
+  - name: dingtalk-risk
+    webhook_configs:
+      - url: '${DINGTALK_RISK_URL}'
+        send_resolved: true
+
+# ============ Time intervals ============
+time_intervals:
+  - name: business-hours
+    time_intervals:
+      - times:
+          - start_time: '08:00'
+            end_time: '23:00'
+        location: 'Asia/Shanghai'

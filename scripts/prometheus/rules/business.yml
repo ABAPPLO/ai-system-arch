@@ -1,0 +1,92 @@
+# 告警规则 —— 业务子系统（P1/P2）
+#
+# 覆盖：
+#   - retry-svc：重试队列堆积、死信、积压
+#   - workflow-svc：Argo Workflow 失败率
+#   - api-registry：变更工单积压
+#   - dispatcher：转发失败 / 脱敏失败
+
+groups:
+  # ============ P1：业务子系统严重异常 ============
+
+  - name: business-p1-critical
+    interval: 30s
+    rules:
+      - alert: RetryDeadLetterSpike
+        # 5min 内死信（max_attempts 用尽）> 10 条
+        expr: |
+          sum(increase(apihub_retry_dead_letter_total[5m])) > 10
+        for: 5m
+        labels:
+          severity: P1
+          team: platform
+        annotations:
+          summary: "5min 死信 > 10 条"
+          description: "调用方需要人工介入。看 retry-svc 后台 UI，定位失败任务根因。"
+
+      - alert: WorkflowFailureSpike
+        # Argo Workflow 失败率突增
+        expr: |
+          sum(rate(apihub_workflow_total{phase="Failed"}[5m]))
+          / sum(rate(apihub_workflow_total[5m])) > 0.3
+        for: 5m
+        labels:
+          severity: P1
+          team: platform
+        annotations:
+          summary: "Argo Workflow 失败率 > 30%"
+          description: "看 Argo UI / workflow-svc logs。常见：模板渲染错、上游 backend_url 不可达。"
+
+  # ============ P2：业务子系统性能够用度 ============
+
+  - name: business-p2-quality
+    interval: 60s
+    rules:
+      - alert: RetryQueueBacklog
+        # 待重试任务 > 1000 持续 10min
+        expr: |
+          apihub_retry_pending > 1000
+        for: 10m
+        labels:
+          severity: P2
+          team: platform
+        annotations:
+          summary: "retry 待重试任务 > 1000"
+          description: "当前 {{ $value }} 条。检查 executor 是否健康、backend 是否慢。"
+
+      - alert: ChangeRequestBacklog
+        # 待审批工单 > 50 持续 1h（影响接入 SLA）
+        expr: |
+          apihub_change_request_pending > 50
+        for: 1h
+        labels:
+          severity: P2
+          team: platform
+        annotations:
+          summary: "待审批工单 > 50 持续 1h"
+          description: "影响接入 SLA。提醒运维 / 业务负责人及时审批。"
+
+      - alert: DispatcherForwardFailure
+        # dispatcher 转发失败率 > 5%
+        expr: |
+          sum(rate(apihub_dispatcher_forward_total{result="error"}[5m]))
+          / sum(rate(apihub_dispatcher_forward_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: P2
+          team: platform
+        annotations:
+          summary: "dispatcher 转发失败率 > 5%"
+          description: "5xx 来源：上游 backend 不可达 / 超时 / SSL 错。按 backend_url 维度看。"
+
+      - alert: AiMaskingFailure
+        # 脱敏组件失败 → 合规风险（虽然降级返回但需立刻修）
+        expr: |
+          sum(rate(apihub_masking_failure_total[5m])) > 0
+        for: 1m
+        labels:
+          severity: P2
+          team: platform
+        annotations:
+          summary: "AI 脱敏组件失败"
+          description: "合规风险！查看 masking.py 是否 schema 缺失。即便降级也不能放行含敏感字段的响应。"

@@ -1,0 +1,33 @@
+{{/* 钉钉 markdown 消息模板（APIHub Alertmanager 用） */}}
+
+{{- define "dingtalk.title" -}}
+[{{ .Status | toUpper }}] {{ .Labels.alertname }}
+{{- end -}}
+
+{{- define "dingtalk.content" }}
+## {{ .Status | toUpper }} · {{ .Labels.severity }} {{ .Labels.alertname }}
+
+**Team**: {{ .Labels.team }} · **API**: {{ .Labels.api_id | default "—" }}
+
+{{ .Annotations.summary }}
+
+{{- if .Annotations.description }}
+
+> {{ .Annotations.description }}
+{{- end }}
+
+{{- if .Labels.runbook_url }}
+
+**Runbook**: [{{ .Labels.runbook_url }}]({{ .Labels.runbook_url }})
+{{- end }}
+
+---
+⏱ **触发**: {{ .StartsAt.Format "2006-01-02 15:04:05" }}
+{{- if .EndsAt.IsZero | not }}
+🔄 **结束**: {{ .EndsAt.Format "2006-01-02 15:04:05" }}
+{{- end }}
+
+{{- if .GeneratorURL }}
+**Source**: [Prometheus]({{ .GeneratorURL }})
+{{- end }}
+{{- end -}}

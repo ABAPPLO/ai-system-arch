@@ -1,0 +1,82 @@
+# 告警规则 —— API 性能/质量（P2）
+#
+#   P2 = 局部异常 / 性能下降（钉钉，1h）
+#
+# 覆盖：
+#   - P99 延迟恶化
+#   - P95 延迟
+#   - 限流命中率（被限流的接口比例）
+#   - AI token 消耗速率
+#   - 异步任务失败率
+
+groups:
+  - name: api-p2-quality
+    interval: 60s
+    rules:
+      - alert: ApiHighLatencyP99
+        # 单 API P99 > 1s 持续 5min
+        expr: |
+          histogram_quantile(0.99,
+            sum by (api_id, le) (rate(apihub_http_request_duration_seconds_bucket[5m]))
+          ) > 1
+        for: 5m
+        labels:
+          severity: P2
+          team: platform
+        annotations:
+          summary: "API {{ $labels.api_id }} P99 延迟 > 1s"
+          description: "P99 = {{ $value | humanizeDuration }}。先看 backend_latency_ms 占比，再决定是上游慢还是网关慢。"
+
+      - alert: ApiHighLatencyP95
+        # P95 > 500ms 持续 10min —— 比 P99 更早预警
+        expr: |
+          histogram_quantile(0.95,
+            sum by (api_id, le) (rate(apihub_http_request_duration_seconds_bucket[5m]))
+          ) > 0.5
+        for: 10m
+        labels:
+          severity: P2
+          team: platform
+        annotations:
+          summary: "API {{ $labels.api_id }} P95 延迟 > 500ms"
+          description: "P95 = {{ $value | humanizeDuration }}（持续 10min）。"
+
+      - alert: ApiRateLimitedRatio
+        # 接口被限流比例 > 10% 持续 10min —— 调用方配额需调整
+        expr: |
+          sum by (api_id) (rate(apihub_http_requests_total{status="429"}[5m]))
+          / sum by (api_id) (rate(apihub_http_requests_total[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: P2
+          team: platform
+        annotations:
+          summary: "API {{ $labels.api_id }} 429 比例 > 10%"
+          description: "限流命中 {{ $value | humanizePercentage }}。考虑调高配额或排查异常调用方。"
+
+      - alert: AsyncTaskFailureRate
+        # 异步任务失败率 > 20% 持续 5min
+        expr: |
+          sum by (api_id) (rate(apihub_task_total{status="failed"}[5m]))
+          / sum by (api_id) (rate(apihub_task_total[5m])) > 0.2
+        for: 5m
+        labels:
+          severity: P2
+          team: platform
+        annotations:
+          summary: "异步任务 {{ $labels.api_id }} 失败率 > 20%"
+          description: "失败率 {{ $value | humanizePercentage }}，retry-svc 会兜底重试，但需排查根因（backend_url / payload）。"
+
+      - alert: AiTokenBurnRate
+        # AI token 消耗速率超阈值（单 app 每分钟 100w token）
+        expr: |
+          sum by (app_id, ai_model) (
+            rate(apihub_ai_token_total{kind="total"}[1m])
+          ) * 60 > 1000000
+        for: 10m
+        labels:
+          severity: P2
+          team: platform
+        annotations:
+          summary: "app {{ $labels.app_id }} 在 {{ $labels.ai_model }} 上每分钟烧 > 100w token"
+          description: "疑似异常循环调用 / token 估算偏差。考虑限流或熔断该 app。"

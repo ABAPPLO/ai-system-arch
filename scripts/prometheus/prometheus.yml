@@ -5,6 +5,17 @@ global:
     cluster: apihub-dev
     env: dev
 
+# 告警规则：按 P0/P1/P2 + 子系统分文件（详见 rules/）
+rule_files:
+  - rules/*.yml
+
+# Alertmanager：本地 dev 用 docker compose 起；prod 走独立 K8s deployment
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+            - alertmanager:9093
+
 scrape_configs:
   # 业务服务（自动发现）
   - job_name: apihub-services

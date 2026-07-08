@@ -1,0 +1,99 @@
+# 告警规则 —— API 关键指标（P0 / P1）
+#
+# 评级参考 docs/08-observability-security.md §6.1
+#   P0 = 平台不可用 / 数据丢失（电话 + 短信 + 钉钉，5min）
+#   P1 = 核心功能严重异常（短信 + 钉钉，15min）
+#
+# 指标约定（业务服务 /metrics 暴露，详见 docs/08-observability-security.md §4）：
+#   apihub_http_requests_total{api_id, api_version, status, tenant_id}
+#   apihub_http_request_duration_seconds_bucket{api_id, le}
+#   apihub_http_request_duration_seconds_count / _sum
+#   apihub_dispatcher_decision_total{result}
+#   apihub_auth_fail_total{reason}
+
+groups:
+  # ============ P0：平台不可用 ============
+
+  - name: api-p0-platform
+    interval: 30s
+    rules:
+      - alert: ApiHubPlatformDown
+        # 任一核心服务 5min 内无指标 → 视为宕机
+        expr: |
+          absent_over_time(up{job="apihub-services"}[5m])
+        for: 1m
+        labels:
+          severity: P0
+          team: platform
+        annotations:
+          summary: "APIHub 全平台无存活指标"
+          description: "Prometheus 5min 内没 scrape 到任何 apihub-services Pod，疑似 K8s 集群或网络故障。"
+
+      - alert: ApiHubErrorRateSaturated
+        # 全平台 5xx 错误率 > 50% 持续 5min → 业务整体不可用
+        expr: |
+          sum(rate(apihub_http_requests_total{status=~"5.."}[5m]))
+          / sum(rate(apihub_http_requests_total[5m])) > 0.5
+        for: 5m
+        labels:
+          severity: P0
+          team: platform
+        annotations:
+          summary: "全平台 5xx 错误率 > 50%"
+          description: "当前错误率 {{ $value | humanizePercentage }}，超过 5min 阈值，业务整体不可用。"
+
+      - alert: DispatcherDown
+        # dispatcher 是流量入口，挂了 = 全平台不可用
+        expr: |
+          up{container=~"apihub-dispatcher.*"} == 0
+        for: 2m
+        labels:
+          severity: P0
+          team: platform
+        annotations:
+          summary: "dispatcher 服务不可达"
+          description: "{{ $labels.container }} 2min 内 scrape 失败，所有外部调用将 503。"
+
+  # ============ P1：核心功能严重异常 ============
+
+  - name: api-p1-critical
+    interval: 30s
+    rules:
+      - alert: ApiHighErrorRate
+        # 单 API 5xx 错误率 > 5% 持续 2min
+        expr: |
+          sum by (api_id) (rate(apihub_http_requests_total{status=~"5.."}[5m]))
+          / sum by (api_id) (rate(apihub_http_requests_total[5m])) > 0.05
+        for: 2m
+        labels:
+          severity: P1
+          team: platform
+        annotations:
+          summary: "API {{ $labels.api_id }} 5xx 错误率 > 5%"
+          description: "5min 滚动错误率 {{ $value | humanizePercentage }}。先看 trace-svc 最近 trace，再查对应服务日志。"
+
+      - alert: ApiAuthFailureSpike
+        # 鉴权失败率突增 → 凭证泄漏 / 攻击 / 配置错误
+        expr: |
+          sum(rate(apihub_auth_fail_total[5m])) by (reason) > 10
+        for: 5m
+        labels:
+          severity: P1
+          team: platform
+        annotations:
+          summary: "鉴权失败激增（reason={{ $labels.reason }}）"
+          description: "每秒 {{ $value | humanize }} 次鉴权失败。常见原因：API Key 泄漏、密钥轮换、配置错误、暴力枚举。"
+
+      - alert: ApiQuotaExhaustedSpree
+        # 多个 app 同时配额耗尽 → 配额服务异常或上游异常
+        expr: |
+          count by (tenant_id) (
+            apihub_quota_remaining{window="day"} == 0
+          ) > 5
+        for: 10m
+        labels:
+          severity: P1
+          team: platform
+        annotations:
+          summary: "租户 {{ $labels.tenant_id }} 下 > 5 个 app 配额耗尽"
+          description: "配额耗尽蔓延，检查 quota-svc 是否健康，或上游异常调用拉爆配额。"

@@ -1,0 +1,118 @@
+# 告警规则 —— 基础设施（P0/P1/P2）
+#
+# 覆盖：
+#   - Kafka 消费滞后 / 分区无消费者
+#   - Redis 内存 / 连接
+#   - PG 连接池 / 复制
+#   - ClickHouse 健康
+#   - Node 资源（CPU/内存/磁盘）
+
+groups:
+  # ============ P1：基础设施关键异常 ============
+
+  - name: infra-p1-critical
+    interval: 30s
+    rules:
+      - alert: KafkaConsumerLag
+        # 单消费组滞后 > 30k 消息 → 下游延迟严重
+        expr: |
+          sum by (consumergroup, topic) (
+            kafka_consumergroup_lag
+          ) > 30000
+        for: 5m
+        labels:
+          severity: P1
+          team: platform
+        annotations:
+          summary: "Kafka 消费组 {{ $labels.consumergroup }} 滞后 > 30k"
+          description: "topic={{ $labels.topic }} lag={{ $value }}。可能原因：消费方慢、消息堆积、Pod 重启。"
+
+      - alert: KafkaNoConsumer
+        # 活跃消费者为 0（消费组全挂）
+        expr: |
+          kafka_consumergroup_members == 0
+        for: 3m
+        labels:
+          severity: P1
+          team: platform
+        annotations:
+          summary: "消费组 {{ $labels.consumergroup }} 无活跃成员"
+          description: "所有 Pod 都不在消费，topic 持续堆积。"
+
+      - alert: PgConnectionPoolExhausted
+        # PG 连接池使用率 > 90%
+        expr: |
+          pg_stat_activity_count / pg_settings_max_connections > 0.9
+        for: 2m
+        labels:
+          severity: P1
+          team: platform
+        annotations:
+          summary: "PG 连接池使用率 > 90%"
+          description: "active={{ $value | humanizePercentage }}。可能原因：慢查询持锁、连接泄漏。psql 看 pg_stat_activity。"
+
+      - alert: ClickHouseUnavailable
+        # CH 健康检查失败
+        expr: |
+          ch_http_requests_total{code=~"5.."} > 0
+          and on()
+          (rate(ch_http_requests_total[1m]) > 1)
+        for: 1m
+        labels:
+          severity: P1
+          team: platform
+        annotations:
+          summary: "ClickHouse 持续 5xx"
+          description: "trace-svc / analyzer-svc 依赖 CH，会降级返回。"
+
+  # ============ P2：基础设施容量预警 ============
+
+  - name: infra-p2-capacity
+    interval: 60s
+    rules:
+      - alert: RedisMemoryHigh
+        # Redis 内存使用率 > 85%
+        expr: |
+          redis_memory_used_bytes / redis_memory_max_bytes > 0.85
+        for: 5m
+        labels:
+          severity: P2
+          team: platform
+        annotations:
+          summary: "Redis {{ $labels.instance }} 内存 > 85%"
+          description: "需要：扩容 / 配置 maxmemory-policy / 看是否有泄漏的 key。"
+
+      - alert: RedisConnectedClientsHigh
+        expr: |
+          redis_connected_clients / redis_config_maxclients > 0.7
+        for: 5m
+        labels:
+          severity: P2
+          team: platform
+        annotations:
+          summary: "Redis 连接数 > 70% 上限"
+          description: "可能是连接池泄漏。看各服务的 apihub_core.redis 池配置。"
+
+      - alert: NodeDiskAlmostFull
+        expr: |
+          (1 - node_filesystem_avail_bytes{mountpoint="/"}
+                / node_filesystem_size_bytes{mountpoint="/"}) > 0.85
+        for: 10m
+        labels:
+          severity: P2
+          team: platform
+        annotations:
+          summary: "{{ $labels.instance }} 磁盘 > 85%"
+          description: "看 K8s PV / 日志卷 / docker overlay2 占用。"
+
+      - alert: NodeCpuHigh
+        # CPU 使用率 > 85% 持续 10min
+        expr: |
+          1 - avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) > 0.85
+        for: 10m
+        labels:
+          severity: P2
+          team: platform
+        annotations:
+          summary: "{{ $labels.instance }} CPU > 85% 持续 10min"
+          description: "查 top pod（kubectl top pod），优先看 dispatcher / executor。"
