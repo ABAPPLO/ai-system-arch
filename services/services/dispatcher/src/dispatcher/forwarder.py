@@ -128,7 +128,7 @@ class HttpForwarder:
             except httpx.RequestError as e:
                 log.warning("stream_backend_error", error=str(e))
                 # 给客户端一个 SSE 错误事件
-                yield _b"data: {\"error\":\"backend error\"}\n\n"
+                yield b"data: {\"error\":\"backend error\"}\n\n"
                 status_code = 503
             finally:
                 latency_ms = int((time.perf_counter() - start) * 1000)

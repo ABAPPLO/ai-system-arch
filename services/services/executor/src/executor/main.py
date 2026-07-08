@@ -15,6 +15,7 @@ from apihub_core import (
 )
 from apihub_core.config import get_settings
 from fastapi import FastAPI
+from pydantic import BaseModel, Field
 
 from executor.consumer import TaskConsumer
 from executor.processor import close_http_client, init_http_client
@@ -83,6 +84,77 @@ async def metrics():
     return {
         "tasks_processed": getattr(app.state, "tasks_processed", 0),
         "stale_reset": getattr(app.state, "stale_reset_count", 0),
+    }
+
+
+# ============ 内部接口：retry-svc worker 调用 ============
+
+class RetryRequest(BaseModel):
+    """retry-svc worker 推过来的重试请求（见 retry_svc/worker.py::_call_executor）。"""
+
+    task_id: str
+    backend_url: str
+    payload: str = ""
+    tenant_id: str
+    api_id: str
+    app_id: str = ""
+    trace_id: str = ""
+    request_id: str = ""
+    timeout_seconds: float = Field(default=30.0, gt=0, le=600)
+
+
+@app.post("/v1/internal/retry")
+async def internal_retry(req: RetryRequest):
+    """同步重试一个 task —— POST backend_url，按 status 判定 succeeded/failed/timeout。
+
+    设计上和 processor._call_backend 一致，但不写 PG 状态机（PG 由 retry-svc 自己维护，
+    executor 在这条内部路径上只做"调一次后端"）。
+    """
+    from executor.processor import _client  # 复用进程级 httpx 单例
+    import time
+
+    if _client is None:
+        return {
+            "succeeded": False,
+            "error_code": "http_client_not_init",
+            "error_msg": "executor http client not initialized",
+            "latency_ms": 0,
+        }
+
+    started = time.monotonic()
+    headers = {
+        "Content-Type": "application/json",
+        "X-Task-Id": req.task_id,
+        "X-Request-Id": req.request_id,
+        "X-Tenant-Id": req.tenant_id,
+        "X-Trace-Id": req.trace_id,
+    }
+
+    try:
+        resp = await _client.post(
+            req.backend_url,
+            content=req.payload.encode("utf-8") if req.payload else b"",
+            headers=headers,
+            timeout=req.timeout_seconds,
+        )
+    except Exception as e:
+        latency_ms = int((time.monotonic() - started) * 1000)
+        return {
+            "succeeded": False,
+            "error_code": "backend_unreachable",
+            "error_msg": f"{type(e).__name__}: {e}",
+            "latency_ms": latency_ms,
+        }
+
+    latency_ms = int((time.monotonic() - started) * 1000)
+    ok = 200 <= resp.status_code < 300
+    return {
+        "succeeded": ok,
+        "status": resp.status_code,
+        "body": resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text,
+        "error_code": None if ok else f"backend_http_{resp.status_code}",
+        "error_msg": "" if ok else (resp.text or "")[:500],
+        "latency_ms": latency_ms,
     }
 
 

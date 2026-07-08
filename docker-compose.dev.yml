@@ -37,8 +37,10 @@ services:
     image: postgres:16-alpine
     container_name: apihub-pg
     environment:
-      POSTGRES_DB: ${PG_DATABASE:-apihub}
-      POSTGRES_USER: ${PG_USER:-apihub}
+      # POSTGRES_USER 必须固定为 apihub（superuser owner）—— 不能从 .env.dev 读
+      # 否则 PG_USER=apihub_app 会把 superuser 变成业务账号，RLS 就废了
+      POSTGRES_DB: apihub
+      POSTGRES_USER: apihub
       POSTGRES_PASSWORD: ${PG_PASSWORD:-apihub_dev_pwd}
     ports: ["5432:5432"]
     volumes:
@@ -73,7 +75,7 @@ services:
       KAFKA_CFG_NODE_ID: "1"
       KAFKA_CFG_PROCESS_ROLES: "controller,broker"
       KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
-      KAFKA_CFG_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093"
+      KAFKA_CFG_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094"
       KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094"
       KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
       KAFKA_CFG_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
@@ -110,8 +112,8 @@ services:
       CLICKHOUSE_PASSWORD: ${CH_PASSWORD:-apihub_dev_pwd}
       CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
     ports:
-      - "8123:8123"   # HTTP
-      - "9000:9000"   # native
+      - "8123:8123"    # HTTP（clickhouse_connect 默认走这个）
+      - "19000:9000"   # native（避免和 MinIO 9000 冲突；本地调试用）
     ulimits:
       nofile:
         soft: 262144

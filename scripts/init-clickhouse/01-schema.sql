@@ -10,8 +10,9 @@ USE apihub;
 -- ============================================================
 
 -- Kafka source 表（直连 Kafka topic 消费）
+-- 注意：KafkaEngine 不支持 DEFAULT/MATERIALIZED/EPHEMERAL，缺字段要么 MV 里 COALESCE，要么 JSON 里就带上
 CREATE TABLE IF NOT EXISTS api_call_events_src (
-    ts                  DateTime64(3) DEFAULT now64(),
+    ts                  DateTime64(3),
     tenant_id           String,
     tenant_type         LowCardinality(String),
     app_id              String,
@@ -26,18 +27,18 @@ CREATE TABLE IF NOT EXISTS api_call_events_src (
     latency_ms          UInt32,
     request_size        UInt32,
     response_size       UInt32,
-    error_code          LowCardinality(String) DEFAULT '',
-    error_msg           String DEFAULT '',
-    user_agent          String DEFAULT '',
-    client_ip           IPv4 DEFAULT toIPv4('0.0.0.0'),
-    backend_type        LowCardinality(String) DEFAULT 'http',
-    backend_latency_ms  UInt32 DEFAULT 0,
+    error_code          LowCardinality(String),
+    error_msg           String,
+    user_agent          String,
+    client_ip           IPv4,
+    backend_type        LowCardinality(String),
+    backend_latency_ms  UInt32,
     -- AI 字段
-    ai_model            LowCardinality(String) DEFAULT '',
-    ai_streaming        UInt8 DEFAULT 0,
-    token_prompt        UInt32 DEFAULT 0,
-    token_completion    UInt32 DEFAULT 0,
-    token_total         UInt32 DEFAULT 0
+    ai_model            LowCardinality(String),
+    ai_streaming        UInt8,
+    token_prompt        UInt32,
+    token_completion    UInt32,
+    token_total         UInt32
 )
 ENGINE = Kafka
 SETTINGS kafka_broker_list = 'kafka:9092',
@@ -110,26 +111,16 @@ ORDER BY (hour, tenant_id, api_id, app_id);
 -- ============================================================
 -- 测试数据（手动插入若干行验证）
 -- ============================================================
-INSERT INTO api_call_log (
-    ts, tenant_id, tenant_type, app_id, api_id, api_version_id,
-    trace_id, request_id, method, path, status_code, is_success,
-    latency_ms, request_size, response_size, error_code, error_msg,
-    user_agent, client_ip, backend_type, backend_latency_ms,
-    ai_model, ai_streaming, token_prompt, token_completion, token_total
-)
-VALUES
-    (now() - INTERVAL 1 HOUR, 'tenant_a', 'internal', 'app_trading', 'api_demo_a', 'ver_demo_a_v1',
-     'trc_001', 'req_001', 'GET', '/v1/users/u1', 200, 1,
-     45, 100, 350, '', '', 'curl/8', toIPv4('10.0.10.1'), 'http', 40,
-     '', 0, 0, 0, 0),
-    (now() - INTERVAL 30 MINUTE, 'tenant_a', 'internal', 'app_trading', 'api_demo_llm', 'ver_demo_llm_v1',
-     'trc_002', 'req_002', 'POST', '/v1/llm/chat', 200, 1,
-     1200, 200, 1500, '', '', 'sdk-py/1.0', toIPv4('10.0.10.2'), 'ai_model', 1150,
-     'gpt-4o-mini', 1, 120, 80, 200),
-    (now() - INTERVAL 10 MINUTE, 'tenant_b', 'internal', 'app_risk', 'api_demo_b', 'ver_demo_b_v1',
-     'trc_003', 'req_003', 'GET', '/v1/orders/o1', 500, 0,
-     1500, 80, 0, 'INTERNAL', 'backend down', 'httpx/0.27', toIPv4('10.0.10.3'), 'http', 1490,
-     '', 0, 0, 0, 0);
+-- 注意：CH 的 VALUES 不像 PG 那样自由解析表达式；`now() - INTERVAL 1 HOUR` 在 VALUES
+-- 里会触发 SYNTAX_ERROR。要插入测试数据用 `INSERT ... SELECT` 形式：
+--
+-- INSERT INTO api_call_log
+-- SELECT now() - INTERVAL 1 HOUR, 'tenant_a', 'internal', 'app_trading', 'api_demo_a', 'ver_demo_a_v1',
+--        'trc_001', 'req_001', 'GET', '/v1/users/u1', 200, 1,
+--        45, 100, 350, '', '', 'curl/8', toIPv4('10.0.10.1'), 'http', 40,
+--        '', 0, 0, 0, 0;
+--
+-- 这里默认不插，避免 init 阶段失败；测试数据由 trace-svc 自己造（或脚本注入）。
 
 -- 验证查询：
 --   SELECT tenant_id, count(), avg(latency_ms) FROM apihub.api_call_log GROUP BY tenant_id;

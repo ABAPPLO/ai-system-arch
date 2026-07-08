@@ -1,5 +1,8 @@
 # OTel Collector 配置：业务上报 → Collector → Jaeger + Prometheus
 # 业务代码只需上报到 otel-collector:4317，下游路由由 Collector 决定
+#
+# dev 默认全采样（100%），保证联调时 Jaeger 能看到所有 span；
+# prod 部署时把 tail_sampling 接回来（errors/slow 全留，正常 1%）。
 
 receivers:
   otlp:
@@ -14,19 +17,13 @@ processors:
     timeout: 5s
     send_batch_size: 1024
 
-  # 采样：错误 / 慢调用全留，正常 1%
+  # dev 全采样；prod 改成 errors/slow 全留 + 1% 兜底。
   tail_sampling:
     decision_wait: 10s
     policies:
-      - name: errors
-        type: status_code
-        status_code: { status_codes: [ERROR] }
-      - name: slow
-        type: latency
-        latency: { threshold_ms: 1000 }
-      - name: sample-1pct
+      - name: keep-all
         type: probabilistic
-        probabilistic: { sampling_percentage: 1 }
+        probabilistic: { sampling_percentage: 100 }
 
 exporters:
   # 链路 → Jaeger
@@ -49,3 +46,4 @@ service:
       receivers: [otlp]
       processors: [batch]
       exporters: [prometheus]
+

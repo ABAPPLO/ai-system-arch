@@ -10,14 +10,17 @@
 from typing import Any
 
 import httpx
+from apihub_core.config import get_settings
 from apihub_core.logging import get_logger
 from apihub_core.tenant import get_tenant_context
 
 log = get_logger(__name__)
 
 
-TENANT_SVC_URL = "http://tenant.apihub-system/v1/tenant"
-AUTH_SVC_URL = "http://auth.apihub-system/v1"
+# 从 settings 读，dev 通过 .env.dev 覆盖到 localhost
+_settings = get_settings()
+TENANT_SVC_URL = _settings.tenant_service_url
+AUTH_SVC_URL = _settings.auth_service_url.rsplit("/", 1)[0]  # /v1/apikey/verify -> /v1
 
 
 class AggregatorClient:

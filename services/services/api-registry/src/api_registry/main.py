@@ -1,11 +1,29 @@
 """api-registry 启动入口。"""
 
 from apihub_core import create_app
-from api_registry.routes import register_routes
+
+from api_registry.routes import (
+    register_change_request_routes,
+    register_routes,
+)
+
+
+def _build(app):
+    """注册两组路由。"""
+    register_routes(app)
+    register_change_request_routes(app)
+
 
 app = create_app(
     service_name="api-registry",
-    build_routes=register_routes,
+    build_routes=_build,
+    skip_auth_paths=(
+        "/health",
+        "/metrics",
+        "/v1/change-requests/health",
+        "/docs",
+        "/openapi.json",
+    ),
 )
 
 

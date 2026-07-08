@@ -53,20 +53,20 @@ ON CONFLICT (id) DO NOTHING;
 
 -- API Key
 -- 明文（本地用，prod 自动生成）：
---   ak_test_a_demo001  → hash 见下
---   ak_test_b_demo001
---   ak_test_ext_x_demo
+--   ak_test_a_demo001   →  tenant_a / app_trading
+--   ak_test_b_demo001   →  tenant_b / app_risk
+--   ak_test_ext_x_demo  →  tenant_ext_1 / app_ext_x
 -- 计算方式：python3 -c "import hashlib; print(hashlib.sha256(b'ak_test_a_demo001').hexdigest())"
 INSERT INTO api_key (id, tenant_id, app_id, key_prefix, key_hash, name, scopes, status)
 VALUES
     ('key_a1', 'tenant_a', 'app_trading', 'ak_test_',
-     'fa7e1c1d4df8d6c49e5c5d9a4d1b7b1d1d9c1e4a6c1d9e1f4a6b9c1d4e1f6a2b',
+     'c718af9f9532c71b958db43927477151b485bf23cb162a6f0a4920882c9b68f3',
      'dev key', ARRAY['*'], 'active'),
     ('key_b1', 'tenant_b', 'app_risk', 'ak_test_',
-     'placeholderhash_placeholderhash_placeholderhash_placeholderhash_placeholderhash__',
+     '80b55143496adcf937fe8e9844c3efda2db065662f3b858ff3eb50554e68fa7d',
      'dev key', ARRAY['*'], 'active'),
     ('key_ext', 'tenant_ext_1', 'app_ext_x', 'ak_test_',
-     'placeholderhash_placeholderhash_placeholderhash_placeholderhash_placeholderhash2_',
+     '07047767166e23a814a43a405ba0f9acd79dde51f7019d7b04b702112c37d137',
      'dev key', ARRAY['read'], 'active')
 ON CONFLICT (id) DO NOTHING;
 

@@ -38,8 +38,11 @@ def configure_tracing(settings: Settings) -> None:
     )
     trace.set_tracer_provider(provider)
 
-    # 自动 instrumentation
-    FastAPIInstrumentor.instrument()
+    # 自动 instrumentation（OTel 0.40+ 把 instrument 改成实例方法，要带括号）
+    # 注意：FastAPIInstrumentor().instrument() 只 patch 未来创建的 app；
+    # 各服务的 app 已经在 create_app 里实例化完毕，必须走 instrument_app(app)（见 middleware.py）。
+    # 这里仍然 instrument() 是为了兜底任何后来才 new 出来的 FastAPI 实例。
+    FastAPIInstrumentor().instrument()
     HTTPXClientInstrumentor().instrument()
     AsyncPGInstrumentor().instrument()
     RedisInstrumentor().instrument()

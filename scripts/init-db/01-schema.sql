@@ -227,6 +227,8 @@ CREATE INDEX idx_audit_action ON audit_log(action);
 --   3. is_platform_admin=true 时绕过 RLS（仅超管跨租户）
 
 -- 启用 RLS
+-- ENABLE 让策略生效；FORCE 让表 owner 也受策略约束（否则业务连接的 apihub
+-- 用户因为是 owner 会绕过 RLS，等价于 RLS 没装）。两者都要。
 ALTER TABLE tenant_member   ENABLE ROW LEVEL SECURITY;
 ALTER TABLE app             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE api_key         ENABLE ROW LEVEL SECURITY;
@@ -234,6 +236,14 @@ ALTER TABLE api             ENABLE ROW LEVEL SECURITY;
 ALTER TABLE api_version     ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_log       ENABLE ROW LEVEL SECURITY;
 ALTER TABLE task            ENABLE ROW LEVEL SECURITY;
+
+ALTER TABLE tenant_member   FORCE ROW LEVEL SECURITY;
+ALTER TABLE app             FORCE ROW LEVEL SECURITY;
+ALTER TABLE api_key         FORCE ROW LEVEL SECURITY;
+ALTER TABLE api             FORCE ROW LEVEL SECURITY;
+ALTER TABLE api_version     FORCE ROW LEVEL SECURITY;
+ALTER TABLE audit_log       FORCE ROW LEVEL SECURITY;
+ALTER TABLE task            FORCE ROW LEVEL SECURITY;
 
 -- 通用策略宏：用 SQL 减少重复
 -- 当前租户可见，超管可见全部
@@ -246,11 +256,13 @@ CREATE OR REPLACE FUNCTION rls_is_platform_admin() RETURNS boolean AS $$
 $$ LANGUAGE sql STABLE;
 
 -- 通用策略：tenant 等于当前会话租户，或超管
-CREATE OR REPLACE POLICY tenant_isolation_select ON tenant_member
+DROP POLICY IF EXISTS tenant_isolation_select ON tenant_member;
+CREATE POLICY tenant_isolation_select ON tenant_member
     FOR SELECT USING (
         tenant_id = rls_tenant_filter() OR rls_is_platform_admin()
     );
-CREATE OR REPLACE POLICY tenant_isolation_modify ON tenant_member
+DROP POLICY IF EXISTS tenant_isolation_modify ON tenant_member;
+CREATE POLICY tenant_isolation_modify ON tenant_member
     FOR ALL USING (
         tenant_id = rls_tenant_filter() OR rls_is_platform_admin()
     )
@@ -259,39 +271,51 @@ CREATE OR REPLACE POLICY tenant_isolation_modify ON tenant_member
     );
 
 -- 同样模式应用到其他表（重复造避免 SQL 注入）
-CREATE OR REPLACE POLICY tenant_isolation_select ON app
+DROP POLICY IF EXISTS tenant_isolation_select ON app;
+CREATE POLICY tenant_isolation_select ON app
     FOR SELECT USING (tenant_id = rls_tenant_filter() OR rls_is_platform_admin());
-CREATE OR REPLACE POLICY tenant_isolation_modify ON app
+DROP POLICY IF EXISTS tenant_isolation_modify ON app;
+CREATE POLICY tenant_isolation_modify ON app
     FOR ALL USING (tenant_id = rls_tenant_filter() OR rls_is_platform_admin())
     WITH CHECK (tenant_id = rls_tenant_filter() OR rls_is_platform_admin());
 
-CREATE OR REPLACE POLICY tenant_isolation_select ON api_key
+DROP POLICY IF EXISTS tenant_isolation_select ON api_key;
+CREATE POLICY tenant_isolation_select ON api_key
     FOR SELECT USING (tenant_id = rls_tenant_filter() OR rls_is_platform_admin());
-CREATE OR REPLACE POLICY tenant_isolation_modify ON api_key
+DROP POLICY IF EXISTS tenant_isolation_modify ON api_key;
+CREATE POLICY tenant_isolation_modify ON api_key
     FOR ALL USING (tenant_id = rls_tenant_filter() OR rls_is_platform_admin())
     WITH CHECK (tenant_id = rls_tenant_filter() OR rls_is_platform_admin());
 
-CREATE OR REPLACE POLICY tenant_isolation_select ON api
+DROP POLICY IF EXISTS tenant_isolation_select ON api;
+CREATE POLICY tenant_isolation_select ON api
     FOR SELECT USING (tenant_id = rls_tenant_filter() OR rls_is_platform_admin());
-CREATE OR REPLACE POLICY tenant_isolation_modify ON api
+DROP POLICY IF EXISTS tenant_isolation_modify ON api;
+CREATE POLICY tenant_isolation_modify ON api
     FOR ALL USING (tenant_id = rls_tenant_filter() OR rls_is_platform_admin())
     WITH CHECK (tenant_id = rls_tenant_filter() OR rls_is_platform_admin());
 
-CREATE OR REPLACE POLICY tenant_isolation_select ON api_version
+DROP POLICY IF EXISTS tenant_isolation_select ON api_version;
+CREATE POLICY tenant_isolation_select ON api_version
     FOR SELECT USING (tenant_id = rls_tenant_filter() OR rls_is_platform_admin());
-CREATE OR REPLACE POLICY tenant_isolation_modify ON api_version
+DROP POLICY IF EXISTS tenant_isolation_modify ON api_version;
+CREATE POLICY tenant_isolation_modify ON api_version
     FOR ALL USING (tenant_id = rls_tenant_filter() OR rls_is_platform_admin())
     WITH CHECK (tenant_id = rls_tenant_filter() OR rls_is_platform_admin());
 
-CREATE OR REPLACE POLICY tenant_isolation_select ON audit_log
+DROP POLICY IF EXISTS tenant_isolation_select ON audit_log;
+CREATE POLICY tenant_isolation_select ON audit_log
     FOR SELECT USING (tenant_id = rls_tenant_filter() OR rls_is_platform_admin());
-CREATE OR REPLACE POLICY tenant_isolation_modify ON audit_log
+DROP POLICY IF EXISTS tenant_isolation_modify ON audit_log;
+CREATE POLICY tenant_isolation_modify ON audit_log
     FOR ALL USING (tenant_id = rls_tenant_filter() OR rls_is_platform_admin())
     WITH CHECK (tenant_id = rls_tenant_filter() OR rls_is_platform_admin());
 
-CREATE OR REPLACE POLICY tenant_isolation_select ON task
+DROP POLICY IF EXISTS tenant_isolation_select ON task;
+CREATE POLICY tenant_isolation_select ON task
     FOR SELECT USING (tenant_id = rls_tenant_filter() OR rls_is_platform_admin());
-CREATE OR REPLACE POLICY tenant_isolation_modify ON task
+DROP POLICY IF EXISTS tenant_isolation_modify ON task;
+CREATE POLICY tenant_isolation_modify ON task
     FOR ALL USING (tenant_id = rls_tenant_filter() OR rls_is_platform_admin())
     WITH CHECK (tenant_id = rls_tenant_filter() OR rls_is_platform_admin());
 

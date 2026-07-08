@@ -6,6 +6,7 @@
 详见 docs/04-data-model.md §5 RLS 策略。
 """
 
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -17,9 +18,37 @@ from apihub_core.tenant import get_tenant_context
 _pool: asyncpg.Pool | None = None
 
 
+async def _init_jsonb_codec(conn: asyncpg.Connection) -> None:
+    """让 jsonb 列直接返回 dict，避免每个 repository 都要 json.loads。
+
+    asyncpg 默认把 jsonb 当 text 返回；这里注册 codec 让它走 json.loads。
+    每个新连接都会跑一次（create_pool 的 init 回调）。
+    """
+    await conn.set_type_codec(
+        "jsonb",
+        encoder=json.dumps,
+        decoder=json.loads,
+        schema="pg_catalog",
+    )
+    await conn.set_type_codec(
+        "json",
+        encoder=json.dumps,
+        decoder=json.loads,
+        schema="pg_catalog",
+    )
+
+
 async def init_pool(settings: Settings) -> None:
     """进程启动时调一次。"""
     global _pool
+    # asyncpg 接受 'disable'/'prefer'/'require'/'verify-ca'/'verify-full'/False/True
+    # 这里直接透传 settings.pg_ssl 字符串；False 表示完全关闭。
+    ssl_value: str | bool
+    if settings.pg_ssl.lower() in ("false", "off", "no"):
+        ssl_value = False
+    else:
+        ssl_value = settings.pg_ssl
+
     _pool = await asyncpg.create_pool(
         host=settings.pg_host,
         port=settings.pg_port,
@@ -28,8 +57,9 @@ async def init_pool(settings: Settings) -> None:
         password=settings.pg_password,
         min_size=settings.pg_pool_min,
         max_size=settings.pg_pool_max,
-        ssl="require",
+        ssl=ssl_value,
         statement_cache_size=100,
+        init=_init_jsonb_codec,
     )
 
 

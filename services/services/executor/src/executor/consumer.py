@@ -12,6 +12,7 @@ import contextlib
 import json
 
 import aiokafka
+from apihub_core import kafka as core_kafka
 from apihub_core.config import Settings
 from apihub_core.logging import get_logger
 
@@ -68,7 +69,10 @@ class TaskConsumer:
         try:
             async for msg in self._consumer:
                 try:
-                    await self._handle(msg)
+                    # 包在 consume_span 里 → Jaeger 上能看到 producer→consumer 的链路
+                    await core_kafka.consume_with_trace(
+                        topic=TOPIC, msg=msg, processor=self._handle,
+                    )
                     await self._consumer.commit()
                 except Exception as e:
                     # 单条消息处理异常不能拖垮整个 worker
@@ -84,11 +88,7 @@ class TaskConsumer:
     async def _handle(self, msg) -> None:
         """把 Kafka 消息转成 TaskMessage，调 processor。"""
         payload = msg.value or {}
-        headers = {}
-        for k, v in (msg.headers or []):
-            key_str = k.decode("utf-8") if isinstance(k, bytes) else k
-            val_str = v.decode("utf-8") if isinstance(v, bytes) else v
-            headers[key_str] = val_str
+        headers = core_kafka.extract_trace_context(msg.headers)
 
         task_msg = TaskMessage(
             task_id=payload["task_id"],

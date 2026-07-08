@@ -34,7 +34,7 @@ async def authenticate_request(
     async with httpx.AsyncClient(timeout=2.0) as client:
         try:
             resp = await client.post(
-                "http://auth.apihub-system/v1/apikey/verify",
+                settings.auth_service_url,
                 json={"api_key": api_key},
                 headers={"X-Internal-Service": settings.app_name},
             )
@@ -50,8 +50,10 @@ async def authenticate_request(
     if resp.status_code != 200:
         raise ApiError(ErrorCode.UNAUTHORIZED, "API Key verify failed")
 
-    data = resp.json()["data"]
-    if not data["is_active"]:
+    # auth-svc 直接返回 VerifyResponse（无 envelope）：
+    #   {is_active, tenant_id, tenant_type, app_id, is_platform_admin, scopes, expires_at}
+    data = resp.json()
+    if not data.get("is_active"):
         raise ApiError(ErrorCode.UNAUTHORIZED, "API Key disabled")
 
     ctx = TenantContext(

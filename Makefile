@@ -1,7 +1,11 @@
 .PHONY: help install dev fmt lint test docker-build tf-init tf-plan tf-apply \
         k8s-apply-dev k8s-apply-staging k8s-apply-prod argocd-sync \
-        run-registry run-dispatcher run-auth run-executor run-quota run-tenant run-admin run-docs run-trace \
-        dev-up dev-down dev-logs dev-ps dev-reset dev-psql dev-redis-cli
+        run-registry run-dispatcher run-auth run-executor run-quota run-tenant run-admin run-docs run-trace run-retry run-workflow \
+        run-admin-frontend admin-frontend-install admin-frontend-typecheck admin-frontend-build \
+        dev-up dev-down dev-logs dev-ps dev-reset dev-psql dev-redis-cli \
+        cli-install cli-validate cli-apply-dev cli-apply-staging cli-apply-prod \
+        alerts-validate \
+        rollout-status rollout-promote rollout-pause rollout-abort rollout-undo
 
 SHELL := /bin/bash
 
@@ -20,7 +24,47 @@ help:  ## 显示所有可用目标
 install:  ## 安装所有服务依赖（开发模式）
 	cd services/libs/apihub-core && pip install -e .
 	cd services/services/api-registry && pip install -e .
+	pip install -e tools/apihub-cli/
 	@echo "✅ 安装完成"
+
+# ===== apihub-cli =====
+cli-install:  ## 安装声明式接入 CLI
+	pip install -e tools/apihub-cli/
+
+cli-validate:  ## 校验 schema/ 下所有 YAML（不调远端）
+	apihub-apply validate schema/
+
+cli-apply-dev:  ## 推 schema/ 到 dev 环境
+	apihub-apply schema/ --env dev --submitted-by "$(USER)@local"
+
+cli-apply-staging:  ## 推 schema/ 到 staging（待审批）
+	apihub-apply schema/ --env staging --submitted-by "$(USER)@local"
+
+cli-apply-prod:  ## 推 schema/ 到 prod（强审批）
+	apihub-apply schema/ --env prod --submitted-by "$(USER)@local"
+
+# ===== Alerts =====
+alerts-validate:  ## 校验 Prometheus 告警规则文件（CI 用）
+	python scripts/validate-alerts.py
+
+# ===== Argo Rollouts（canary 灰度）=====
+ROLLOUT ?= dispatcher
+ROLLOUT_NS ?= apihub-system
+
+rollout-status:  ## 看灰度状态（终端 UI）
+	kubectl argo rollouts get rollout $(ROLLOUT) -n $(ROLLOUT_NS)
+
+rollout-promote:  ## 推进到下一步灰度
+	kubectl argo rollouts promote $(ROLLOUT) -n $(ROLLOUT_NS)
+
+rollout-pause:  ## 暂停灰度（保留现场观察）
+	kubectl argo rollouts pause $(ROLLOUT) -n $(ROLLOUT_NS)
+
+rollout-abort:  ## 中断灰度并立即回滚到 stable
+	kubectl argo rollouts abort $(ROLLOUT) -n $(ROLLOUT_NS)
+
+rollout-undo:  ## 回滚到上一个 revision
+	kubectl argo rollouts undo $(ROLLOUT) -n $(ROLLOUT_NS)
 
 dev: install  ## 一键启动开发环境（依赖 docker compose 起 PG/Redis/Kafka）
 
@@ -96,6 +140,25 @@ run-docs:  ## 本地启动 docs-svc（OpenAPI 生成，需要 PG）
 
 run-trace:  ## 本地启动 trace-svc（CH 调用日志查询，需要 PG + ClickHouse）
 	uvicorn trace_svc.main:app --reload --port 8008
+
+run-retry:  ## 本地启动 retry-svc（失败重试，需要 Kafka + PG + Redis + executor）
+	uvicorn retry_svc.main:app --reload --port 8009
+
+run-workflow:  ## 本地启动 workflow-svc（Argo Workflow 封装，dev 默认 stub 模式）
+	uvicorn workflow_svc.main:app --reload --port 8010
+
+# ===== Admin Frontend (Vite + React) =====
+admin-frontend-install:  ## 安装 admin 前端依赖（首次或 lockfile 变更后）
+	cd frontend/admin && npm install
+
+admin-frontend-typecheck:  ## 仅类型检查
+	cd frontend/admin && npm run typecheck
+
+admin-frontend-build:  ## 生产构建到 frontend/admin/dist（nginx 部署用）
+	cd frontend/admin && npm run build
+
+run-admin-frontend:  ## 本地启动 admin 前端 dev server（端口 5173，代理到本地各服务）
+	cd frontend/admin && npm run dev -- --host
 
 # ===== Dev Stack (docker compose) =====
 dev-up:  ## 启动开发栈（PG/Redis/Kafka/CH/MinIO/Jaeger/Grafana）
