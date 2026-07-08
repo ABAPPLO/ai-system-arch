@@ -5,10 +5,12 @@ namespace: apihub-system
 
 resources:
   - ../../base/namespaces/namespaces.yaml
+  - ../../base/shared/argo-rollouts/analysis-templates.yaml
   - ../../services/api-registry/configmap.yaml
   - ../../services/api-registry/deployment.yaml
+  # dispatcher 走 Argo Rollouts canary（详见 docs/05-core-flows.md §8）
   - ../../services/dispatcher/configmap.yaml
-  - ../../services/dispatcher/deployment.yaml
+  - ../../services/dispatcher/rollout.yaml
   - ../../services/auth/configmap.yaml
   - ../../services/auth/deployment.yaml
   - ../../services/executor/configmap.yaml
@@ -23,6 +25,10 @@ resources:
   - ../../services/docs/deployment.yaml
   - ../../services/trace/configmap.yaml
   - ../../services/trace/deployment.yaml
+  - ../../services/retry/configmap.yaml
+  - ../../services/retry/deployment.yaml
+  - ../../services/workflow/configmap.yaml
+  - ../../services/workflow/deployment.yaml
 
 patches:
   - target:
@@ -39,7 +45,7 @@ patches:
         path: /spec/template/spec/containers/0/resources/limits/memory
         value: 4Gi
   - target:
-      kind: Deployment
+      kind: Rollout
       name: dispatcher
     patch: |-
       - op: replace
@@ -138,6 +144,34 @@ patches:
       name: trace
     patch: |-
       # trace 只读 CH，3 副本足够（聚合查询偶发并发）
+      - op: replace
+        path: /spec/replicas
+        value: 3
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 1000m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 1Gi
+  - target:
+      kind: Deployment
+      name: retry
+    patch: |-
+      # retry 后台 worker（Kafka 消费 + ZSet 轮询），3-10 副本（HPA based on Kafka lag）
+      - op: replace
+        path: /spec/replicas
+        value: 3
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 1000m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 1Gi
+  - target:
+      kind: Deployment
+      name: workflow
+    patch: |-
+      # workflow-svc 本身轻量（Argo 撑计算）；3 副本足够 admin UI + 日志流
       - op: replace
         path: /spec/replicas
         value: 3

@@ -1,0 +1,81 @@
+# Argo Rollouts AnalysisTemplates
+#
+# 共享给所有服务的 canary 健康检查模板。
+# 用法（在 Rollout 的 strategy.canary.steps 中引用）：
+#   - analysis:
+#       templates:
+#         - templateName: api-error-rate
+#           args: [{name: baseline-tag, value: dispatcher-stable},
+#                  {name: canary-tag,   value: dispatcher-canary}]
+#         - templateName: api-latency-p99
+#
+# 指标来源：Prometheus（详见 docs/08-observability-security.md §6）
+# 失败处理：AnalysisRun failed → Argo Rollouts 自动 abort 当前发布
+
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: api-error-rate
+  namespace: apihub-system
+spec:
+  args:
+    - name: baseline-tag
+    - name: canary-tag
+  metrics:
+    - name: error-rate
+      # 同时校验：stable 错误率（基线）+ canary 错误率
+      # 两者都必须 < 1%，否则 abort
+      interval: 30s
+      count: 10                # 5min 内最多 10 次取样
+      failureLimit: 2          # 连续 2 次失败 → abort
+      successCondition: result[0] < 0.01 && result[1] < 0.01
+      query: |
+        [
+          sum(rate(http_requests_total{service="{{args.baseline-tag}}", status=~"5.."}[2m]))
+            / sum(rate(http_requests_total{service="{{args.baseline-tag}}"}[2m])),
+          sum(rate(http_requests_total{service="{{args.canary-tag}}", status=~"5.."}[2m]))
+            / sum(rate(http_requests_total{service="{{args.canary-tag}}"}[2m]))
+        ]
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: api-latency-p99
+  namespace: apihub-system
+spec:
+  args:
+    - name: canary-tag
+  metrics:
+    - name: p99-latency
+      interval: 30s
+      count: 10
+      failureLimit: 2
+      # canary P99 不能超过 1s（详见 docs/05-core-flows.md §9 SLA）
+      successCondition: result < 1.0
+      query: |
+        histogram_quantile(0.99,
+          sum by (le) (rate(http_request_duration_seconds_bucket{service="{{args.canary-tag}}"}[2m]))
+        )
+
+---
+apiVersion: argoproj.io/v1alpha1
+kind: AnalysisTemplate
+metadata:
+  name: business-success-rate
+  namespace: apihub-system
+spec:
+  args:
+    - name: canary-tag
+  metrics:
+    - name: business-success
+      # 业务成功率（非 5xx）必须 ≥ 99%
+      interval: 30s
+      count: 10
+      failureLimit: 2
+      successCondition: result >= 0.99
+      query: |
+        1 - (
+          sum(rate(http_requests_total{service="{{args.canary-tag}}", status=~"5.."}[2m]))
+          / sum(rate(http_requests_total{service="{{args.canary-tag}}"}[2m]))
+        )

@@ -1,0 +1,192 @@
+# Rollout for dispatcher —— Argo Rollouts canary 策略
+#
+# 灰度策略（详见 docs/05-core-flows.md §8）：
+#   v2 发布 → 5% (观察 5min + 跑 analysis) → 25% → 50% → 100%
+#   任一阶段 analysis 失败 → 自动 abort，回滚到 stable
+#
+# 流量切分：host-weight（5 副本时 5% ≈ 1 canary pod）
+#   stableService: dispatcher      ← 调用方一直用这个 DNS
+#   canaryService: dispatcher-canary ← Argo 用来识别 canary pods
+#
+# 前置条件：集群已安装 Argo Rollouts controller
+#   kubectl create ns argo-rollouts
+#   kubectl apply -n argo-rollouts -f https://github.com/argoproj/argo-rollouts/releases/latest/download/install.yaml
+
+apiVersion: argoproj.io/v1alpha1
+kind: Rollout
+metadata:
+  name: dispatcher
+  namespace: apihub-system
+  labels:
+    app.kubernetes.io/name: dispatcher
+    app.kubernetes.io/part-of: apihub
+spec:
+  replicas: 5
+  # 不写 strategy.rollingUpdate —— Rollout 自己管 ReplicaSet 升级
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: dispatcher
+  strategy:
+    canary:
+      canaryService: dispatcher-canary   # 必须预先存在
+      stableService: dispatcher          # 调用方一直用 dispatcher DNS
+      maxSurge: 1
+      maxUnavailable: 0
+      steps:
+        # === 5% 流量：先小流量观察 ===
+        - setWeight: 5
+        - pause: { duration: 5m }   # 5min 观察（没 analysis 时靠人盯监控）
+        - analysis:
+            name: dispatcher-step1
+            templates:
+              - templateName: api-error-rate
+                args:
+                  - name: baseline-tag
+                    value: dispatcher
+                  - name: canary-tag
+                    value: dispatcher-canary
+              - templateName: api-latency-p99
+                args:
+                  - name: canary-tag
+                    value: dispatcher-canary
+
+        # === 25%：扩大灰度 ===
+        - setWeight: 25
+        - pause: { duration: 5m }
+        - analysis:
+            name: dispatcher-step2
+            templates:
+              - templateName: api-error-rate
+                args:
+                  - name: baseline-tag
+                    value: dispatcher
+                  - name: canary-tag
+                    value: dispatcher-canary
+
+        # === 50%：基本全量前的最后一道闸 ===
+        - setWeight: 50
+        - pause: { duration: 10m }   # 长 pause 给业务方验收
+        - analysis:
+            name: dispatcher-step3
+            templates:
+              - templateName: api-error-rate
+                args:
+                  - name: baseline-tag
+                    value: dispatcher
+                  - name: canary-tag
+                    value: dispatcher-canary
+              - templateName: business-success-rate
+                args:
+                  - name: canary-tag
+                    value: dispatcher-canary
+
+        # === 100%：自动晋升 ===
+        - setWeight: 100
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: dispatcher
+        app.kubernetes.io/part-of: apihub
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: /metrics
+    spec:
+      serviceAccountName: dispatcher
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: app
+          image: registry.apihub.internal/apihub/dispatcher:0.1.0-dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8001
+            - name: metrics
+              containerPort: 9090
+          envFrom:
+            - configMapRef:
+                name: dispatcher-config
+            - secretRef:
+                name: dispatcher-secret
+          resources:
+            # dispatcher 是核心热点服务，资源给足
+            requests:
+              cpu: 1000m
+              memory: 1Gi
+            limits:
+              cpu: 4000m
+              memory: 4Gi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+
+---
+# stable Service：调用方一直用 dispatcher DNS
+# 注：Argo Rollouts 会动态 patch 这个 Service 的 selector 来分配流量
+apiVersion: v1
+kind: Service
+metadata:
+  name: dispatcher
+  namespace: apihub-system
+  labels:
+    app.kubernetes.io/name: dispatcher
+    app.kubernetes.io/part-of: apihub
+spec:
+  selector:
+    app.kubernetes.io/name: dispatcher
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+
+---
+# canary Service：Argo 用此 Service 识别 canary pods（不直接对外）
+apiVersion: v1
+kind: Service
+metadata:
+  name: dispatcher-canary
+  namespace: apihub-system
+  labels:
+    app.kubernetes.io/name: dispatcher
+    app.kubernetes.io/part-of: apihub
+spec:
+  selector:
+    app.kubernetes.io/name: dispatcher
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: dispatcher
+  namespace: apihub-system

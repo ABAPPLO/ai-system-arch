@@ -5,10 +5,12 @@ namespace: apihub-system
 
 resources:
   - ../../base/namespaces/namespaces.yaml
+  - ../../base/shared/argo-rollouts/analysis-templates.yaml
   - ../../services/api-registry/configmap.yaml
   - ../../services/api-registry/deployment.yaml
+  # dispatcher 走 Argo Rollouts canary（详见 docs/05-core-flows.md §8）
   - ../../services/dispatcher/configmap.yaml
-  - ../../services/dispatcher/deployment.yaml
+  - ../../services/dispatcher/rollout.yaml
   - ../../services/auth/configmap.yaml
   - ../../services/auth/deployment.yaml
   - ../../services/executor/configmap.yaml
@@ -23,6 +25,10 @@ resources:
   - ../../services/docs/deployment.yaml
   - ../../services/trace/configmap.yaml
   - ../../services/trace/deployment.yaml
+  - ../../services/retry/configmap.yaml
+  - ../../services/retry/deployment.yaml
+  - ../../services/workflow/configmap.yaml
+  - ../../services/workflow/deployment.yaml
 
 patches:
   - target:
@@ -33,7 +39,7 @@ patches:
         path: /spec/replicas
         value: 2
   - target:
-      kind: Deployment
+      kind: Rollout
       name: dispatcher
     patch: |-
       - op: replace
@@ -84,6 +90,20 @@ patches:
   - target:
       kind: Deployment
       name: trace
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+  - target:
+      kind: Deployment
+      name: retry
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+  - target:
+      kind: Deployment
+      name: workflow
     patch: |-
       - op: replace
         path: /spec/replicas
