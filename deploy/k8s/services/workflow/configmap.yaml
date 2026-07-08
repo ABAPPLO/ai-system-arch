@@ -1,0 +1,37 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workflow-config
+  namespace: apihub-system
+  labels:
+    app.kubernetes.io/name: workflow
+    app.kubernetes.io/part-of: apihub
+data:
+  APP_NAME: workflow
+  ENV: dev
+  LOG_LEVEL: INFO
+
+  PG_HOST: apihub-rds.internal
+  PG_PORT: "5432"
+  PG_DATABASE: apihub
+  PG_POOL_MIN: "2"
+  PG_POOL_MAX: "10"
+
+  REDIS_HOST: apihub-redis.internal
+  REDIS_PORT: "6379"
+
+  # Argo Workflow 模式：dev 用 stub，staging/prod 用 k8s
+  ARGO_MODE: stub
+  K8S_API_SERVER: https://kubernetes.default.svc
+
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.apihub-monitoring:4317
+  OTEL_SERVICE_NAME: workflow
+  OTEL_RESOURCE_ATTRIBUTES: deployment.environment=dev
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: workflow-secret
+  namespace: apihub-system
+type: Opaque
+# 用 Sealed Secrets 加密，这里仅占位

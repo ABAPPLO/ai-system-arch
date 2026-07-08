@@ -1,0 +1,134 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: workflow
+  namespace: apihub-system
+  labels:
+    app.kubernetes.io/name: workflow
+    app.kubernetes.io/part-of: apihub
+spec:
+  replicas: 2
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: workflow
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: workflow
+        app.kubernetes.io/part-of: apihub
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9090"
+        prometheus.io/path: /metrics
+        checksum/config: "TODO-by-CI"
+    spec:
+      serviceAccountName: workflow
+      terminationGracePeriodSeconds: 30
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        fsGroup: 1000
+      containers:
+        - name: app
+          image: registry.apihub.internal/apihub/workflow:0.1.0-dev
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8010
+            - name: metrics
+              containerPort: 9090
+          envFrom:
+            - configMapRef:
+                name: workflow-config
+            - secretRef:
+                name: workflow-secret
+          resources:
+            # workflow-svc 本身轻量；计算资源在 Argo pod 中
+            # 2 副本应付 admin UI 偶发查询 + SSE 日志流
+            requests:
+              cpu: 100m
+              memory: 192Mi
+            limits:
+              cpu: 1000m
+              memory: 1Gi
+          securityContext:
+            readOnlyRootFilesystem: true
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: [ALL]
+          readinessProbe:
+            httpGet:
+              path: /v1/workflows/health
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /v1/workflows/health
+              port: http
+            initialDelaySeconds: 15
+            periodSeconds: 15
+          lifecycle:
+            preStop:
+              exec:
+                command: ["/bin/sh", "-c", "sleep 3"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+            # Argo K8s 模式需要 SA token（pod 自动挂载，无需显式）
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: workflow
+  namespace: apihub-system
+spec:
+  selector:
+    app.kubernetes.io/name: workflow
+  ports:
+    - name: http
+      port: 80
+      targetPort: http
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: workflow
+  namespace: apihub-system
+---
+# workflow-svc 操作 Argo Workflow CRD 的 RBAC（仅 prod 模式需要）
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: workflow-argo-role
+  namespace: apihub-workflows   # Argo Workflow CRD 所在 namespace
+rules:
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflows", "workflowtemplates"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflows/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: workflow-argo-binding
+  namespace: apihub-workflows
+subjects:
+  - kind: ServiceAccount
+    name: workflow
+    namespace: apihub-system
+roleRef:
+  kind: Role
+  name: workflow-argo-role
+  apiGroup: rbac.authorization.k8s.io
