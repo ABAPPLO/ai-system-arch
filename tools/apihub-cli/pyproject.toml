@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "apihub-cli"
+version = "0.1.0"
+description = "Declarative YAML → api-registry CLI"
+requires-python = ">=3.11"
+dependencies = [
+  "pydantic>=2.5",
+  "pyyaml>=6.0",
+  "httpx>=0.27",
+]
+
+[project.scripts]
+apihub-apply = "apihub_cli.main:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

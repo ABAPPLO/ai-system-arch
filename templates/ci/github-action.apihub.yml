@@ -1,0 +1,71 @@
+# GitHub Actions 模板 —— 声明式接口接入 api-registry
+#
+# 用法（业务仓库的 .github/workflows/apihub.yml）：
+#   name: api-registry sync
+#   on:
+#     push:
+#       branches: [main]
+#       paths: ['schema/**']
+#     workflow_dispatch:
+#       inputs:
+#         env:
+#           description: target env
+#           type: choice
+#           options: [dev, staging, prod]
+#
+# jobs:
+#   apihub:
+#     uses: platform/apihub-templates/.github/workflows/apihub.yml@main
+#     with:
+#       env: ${{ inputs.env || 'dev' }}
+#     secrets:
+#       APIHUB_API_KEY: ${{ secrets.APIHUB_API_KEY }}
+
+name: apihub-apply
+
+on:
+  workflow_call:
+    inputs:
+      env:
+        type: string
+        default: dev
+        description: target env (dev / staging / prod)
+      schema-dir:
+        type: string
+        default: schema
+        description: path to schema directory
+    secrets:
+      APIHUB_API_KEY:
+        required: true
+      APIHUB_REGISTRY_URL:
+        required: false
+
+env:
+  APIHUB_REGISTRY_URL: ${{ secrets.APIHUB_REGISTRY_URL || 'http://api-registry.apihub-system.svc.cluster.local:8000' }}
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install apihub-cli
+        run: |
+          pip install --quiet \
+            git+https://github.com/platform/apihub-templates.git@main#subdirectory=tools/apihub-cli
+
+      - name: Validate schema
+        run: python scripts/validate-schema.py
+
+      - name: Apply to ${{ inputs.env }}
+        run: |
+          apihub-apply ${{ inputs.schema-dir }} \
+            --base-url "$APIHUB_REGISTRY_URL" \
+            --api-key "${{ secrets.APIHUB_API_KEY }}" \
+            --env "${{ inputs.env }}" \
+            --submitted-by "github:${{ github.actor }}"
