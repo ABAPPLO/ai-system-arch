@@ -16,10 +16,16 @@ def stub_db(monkeypatch):
             # 简化：通过 args[0] = version_id 匹配 retire / deprecate 模式
             if args:
                 vid = args[0]
-                if "status = 'published'" in sql and state["version_states"].get(vid) == "published":
+                if (
+                    "status = 'published'" in sql
+                    and state["version_states"].get(vid) == "published"
+                ):
                     state["version_states"][vid] = "deprecated"
                     return "UPDATE 1"
-                if "status = 'deprecated'" in sql and state["version_states"].get(vid) == "deprecated":
+                if (
+                    "status = 'deprecated'" in sql
+                    and state["version_states"].get(vid) == "deprecated"
+                ):
                     state["version_states"][vid] = "retired"
                     return "UPDATE 1"
                 return "UPDATE 0"
@@ -55,17 +61,13 @@ class TestDeprecate:
         assert resp.status_code == 200
         assert resp.json()["status"] == "deprecated"
 
-    async def test_deprecate_wrong_state_409(
-        self, admin_client, stub_db, stub_kafka
-    ):
+    async def test_deprecate_wrong_state_409(self, admin_client, stub_db, stub_kafka):
         """非 published → 409。"""
         stub_db["version_states"]["ver_x"] = "draft"
         resp = await admin_client.post("/v1/api-versions/ver_x/deprecate")
         assert resp.status_code == 409
 
-    async def test_deprecate_not_found_409(
-        self, admin_client, stub_db, stub_kafka
-    ):
+    async def test_deprecate_not_found_409(self, admin_client, stub_db, stub_kafka):
         """version 不存在 → 409。"""
         resp = await admin_client.post("/v1/api-versions/ver_nonexistent/deprecate")
         assert resp.status_code == 409
@@ -79,9 +81,7 @@ class TestRetire:
         assert resp.status_code == 200
         assert resp.json()["status"] == "retired"
 
-    async def test_retire_directly_from_published_409(
-        self, admin_client, stub_db, stub_kafka
-    ):
+    async def test_retire_directly_from_published_409(self, admin_client, stub_db, stub_kafka):
         """published → retired 必须先 deprecated（避免误下线）。"""
         stub_db["version_states"]["ver_skip"] = "published"
         resp = await admin_client.post("/v1/api-versions/ver_skip/retire")

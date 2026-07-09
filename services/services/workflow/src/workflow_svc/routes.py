@@ -25,7 +25,6 @@ from workflow_svc.models import (
 
 
 def register_routes(app: FastAPI) -> None:
-
     # ⚠️ 路由顺序：静态段必须在 {param} 之前
     @app.get("/v1/workflows/health")
     async def health():
@@ -89,9 +88,14 @@ def register_routes(app: FastAPI) -> None:
     ):
         require_tenant()
         query = ListWorkflowsQuery(
-            api_id=api_id, app_id=app_id, trace_id=trace_id,
-            status=status, since=since, until=until,
-            limit=limit, offset=offset,
+            api_id=api_id,
+            app_id=app_id,
+            trace_id=trace_id,
+            status=status,
+            since=since,
+            until=until,
+            limit=limit,
+            offset=offset,
         )
         return await repo.list_workflows(query)
 
@@ -116,7 +120,8 @@ def register_routes(app: FastAPI) -> None:
             if argo_status != detail.status:
                 finished_at = None
                 if argo_status in (
-                    WorkflowStatus.SUCCEEDED, WorkflowStatus.FAILED,
+                    WorkflowStatus.SUCCEEDED,
+                    WorkflowStatus.FAILED,
                     WorkflowStatus.CANCELLED,
                 ):
                     finished_at = datetime.now(UTC)
@@ -159,9 +164,7 @@ def register_routes(app: FastAPI) -> None:
 
         client = argo_client.get_argo_client()
         try:
-            await client.cancel(
-                namespace=detail.namespace, argo_name=detail.argo_name
-            )
+            await client.cancel(namespace=detail.namespace, argo_name=detail.argo_name)
         except argo_client.ArgoError as e:
             raise ApiError(
                 ErrorCode.INTERNAL,
@@ -190,9 +193,7 @@ def register_routes(app: FastAPI) -> None:
 
         client = argo_client.get_argo_client()
         try:
-            await client.resume(
-                namespace=detail.namespace, argo_name=detail.argo_name
-            )
+            await client.resume(namespace=detail.namespace, argo_name=detail.argo_name)
         except argo_client.ArgoError as e:
             raise ApiError(
                 ErrorCode.INTERNAL,
@@ -200,9 +201,7 @@ def register_routes(app: FastAPI) -> None:
                 http_status=502,
             ) from e
 
-        await repo.update_status(
-            workflow_id, status=WorkflowStatus.RUNNING, message="resumed"
-        )
+        await repo.update_status(workflow_id, status=WorkflowStatus.RUNNING, message="resumed")
         return {"workflow_id": workflow_id, "status": "running"}
 
     @app.get("/v1/workflows/{workflow_id}/steps")
@@ -219,9 +218,7 @@ def register_routes(app: FastAPI) -> None:
 
         client = argo_client.get_argo_client()
         try:
-            steps = await client.get_steps(
-                namespace=detail.namespace, argo_name=detail.argo_name
-            )
+            steps = await client.get_steps(namespace=detail.namespace, argo_name=detail.argo_name)
         except argo_client.ArgoError as e:
             raise ApiError(
                 ErrorCode.INTERNAL,

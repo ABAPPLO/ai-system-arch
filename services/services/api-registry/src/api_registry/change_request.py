@@ -30,6 +30,7 @@ from api_registry.models import ApiStatus
 
 # ============ Enums ============
 
+
 class ChangeType(StrEnum):
     CREATE = "create"
     UPDATE = "update"
@@ -68,6 +69,7 @@ class ChangeRequestCreate(BaseModel):
 
 class ChangeRequestReview(BaseModel):
     """审批 / 退回 / 撤回的请求体。"""
+
     review_comment: str | None = Field(default=None, max_length=2000)
 
 
@@ -107,6 +109,7 @@ class ListChangeRequestsQuery(BaseModel):
 
 # ============ Repository ============
 
+
 async def submit_change_request(
     *,
     tenant_id: str,
@@ -117,7 +120,8 @@ async def submit_change_request(
 ) -> int:
     """INSERT 新 change_request。dev 环境 status 自动 = approved（自助）。"""
     initial_status = (
-        ChangeRequestStatus.APPROVED if req.target_env == TargetEnv.DEV
+        ChangeRequestStatus.APPROVED
+        if req.target_env == TargetEnv.DEV
         else ChangeRequestStatus.PENDING
     )
     async with db.db_session() as conn:
@@ -251,9 +255,7 @@ async def reject_change_request(
     return result.endswith(" 1")
 
 
-async def cancel_change_request(
-    request_id: int, *, submitted_by: str
-) -> bool:
+async def cancel_change_request(request_id: int, *, submitted_by: str) -> bool:
     """提交方撤回（仅 pending → cancelled）。"""
     async with db.db_session() as conn:
         result = await conn.execute(
@@ -284,6 +286,7 @@ async def mark_applied(request_id: int) -> bool:
 
 # ============ 钉钉审批 stub ============
 
+
 async def submit_dingtalk_approval(req: ChangeRequestCreate) -> str | None:
     """提交钉钉审批单，返回 approval_id。
 
@@ -299,6 +302,7 @@ async def submit_dingtalk_approval(req: ChangeRequestCreate) -> str | None:
 
 
 # ============ Helpers ============
+
 
 def _row_to_request(row: asyncpg.Record) -> ChangeRequest:
     proposed = row["proposed_config"]
@@ -326,6 +330,7 @@ def _row_to_request(row: asyncpg.Record) -> ChangeRequest:
 
 # ============ Apply hook（实际生效）============
 
+
 async def apply_change(req: ChangeRequest) -> str:
     """approved 的 change_request 真正落地。
 
@@ -340,7 +345,9 @@ async def apply_change(req: ChangeRequest) -> str:
     summary_parts = [f"change_type={req.change_type.value}"]
 
     if req.change_type in (
-        ChangeType.PUBLISH, ChangeType.DEPRECATE, ChangeType.RETIRE,
+        ChangeType.PUBLISH,
+        ChangeType.DEPRECATE,
+        ChangeType.RETIRE,
     ):
         target_status = {
             ChangeType.PUBLISH: ApiStatus.PUBLISHED,

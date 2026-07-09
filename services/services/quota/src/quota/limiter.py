@@ -221,7 +221,7 @@ def _compile_rules(rules: QuotaRules) -> tuple[list[int], list[int], list[tuple[
             maxes.append(rule.max_count)
             active_tiers.append((name, rule))
         else:
-            maxes.append(0)   # 0 = Lua 跳过检查但仍 INCR
+            maxes.append(0)  # 0 = Lua 跳过检查但仍 INCR
         ttls.append(window)
 
     return maxes, ttls, active_tiers

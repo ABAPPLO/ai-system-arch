@@ -136,9 +136,7 @@ def main() -> int:
                 for r in grp.get("rules") or []:
                     sev = (r.get("labels") or {}).get("severity", "?")
                     severity_breakdown[sev] = severity_breakdown.get(sev, 0) + 1
-            breakdown = ", ".join(
-                f"{k}={v}" for k, v in sorted(severity_breakdown.items())
-            )
+            breakdown = ", ".join(f"{k}={v}" for k, v in sorted(severity_breakdown.items()))
             print(f"✅ {f.name}: {count} rules ({breakdown})")
 
     print(f"\n✨ {total_rules} rules across {len(yaml_files)} files")

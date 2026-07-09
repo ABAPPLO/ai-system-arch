@@ -34,13 +34,13 @@ def _build_where(
 
     if viewer_tenant_id is not None:
         clauses.append("tenant_id = %(tenant_id)s")
-        params["tenant_id"] = int(viewer_tenant_id) if viewer_tenant_id.isdigit() else 0
+        params["tenant_id"] = viewer_tenant_id  # String，原样透传
 
     if query.api_id:
-        clauses.append("api_uuid = %(api_id)s")
+        clauses.append("api_id = %(api_id)s")
         params["api_id"] = query.api_id
     if query.app_id:
-        clauses.append("app_uuid = %(app_id)s")
+        clauses.append("app_id = %(app_id)s")
         params["app_id"] = query.app_id
     if query.trace_id:
         clauses.append("trace_id = %(trace_id)s")
@@ -57,7 +57,9 @@ def _build_where(
     elif query.status == CallStatusFilter.FAILED:
         clauses.append("is_success = 0")
     elif query.status == CallStatusFilter.TIMEOUT:
-        clauses.append("is_timeout = 1")
+        # 精简 schema 无 is_timeout 列 → 按 error_code 近似
+        clauses.append("error_code LIKE %(timeout_pat)s")
+        params["timeout_pat"] = "%timeout%"
 
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     return where, params
@@ -67,10 +69,10 @@ def _build_where(
 
 
 _LIST_COLUMNS = """
-    trace_id, api_uuid, api_path, api_method, api_version,
-    app_uuid, app_name, caller_ip,
-    http_status, is_success, is_timeout, latency_ms,
-    error_type, error_msg, ts
+    trace_id, api_id, path, method, api_version_id,
+    app_id, client_ip,
+    status_code, is_success, latency_ms,
+    error_code, error_msg, ts
 """
 
 
@@ -107,17 +109,12 @@ async def list_calls(
 
 
 _DETAIL_COLUMNS = """
-    trace_id, parent_trace_id, span_id,
-    api_uuid, api_path, api_method, api_version, api_mode,
-    app_uuid, app_name, caller_ip,
-    env, gateway_node,
-    req_id, req_size, resp_size,
-    http_status, biz_code,
-    is_success, is_timeout, latency_ms,
-    gateway_latency_ms, backend_latency_ms,
-    is_streaming, token_prompt, token_completion, token_total, ai_model,
-    error_type, error_msg,
-    is_retry, retry_no, task_id, ts
+    trace_id, api_id, path, method, api_version_id,
+    app_id, client_ip,
+    request_id, request_size, response_size,
+    status_code, is_success, latency_ms, backend_latency_ms,
+    ai_streaming, token_prompt, token_completion, token_total, ai_model,
+    error_code, error_msg, ts
 """
 
 
@@ -132,7 +129,7 @@ async def get_call(
     tenant_clause = ""
     if viewer_tenant_id is not None:
         tenant_clause = "AND tenant_id = %(tenant_id)s"
-        params["tenant_id"] = int(viewer_tenant_id) if viewer_tenant_id.isdigit() else 0
+        params["tenant_id"] = viewer_tenant_id  # String，原样透传
 
     sql = f"""
         SELECT {_DETAIL_COLUMNS.strip()}
@@ -153,8 +150,7 @@ async def get_call(
     if not row:
         raise ApiError(
             ErrorCode.NOT_FOUND,
-            f"call {trace_id} not found"
-            + (" (or not in your tenant)" if viewer_tenant_id else ""),
+            f"call {trace_id} not found" + (" (or not in your tenant)" if viewer_tenant_id else ""),
         )
     return row
 
@@ -179,7 +175,7 @@ async def stats(
             count() AS total,
             countIf(is_success = 1) AS success_count,
             countIf(is_success = 0) AS failed_count,
-            countIf(is_timeout = 1) AS timeout_count,
+            countIf(error_code LIKE '%timeout%') AS timeout_count,
             quantile(0.5)(latency_ms) AS p50_latency_ms,
             quantile(0.95)(latency_ms) AS p95_latency_ms,
             quantile(0.99)(latency_ms) AS p99_latency_ms,
@@ -196,11 +192,14 @@ async def stats(
             window_seconds = delta
 
     try:
-        base = ch.query_one(
-            base_sql,
-            params,
-            force_tenant_id=None if use_admin_session else "sentinel",
-        ) or {}
+        base = (
+            ch.query_one(
+                base_sql,
+                params,
+                force_tenant_id=None if use_admin_session else "sentinel",
+            )
+            or {}
+        )
     except RuntimeError as e:
         log.warning("trace_stats_clickhouse_unavailable", error=str(e))
         return _empty_stats()
@@ -210,13 +209,13 @@ async def stats(
 
     top_apis_sql = f"""
         SELECT
-            api_uuid AS api_id,
-            api_path,
+            api_id,
+            path,
             count() AS n,
             countIf(is_success = 1) AS success_n
         FROM api_call_log
         {where}
-        GROUP BY api_uuid, api_path
+        GROUP BY api_id, path
         ORDER BY n DESC
         LIMIT 10
     """  # noqa: S608
@@ -232,7 +231,7 @@ async def stats(
     top_apis = [
         {
             "api_id": r["api_id"],
-            "api_path": r["api_path"],
+            "api_path": r["path"],
             "n": int(r["n"]),
             "success_rate": (int(r["success_n"]) / int(r["n"])) if int(r["n"]) else 0.0,
         }
@@ -241,13 +240,13 @@ async def stats(
 
     by_hour_sql = f"""
         SELECT
-            toString(ts_hour) AS hour,
+            toString(toStartOfHour(ts)) AS hour,
             count() AS n,
             countIf(is_success = 1) AS success_n
         FROM api_call_log
         {where}
-        GROUP BY ts_hour
-        ORDER BY ts_hour DESC
+        GROUP BY toStartOfHour(ts)
+        ORDER BY toStartOfHour(ts) DESC
         LIMIT 168
     """  # noqa: S608
     try:

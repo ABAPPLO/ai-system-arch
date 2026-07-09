@@ -4,10 +4,10 @@
 
 terraform {
   backend "oss" {
-    bucket   = "apihub-tfstate-dev"
-    prefix   = "terraform/dev"
-    region   = "cn-shanghai"
-    encrypt  = true
+    bucket              = "apihub-tfstate-dev"
+    prefix              = "terraform/dev"
+    region              = "cn-shanghai"
+    encrypt             = true
     tablestore_endpoint = "https://apihub-tflock.cn-shanghai.ots.aliyuncs.com"
     tablestore_table    = "tflock_dev"
   }

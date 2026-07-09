@@ -101,6 +101,7 @@ class TestRecord:
 
     async def test_record_returns_zero_on_failure(self, fake_db, monkeypatch):
         """DB 抛 → 返回 0，不抛。"""
+
         async def _boom(*args, **kwargs):
             raise RuntimeError("pg down")
 
@@ -122,8 +123,7 @@ class TestRecordMany:
 
     async def test_batch_inserts(self, fake_db):
         entries = [
-            AuditRecord(tenant_id="t1", action=f"a_{i}", resource_type="rt")
-            for i in range(3)
+            AuditRecord(tenant_id="t1", action=f"a_{i}", resource_type="rt") for i in range(3)
         ]
         # execute 不抛 → 全部成功
         n = await repo.record_many(entries)
@@ -148,8 +148,7 @@ class TestRecordMany:
 
         fake_db.execute = _flaky
         entries = [
-            AuditRecord(tenant_id="t1", action=f"a_{i}", resource_type="rt")
-            for i in range(3)
+            AuditRecord(tenant_id="t1", action=f"a_{i}", resource_type="rt") for i in range(3)
         ]
         n = await repo.record_many(entries)
         assert n == 2  # 中间一条挂了
@@ -201,10 +200,18 @@ class TestBuildWhere:
 class TestListEvents:
     async def test_returns_list_of_dicts(self, fake_db):
         fake_db._return_rows = [
-            {"id": 1, "tenant_id": "t1", "actor_type": "user", "actor_id": "u1",
-             "actor_name": "Alice", "action": "create_tenant",
-             "resource_type": "tenant", "resource_id": "t1",
-             "resource_name": None, "created_at": datetime(2026, 7, 1)},
+            {
+                "id": 1,
+                "tenant_id": "t1",
+                "actor_type": "user",
+                "actor_id": "u1",
+                "actor_name": "Alice",
+                "action": "create_tenant",
+                "resource_type": "tenant",
+                "resource_id": "t1",
+                "resource_name": None,
+                "created_at": datetime(2026, 7, 1),
+            },
         ]
         result = await repo.list_events(AuditQuery(), use_admin_session=True)
         assert len(result) == 1
@@ -212,9 +219,7 @@ class TestListEvents:
 
     async def test_uses_db_session_for_normal_user(self, fake_db):
         """普通用户视角：调 db_session（带 RLS）。"""
-        await repo.list_events(
-            AuditQuery(), viewer_tenant_id="t_self", use_admin_session=False
-        )
+        await repo.list_events(AuditQuery(), viewer_tenant_id="t_self", use_admin_session=False)
         # SQL 应含 tenant_id 过滤
         sql, params = fake_db.queries[0]
         assert "tenant_id = $1" in sql
@@ -224,13 +229,22 @@ class TestListEvents:
 class TestGetEvent:
     async def test_found(self, fake_db):
         fake_db._return_row = {
-            "id": 1, "tenant_id": "t1", "actor_type": "user",
-            "actor_id": "u1", "actor_name": "Alice",
-            "actor_ip": "10.0.0.1", "auth_method": "api_key",
-            "action": "create_tenant", "resource_type": "tenant",
-            "resource_id": "t1", "resource_name": None, "env": None,
-            "detail": {"k": "v"}, "user_agent": "curl",
-            "request_id": "r1", "trace_id": "t1",
+            "id": 1,
+            "tenant_id": "t1",
+            "actor_type": "user",
+            "actor_id": "u1",
+            "actor_name": "Alice",
+            "actor_ip": "10.0.0.1",
+            "auth_method": "api_key",
+            "action": "create_tenant",
+            "resource_type": "tenant",
+            "resource_id": "t1",
+            "resource_name": None,
+            "env": None,
+            "detail": {"k": "v"},
+            "user_agent": "curl",
+            "request_id": "r1",
+            "trace_id": "t1",
             "created_at": datetime(2026, 7, 1),
         }
         result = await repo.get_event(1, use_admin_session=True)

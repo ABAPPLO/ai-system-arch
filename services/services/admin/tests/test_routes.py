@@ -11,10 +11,15 @@ class TestListAudit:
     async def test_admin_lists_all(self, client, as_platform_admin, monkeypatch):
         rows = [
             {
-                "id": 1, "tenant_id": "t1", "actor_type": "user",
-                "actor_id": "u1", "actor_name": "Alice",
-                "action": "create_tenant", "resource_type": "tenant",
-                "resource_id": "t1", "resource_name": None,
+                "id": 1,
+                "tenant_id": "t1",
+                "actor_type": "user",
+                "actor_id": "u1",
+                "actor_name": "Alice",
+                "action": "create_tenant",
+                "resource_type": "tenant",
+                "resource_id": "t1",
+                "resource_name": None,
                 "created_at": datetime(2026, 7, 1),
             }
         ]
@@ -35,9 +40,7 @@ class TestListAudit:
         assert captured["use_admin_session"] is True
         assert captured["viewer"] is None
 
-    async def test_normal_user_sees_only_own_tenant(
-        self, client, as_normal_user, monkeypatch
-    ):
+    async def test_normal_user_sees_only_own_tenant(self, client, as_normal_user, monkeypatch):
         as_normal_user("u_bob", tenant_id="tenant_a")
 
         captured = {}
@@ -95,13 +98,22 @@ class TestGetAudit:
         async def _get(aid, *, viewer_tenant_id=None, use_admin_session=False):
             assert use_admin_session is True
             return {
-                "id": aid, "tenant_id": "t1", "actor_type": "user",
-                "actor_id": "u1", "actor_name": "Alice",
-                "actor_ip": "10.0.0.1", "auth_method": "api_key",
-                "action": "create_tenant", "resource_type": "tenant",
-                "resource_id": "t1", "resource_name": None, "env": "dev",
-                "detail": {"k": "v"}, "user_agent": "curl",
-                "request_id": "r1", "trace_id": "tr1",
+                "id": aid,
+                "tenant_id": "t1",
+                "actor_type": "user",
+                "actor_id": "u1",
+                "actor_name": "Alice",
+                "actor_ip": "10.0.0.1",
+                "auth_method": "api_key",
+                "action": "create_tenant",
+                "resource_type": "tenant",
+                "resource_id": "t1",
+                "resource_name": None,
+                "env": "dev",
+                "detail": {"k": "v"},
+                "user_agent": "curl",
+                "request_id": "r1",
+                "trace_id": "tr1",
                 "created_at": datetime(2026, 7, 1),
             }
 
@@ -112,9 +124,7 @@ class TestGetAudit:
         assert body["id"] == 42
         assert body["detail"] == {"k": "v"}
 
-    async def test_normal_user_tenant_scoped(
-        self, client, as_normal_user, monkeypatch
-    ):
+    async def test_normal_user_tenant_scoped(self, client, as_normal_user, monkeypatch):
         as_normal_user("u_bob", tenant_id="t_self")
 
         captured = {}
@@ -123,13 +133,22 @@ class TestGetAudit:
             captured["viewer"] = viewer_tenant_id
             captured["use_admin_session"] = use_admin_session
             return {
-                "id": aid, "tenant_id": "t_self", "actor_type": "user",
-                "actor_id": "u1", "actor_name": "Bob",
-                "actor_ip": None, "auth_method": "api_key",
-                "action": "create_x", "resource_type": "x",
-                "resource_id": None, "resource_name": None, "env": None,
-                "detail": {}, "user_agent": None,
-                "request_id": None, "trace_id": None,
+                "id": aid,
+                "tenant_id": "t_self",
+                "actor_type": "user",
+                "actor_id": "u1",
+                "actor_name": "Bob",
+                "actor_ip": None,
+                "auth_method": "api_key",
+                "action": "create_x",
+                "resource_type": "x",
+                "resource_id": None,
+                "resource_name": None,
+                "env": None,
+                "detail": {},
+                "user_agent": None,
+                "request_id": None,
+                "trace_id": None,
                 "created_at": datetime(2026, 7, 1),
             }
 
@@ -262,9 +281,7 @@ class TestDashboard:
         resp = await client.get("/v1/admin/dashboard")
         assert resp.status_code == 403
 
-    async def test_dashboard_aggregates(
-        self, client, as_platform_admin, monkeypatch
-    ):
+    async def test_dashboard_aggregates(self, client, as_platform_admin, monkeypatch):
         async def _list_tenants(self, *, api_key, parent_id=None):
             return [
                 {"id": "t1", "status": "active"},
@@ -287,10 +304,15 @@ class TestDashboard:
         async def _list_events(query, *, viewer_tenant_id=None, use_admin_session=False):
             return [
                 {
-                    "id": 1, "tenant_id": "t1", "actor_type": "user",
-                    "actor_id": "u1", "actor_name": "Alice",
-                    "action": "create_tenant", "resource_type": "tenant",
-                    "resource_id": "t1", "resource_name": None,
+                    "id": 1,
+                    "tenant_id": "t1",
+                    "actor_type": "user",
+                    "actor_id": "u1",
+                    "actor_name": "Alice",
+                    "action": "create_tenant",
+                    "resource_type": "tenant",
+                    "resource_id": "t1",
+                    "resource_name": None,
                     "created_at": datetime(2026, 7, 1),
                 }
             ]
@@ -324,9 +346,7 @@ class TestHealth:
 
 
 class TestAutoAudit:
-    async def test_mutation_triggers_audit(
-        self, client, as_platform_admin, monkeypatch
-    ):
+    async def test_mutation_triggers_audit(self, client, as_platform_admin, monkeypatch):
         """POST mutation → middleware 调 record_from_request。"""
         called = {}
 
@@ -354,9 +374,7 @@ class TestAutoAudit:
         assert called["method"] == "POST"
         assert "/v1/admin/audit/record" in called["path"]
 
-    async def test_get_not_audited(
-        self, client, as_platform_admin, monkeypatch
-    ):
+    async def test_get_not_audited(self, client, as_platform_admin, monkeypatch):
         """GET 请求不审计。"""
         called = []
 

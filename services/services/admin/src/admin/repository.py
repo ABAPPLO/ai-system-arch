@@ -294,9 +294,7 @@ async def stats(
         "total": total,
         "top_actions": [dict(r) for r in top_actions],
         "top_actors": [dict(r) for r in top_actors],
-        "by_day": [
-            {"day": str(r["day"]), "n": int(r["n"])} for r in by_day
-        ],
+        "by_day": [{"day": str(r["day"]), "n": int(r["n"])} for r in by_day],
     }
 
 

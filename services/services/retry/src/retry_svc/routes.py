@@ -27,7 +27,6 @@ from retry_svc.models import (
 
 
 def register_routes(app: FastAPI) -> None:
-
     # ⚠️ 路由声明顺序：静态段必须在 {param} 之前，否则 /health 会被吞
     @app.get("/v1/retry/health")
     async def health():

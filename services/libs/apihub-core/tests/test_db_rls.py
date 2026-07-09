@@ -63,9 +63,7 @@ class TestRLSIsolation:
     async def test_tenant_a_cannot_see_tenant_b(self):
         async with _connect() as conn, conn.transaction():
             await conn.execute("SET LOCAL app.tenant_id = 'tenant_a'")
-            rows = await conn.fetch(
-                "SELECT id, tenant_id FROM api ORDER BY id"
-            )
+            rows = await conn.fetch("SELECT id, tenant_id FROM api ORDER BY id")
 
         tenant_ids = {r["tenant_id"] for r in rows}
         assert tenant_ids == {"tenant_a"}, f"泄漏了其他租户: {tenant_ids - {'tenant_a'}}"
@@ -108,19 +106,18 @@ class TestPlatformAdminBypass:
 
     async def test_admin_can_insert_any_tenant(self):
         """超管可跨租户写入（运维场景）。"""
-        async with _connect() as conn:
-            async with conn.transaction():
-                await conn.execute("SET LOCAL app.tenant_id = ''")
-                await conn.execute("SET LOCAL app.is_platform_admin = 'true'")
-                await conn.execute(
-                    """
-                    INSERT INTO api (id, tenant_id, name, category, base_path, status, visibility)
-                    VALUES ('api_test_admin', 'tenant_a', 'admin test', 'temp', '/temp-' || md5(random()::text), 'draft', 'private')
-                    ON CONFLICT (id) DO NOTHING
-                    """
-                )
-                # 清理
-                await conn.execute("DELETE FROM api WHERE id = 'api_test_admin'")
+        async with _connect() as conn, conn.transaction():
+            await conn.execute("SET LOCAL app.tenant_id = ''")
+            await conn.execute("SET LOCAL app.is_platform_admin = 'true'")
+            await conn.execute(
+                """
+                INSERT INTO api (id, tenant_id, name, category, base_path, status, visibility)
+                VALUES ('api_test_admin', 'tenant_a', 'admin test', 'temp', '/temp-' || md5(random()::text), 'draft', 'private')
+                ON CONFLICT (id) DO NOTHING
+                """
+            )
+            # 清理
+            await conn.execute("DELETE FROM api WHERE id = 'api_test_admin'")
 
 
 class TestRLSEnforcement:

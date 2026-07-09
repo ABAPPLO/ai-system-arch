@@ -71,7 +71,9 @@ class TaskConsumer:
                 try:
                     # 包在 consume_span 里 → Jaeger 上能看到 producer→consumer 的链路
                     await core_kafka.consume_with_trace(
-                        topic=TOPIC, msg=msg, processor=self._handle,
+                        topic=TOPIC,
+                        msg=msg,
+                        processor=self._handle,
                     )
                     await self._consumer.commit()
                 except Exception as e:

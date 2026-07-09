@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: apihub-db-init
+  namespace: apihub-system
+  labels:
+    app.kubernetes.io/part-of: apihub
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 86400
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: psql-init
+          image: postgres:16-alpine
+          env:
+            - name: PG_SUPER_URL
+              valueFrom:
+                secretKeyRef:
+                  name: apihub-db-superuser
+                  key: url
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              for f in /sql/00-roles.sql /sql/99-grants.sql; do
+                echo "applying $f"
+                psql "$PG_SUPER_URL" -v ON_ERROR_STOP=1 -f "$f"
+              done
+              echo "db-init done"
+          volumeMounts:
+            - name: sql
+              mountPath: /sql
+              readOnly: true
+      volumes:
+        - name: sql
+          configMap:
+            name: apihub-db-init-sql

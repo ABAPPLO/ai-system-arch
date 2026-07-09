@@ -64,9 +64,7 @@ def client(monkeypatch):
         from apihub_core.tenant import TenantContext
 
         # 没设置上下文就给个默认（很多测试不关心身份，只要有上下文）
-        ctx = TenantContext(
-            tenant_id="t_default", tenant_type="internal", user_id="u_default"
-        )
+        ctx = TenantContext(tenant_id="t_default", tenant_type="internal", user_id="u_default")
         set_tenant_context(ctx)
         return ctx
 

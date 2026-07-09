@@ -14,7 +14,7 @@ from apihub_core.logging import get_logger
 
 log = get_logger(__name__)
 
-DELAYED_SUFFIX = ":retry:delayed"        # score = due_ts
+DELAYED_SUFFIX = ":retry:delayed"  # score = due_ts
 PROCESSING_SUFFIX = ":retry:processing"  # in-flight set
 
 
@@ -86,9 +86,7 @@ async def complete(
 
 async def is_processing(*, tenant_id: str, retry_task_id: int) -> bool:
     client = redis_mod.raw_client()
-    return await client.sismember(
-        _key(tenant_id, PROCESSING_SUFFIX), str(retry_task_id)
-    )
+    return await client.sismember(_key(tenant_id, PROCESSING_SUFFIX), str(retry_task_id))
 
 
 async def list_tenants_with_pending() -> list[str]:

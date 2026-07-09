@@ -21,7 +21,7 @@ def configure_logging(level: str = "INFO", env: str = "dev") -> None:
         structlog.contextvars.merge_contextvars,
         structlog.processors.add_log_level,
         structlog.processors.TimeStamper(fmt="iso", utc=True),
-        _inject_trace,            # 把 OTel trace_id/span_id 注入每条日志
+        _inject_trace,  # 把 OTel trace_id/span_id 注入每条日志
         structlog.processors.StackInfoRenderer(),
         structlog.processors.format_exc_info,
     ]

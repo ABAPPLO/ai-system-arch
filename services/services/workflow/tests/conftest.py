@@ -48,6 +48,7 @@ def stub_repo(monkeypatch):
         from datetime import UTC, datetime
 
         from workflow_svc.models import WorkflowDetail, WorkflowStatus
+
         wf_id = next_id[0]
         next_id[0] += 1
         wf = WorkflowDetail(
@@ -90,6 +91,7 @@ def stub_repo(monkeypatch):
         return True
 
     from workflow_svc import repository as repo
+
     monkeypatch.setattr(repo, "create_workflow", _create)
     monkeypatch.setattr(repo, "get_workflow", _get)
     monkeypatch.setattr(repo, "get_workflow_by_uuid", _get_by_uuid)

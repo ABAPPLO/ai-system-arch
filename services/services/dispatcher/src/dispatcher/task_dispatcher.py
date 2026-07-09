@@ -4,14 +4,11 @@
 """
 
 import uuid
-from datetime import datetime, timezone
-
-from fastapi import Request
-from fastapi.responses import JSONResponse
 
 from apihub_core import db, kafka
-from apihub_core.errors import ApiError, ErrorCode
 from apihub_core.tenant import require_tenant
+from fastapi import Request
+from fastapi.responses import JSONResponse
 
 from dispatcher.event import new_request_id
 from dispatcher.models import ApiVersionSnapshot
@@ -58,7 +55,7 @@ async def dispatch_async_task(snap: ApiVersionSnapshot, request: Request) -> JSO
             "backend_url": snap.backend_url,
             "payload": body.decode("utf-8", errors="replace"),
         },
-        key=task_id,   # 同任务的消息进同一分区（用于状态更新顺序）
+        key=task_id,  # 同任务的消息进同一分区（用于状态更新顺序）
         extra_headers={
             "request_id": request_id,
         },

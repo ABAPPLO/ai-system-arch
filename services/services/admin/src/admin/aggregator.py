@@ -75,9 +75,7 @@ class AggregatorClient:
 
     async def get_tenant(self, *, api_key: str, tenant_id: str) -> dict[str, Any] | None:
         headers = {"X-API-Key": api_key}
-        result = await self._get(
-            f"{TENANT_SVC_URL}/tenants/{tenant_id}", headers=headers
-        )
+        result = await self._get(f"{TENANT_SVC_URL}/tenants/{tenant_id}", headers=headers)
         return result if isinstance(result, dict) else None
 
     async def count_tenant_apps(self, *, api_key: str, tenant_id: str) -> int | None:

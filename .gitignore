@@ -46,3 +46,7 @@ secrets/
 build/
 target/
 *.log
+
+# AI tooling / local-only artifacts（不提交）
+.codegraph/
+CLAUDE.md

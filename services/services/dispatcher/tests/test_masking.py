@@ -3,8 +3,7 @@
 import hashlib
 
 import pytest
-
-from dispatcher.masking import apply_masking, mask_value, _smart_mask
+from dispatcher.masking import _smart_mask, apply_masking, mask_value
 
 
 class TestMaskValue:
@@ -32,15 +31,18 @@ class TestMaskValue:
 
 
 class TestSmartMask:
-    @pytest.mark.parametrize("inp,expected", [
-        ("13800000001",   "138****0001"),
-        ("alice@x.com",   "a***@x.com"),
-        ("bob@test.org",  "b***@test.org"),
-        ("110101199001011234", "110101********1234"),
-        ("abc",           "***"),            # len<=4 全 *
-        ("a",             "*"),
-        ("+8613800000001", "+************1"), # 14 字符，默认首尾保留 + 中间 12 星
-    ])
+    @pytest.mark.parametrize(
+        "inp,expected",
+        [
+            ("13800000001", "138****0001"),
+            ("alice@x.com", "a***@x.com"),
+            ("bob@test.org", "b***@test.org"),
+            ("110101199001011234", "110101********1234"),
+            ("abc", "***"),  # len<=4 全 *
+            ("a", "*"),
+            ("+8613800000001", "+************1"),  # 14 字符，默认首尾保留 + 中间 12 星
+        ],
+    )
     def test_various(self, inp, expected):
         assert _smart_mask(inp) == expected
 
@@ -70,10 +72,12 @@ class TestApplyMasking:
         assert result["user"]["name"] == "Alice"
 
     def test_array_field(self):
-        data = {"users": [
-            {"id": 1, "phone": "13800001234"},
-            {"id": 2, "phone": "13900005678"},
-        ]}
+        data = {
+            "users": [
+                {"id": 1, "phone": "13800001234"},
+                {"id": 2, "phone": "13900005678"},
+            ]
+        }
         result = apply_masking(data, [{"field": "users[].phone", "action": "mask"}])
         assert result["users"][0]["phone"] == "138****1234"
         assert result["users"][1]["phone"] == "139****5678"
@@ -87,11 +91,14 @@ class TestApplyMasking:
             "id_card": "110101199001011234",
             "token": "sk_abc",
         }
-        result = apply_masking(data, [
-            {"field": "phone", "action": "mask"},
-            {"field": "id_card", "action": "hash"},
-            {"field": "token", "action": "remove"},
-        ])
+        result = apply_masking(
+            data,
+            [
+                {"field": "phone", "action": "mask"},
+                {"field": "id_card", "action": "hash"},
+                {"field": "token", "action": "remove"},
+            ],
+        )
         assert result["phone"] == "138****1234"
         assert result["id_card"] == hashlib.sha256(b"110101199001011234").hexdigest()[:16]
         assert "token" not in result

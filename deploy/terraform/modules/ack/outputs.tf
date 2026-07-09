@@ -7,7 +7,7 @@ output "cluster_name" {
 }
 
 output "api_server_endpoint" {
-  value = alicloud_cs_managed_kubernetes.this.apiservers
+  value = alicloud_cs_managed_kubernetes.this.connections["api_server_internet_endpoint"]
 }
 
 output "kubeconfig" {

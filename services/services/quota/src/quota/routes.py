@@ -34,7 +34,6 @@ log = get_logger(__name__)
 
 
 def register_routes(app: FastAPI) -> None:
-
     @app.post("/v1/quota/check", response_model=QuotaCheckResponse)
     async def check(payload: QuotaCheckRequest):
         """网关调用：原子 check + 扣减。
@@ -90,7 +89,7 @@ def register_routes(app: FastAPI) -> None:
             cost=payload.cost,
         )
         resp.rule_source = source
-        raise_if_blocked(resp)   # 超了抛 ApiError(429)
+        raise_if_blocked(resp)  # 超了抛 ApiError(429)
         return resp
 
     @app.post("/v1/quota/refund")

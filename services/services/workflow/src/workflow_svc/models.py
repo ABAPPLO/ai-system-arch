@@ -9,12 +9,12 @@ from pydantic import BaseModel, Field
 class WorkflowStatus(StrEnum):
     """workflow_instance.status 状态机（与 Argo Workflow 阶段对齐）。"""
 
-    SUBMITTED = "submitted"   # 已提交 Argo，未开始
-    RUNNING = "running"       # Argo 已开始执行
+    SUBMITTED = "submitted"  # 已提交 Argo，未开始
+    RUNNING = "running"  # Argo 已开始执行
     SUCCEEDED = "succeeded"
     FAILED = "failed"
-    CANCELLED = "cancelled"   # 手动 cancel
-    UNKNOWN = "unknown"       # Argo 不可达 / 状态解析失败
+    CANCELLED = "cancelled"  # 手动 cancel
+    UNKNOWN = "unknown"  # Argo 不可达 / 状态解析失败
 
 
 class StepStatus(StrEnum):

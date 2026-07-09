@@ -244,3 +244,55 @@
 - `PG_SSL` 默认值从 `disable` 改成 `prefer`（dev 友好，prod 要求时再升）
 - ClickHouse Kafka source 表的列默认值由生产端 JSON 带（避免依赖 MV COALESCE）
 - apihub-cli 加 `--dry-run` 模式（输出 diff 不入库，便于评审前预览）
+
+---
+
+## K8s 联调结果（kind，2026-07-09）
+
+> 在本机用 kind 真起集群，数据层复用 host docker-compose（PG/Redis/Kafka/CH/MinIO），把现有四条核心链路 + APISIX 网关 + trace 查 CH 在 K8s 跑通。分支 `feat/p0-debt-kind-validation`，16 commits（`5d2e6c9..d9a7350`）。
+
+### Stage 0 · P0 技术债（全部清偿）
+
+- **trace-svc SQL 对齐精简 CH schema**（commit `7eee445`）— 删 12 个不存在的列（`app_name/is_timeout/parent_trace_id/span_id/api_mode/env/gateway_node/biz_code/gateway_latency_ms/is_retry/retry_no/task_id`），改 8 个列名（`api_uuid→api_id`、`api_path→path`、`http_status→status_code`、`error_type→error_code` 等），`tenant_id` 改 String 透传，`TIMEOUT` 过滤改 `error_code LIKE '%timeout%'`（精简 schema 无 `is_timeout`）。25 单测全绿。
+- **依赖锁定**（commit `d936363`）— `asyncpg==0.30.0` / `aiokafka==0.12.0` / `clickhouse-connect==0.7.7` / OTel `1.40.0` + instrumentation `0.61b0`。⚠️ **勘误**：计划/spec 原写 OTel api/sdk `1.36.0`，实测与 `0.61b0` 不兼容（OTel 固定 +offset 配对：`0.61b0 ↔ 1.40.0`），已改为 `1.40.0`。另补 `cramjam`（aiokafka 0.12 的 lz4 codec 底层依赖，`kafka.py` 用 `compression_type="lz4"` 但未声明）。
+- **DB 账号 init Job**（commit `15d76c8`）— `deploy/k8s/base/shared/db-init/`（ConfigMap 内联 `00-roles.sql`+`99-grants.sql` + Job + Secret 模板），prod 托管 PG 的 `apihub_app` 业务账号自动化 provisioning。
+- **CI smoke**（commits `33fd3c6`+`762fb5e`）— `.github/workflows/smoke-auth.yml` 起 PG+Redis+Kafka → auth-svc → 用真实 seed key `ak_test_a_demo001` verify。本地复现 green（`tenant_id=tenant_a`）。
+- **勘误**：业务账号 `apihub_app` 的密码是 `apihub_app_dev_pwd`（`00-roles.sql:29`），**不是** `apihub_dev_pwd`（那是 superuser `apihub` 的密码）。本文档/计划多处写的 `apihub_dev_pwd` 用于服务连接是错的。
+
+### Stage 1 · kind 集群（12 pods Running）
+
+`scripts/kind/bootstrap.sh` 探测 host 网桥 IP、起 compose 数据层、建 kind 集群（预留 APISIX NodePort 30080）、构建并 load 11 服务镜像、apply kind overlay、等 ready。结果：**12 pods Running 0 restarts**（11 服务 + mock-backend），`api-registry /health/ready` 200。
+
+### Stage 2 · 四链路（4/4 genuine green，commit `1468a04` + `ecd689a`）
+
+`scripts/smoke/k8s-links.py`：L1 同步转发（dispatcher→mock-backend 200+echo）、L2 异步任务（Kafka→executor→`task` 表 succeeded）、L3 失败重试（`task-failures`→retry-svc→`retry_task` dead）、L4 admin 聚合（dashboard 200，3 租户）。L3 经修复后**真打** executor 死后端（latency ~2-4ms `backend_unreachable`，非 timeout）。
+
+### Stage 3 · APISIX 网关 + trace 查 CH
+
+- **APISIX 进数据面**（commit `92e15e9`）— helm 装 APISIX+etcd（NodePort 30080），consumer + key-auth（`X-API-Key`）+ route `/dispatch/*`→dispatcher。`curl -H 'X-API-Key: ak_test_a_demo001' http://127.0.0.1:30080/dispatch/smoke-sync/echo` → **200**（key-auth→dispatcher→mock-backend）；无 key / 错 key → 401。
+- **trace 查 CH**（commit `d9a7350`）— trace-svc `/v1/trace/calls` 在真实 CH schema 上跑通，返回 7 行、列名正确（`api_id`/`http_status`/...），**无 `Unknown column` 报错** → Stage 0 的 trace-svc SQL 修复端到端验证通过。
+
+### 联调暴露的 bug（Phase 3 prep 价值最大）
+
+**已修复（本分支）**：
+1. **Dockerfile builder-stage bug（全部 11 服务）** — builder 以 root 跑 `pip install --user` → 落 `/root/.local`，runtime 却 COPY `/home/apihub/.local`（不存在）。修：builder 加 `useradd -m -u 1000 apihub` + `USER apihub`（commit `a5a4000`）。
+2. **dispatcher 缺 `httpx[http2]`** — `main.py` 用 `http2=True` 但没 h2 包（commit `63d5dd1`）。
+3. **workflow namespace 拼写** — `apihub-workflows` → `apihub-workflow`（Role/RoleBinding，commit `e5d7643`）。
+4. **PG 连接风暴** — 单节点 kind 上 11 服务 × pool 50 打爆 PG。kind overlay 缩 `PG_POOL_MIN/MAX=2/10` + bootstrap `max_connections=500`（commit `e5d7643`+`26c5747`）。
+5. **bootstrap Redis 端口同步 off-by-one** — 发布端口与写进 overlay 的 REDIS_PORT 不一致。修：bootstrap 用 `docker port` 回读实际发布端口再写 overlay（commit `ecd689a`）。
+6. **retry→executor 走错端口** — retry worker 默认调 `executor:8003`，但 Service 只暴露 80 → 每次重试 30s timeout。修：kind overlay（`ecd689a`）**及 base retry configmap**（终审修复）均设 `EXECUTOR_SERVICE_TEMPLATE=http://executor.apihub-system/v1/internal/retry`（无 `{port}` → `.format` no-op → 走 Service:80）。⚠️ `main.py` 仍硬编码 `executor_port=8003`，因模板无 `{port}` 占位故已无效；Phase 3 建议把端口也挪进 settings 彻底干净。
+
+**已识别、未修（列入后续）**：
+- **CH Kafka-engine 摄取 —— 已修**（`dispatcher/event.py` `_now_ch_ts`）：根因不是 MV 列映射，而是生产者 `ts` 用 ISO-8601（`2026-07-09T09:58:41.537733+00:00`），CH `DateTime64` JSONEachRow 解析不了 → 整行被判解析错误、所有列落 default（epoch ts + 空字符串）。修：生产者改发 CH 格式 `YYYY-MM-DD HH:MM:SS.mmm`。**已验证**：直接往 Kafka 投 CH 格式 ts 的消息能正确入库（真实列），ISO 格式的落 default。dispatcher 镜像 rebuild 后即全链路通（ingest 级已证）。
+- **PodSecurity prod 硬化 —— 已修**：11 个 base 服务 Deployment 补了 `securityContext.seccompProfile.type: RuntimeDefault`（prod `restricted` namespace 现在能过；kind overlay 仍 dev-only privileged）。mock-backend 在 kind overlay 内（dev），prod 不部署故无需。
+- **apihub-core `test_kafka.py` 4 个预存失败** — `kafka.py:94-97` bytes-vs-str header 处理。非任何任务引入，独立 tech debt。
+- **bitnami/kafka:\* 全系镜像已下架** → 用 `bitnamilegacy/kafka:3.7`（同 KRaft 布局）。
+- **OTel 版本配对** — 见 Stage 0 勘误（`0.61b0 ↔ 1.40.0`）。
+
+### 结论
+
+- ✅ P0 四项全部清偿，单测 + 本地 smoke 验证。
+- ✅ kind 集群 12 pods Running，四条核心链路 genuine green，APISIX 网关进数据面。
+- ✅ trace-svc SQL 修复端到端验证通过（真实 CH schema）。
+- ✅ CH 真实摄取链路根因已修（生产者 `ts` ISO→CH 格式，ingest 级验证通过）；dispatcher 镜像 rebuild 后全链路通。
+- ✅ deferred 三项已全部清：CH 摄取、PodSecurity prod 硬化（11 Deployment 补 seccompProfile）、test_kafka 预存失败（stub decode bytes）。

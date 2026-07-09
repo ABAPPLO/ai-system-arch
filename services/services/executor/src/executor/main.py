@@ -56,7 +56,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 app = FastAPI(
     title="executor",
     lifespan=lifespan,
-    docs_url=None,   # worker 服务不开 Swagger
+    docs_url=None,  # worker 服务不开 Swagger
     redoc_url=None,
 )
 
@@ -70,7 +70,7 @@ async def health_live():
 async def health_ready():
     """ready = consumer 在跑 + DB pool 已建。"""
     consumer = getattr(app.state, "consumer", None)
-    pool_ok = db._pool is not None   # noqa: SLF001
+    pool_ok = db._pool is not None  # noqa: SLF001
     return {
         "status": "ready" if (consumer and pool_ok) else "starting",
         "consumer_running": consumer is not None,
@@ -88,6 +88,7 @@ async def metrics():
 
 
 # ============ 内部接口：retry-svc worker 调用 ============
+
 
 class RetryRequest(BaseModel):
     """retry-svc worker 推过来的重试请求（见 retry_svc/worker.py::_call_executor）。"""
@@ -110,8 +111,9 @@ async def internal_retry(req: RetryRequest):
     设计上和 processor._call_backend 一致，但不写 PG 状态机（PG 由 retry-svc 自己维护，
     executor 在这条内部路径上只做"调一次后端"）。
     """
-    from executor.processor import _client  # 复用进程级 httpx 单例
     import time
+
+    from executor.processor import _client  # 复用进程级 httpx 单例
 
     if _client is None:
         return {
@@ -151,7 +153,9 @@ async def internal_retry(req: RetryRequest):
     return {
         "succeeded": ok,
         "status": resp.status_code,
-        "body": resp.json() if resp.headers.get("content-type", "").startswith("application/json") else resp.text,
+        "body": resp.json()
+        if resp.headers.get("content-type", "").startswith("application/json")
+        else resp.text,
         "error_code": None if ok else f"backend_http_{resp.status_code}",
         "error_msg": "" if ok else (resp.text or "")[:500],
         "latency_ms": latency_ms,
@@ -165,6 +169,6 @@ if __name__ == "__main__":
         "executor.main:app",
         host="0.0.0.0",
         port=8003,
-        workers=1,   # worker 进程靠 K8s 副本扩，单进程多 consumer 不显式并发
+        workers=1,  # worker 进程靠 K8s 副本扩，单进程多 consumer 不显式并发
         log_level="info",
     )

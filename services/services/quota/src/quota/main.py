@@ -1,6 +1,5 @@
 """quota 启动入口。"""
 
-
 from apihub_core import create_app
 
 from quota.routes import register_routes
@@ -30,6 +29,6 @@ if __name__ == "__main__":
         "quota.main:app",
         host="0.0.0.0",
         port=8004,
-        workers=4,   # quota 是延迟敏感热点，多 worker 充分利用多核
+        workers=4,  # quota 是延迟敏感热点，多 worker 充分利用多核
         log_level="info",
     )

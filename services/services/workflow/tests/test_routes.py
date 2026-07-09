@@ -1,7 +1,6 @@
 """routes 测试 —— HTTP 端点 + 鉴权 + Argo 状态机。"""
 
 
-
 class TestHealth:
     async def test_health(self, client):
         resp = await client.get("/v1/workflows/health")
@@ -50,7 +49,9 @@ class TestSubmitWorkflow:
         resp = await client.post(
             "/v1/workflows",
             json={
-                "api_id": 1, "app_id": 1, "trace_id": "tr",
+                "api_id": 1,
+                "app_id": 1,
+                "trace_id": "tr",
                 "spec": {"entrypoint": "main"},
             },
         )
@@ -67,7 +68,9 @@ class TestGetWorkflow:
         resp = await client.post(
             "/v1/workflows",
             json={
-                "api_id": 1, "app_id": 1, "trace_id": "tr_x",
+                "api_id": 1,
+                "app_id": 1,
+                "trace_id": "tr_x",
                 "spec": {
                     "entrypoint": "main",
                     "templates": [
@@ -98,7 +101,9 @@ class TestCancel:
         resp = await client.post(
             "/v1/workflows",
             json={
-                "api_id": 1, "app_id": 1, "trace_id": "tr",
+                "api_id": 1,
+                "app_id": 1,
+                "trace_id": "tr",
                 "spec": {"entrypoint": "main", "templates": [{"name": "main"}]},
             },
         )
@@ -110,6 +115,7 @@ class TestCancel:
 
         # 验证 PG 状态也更新
         from workflow_svc.models import WorkflowStatus
+
         wf = stub_repo["workflows"][wf_id]
         assert wf.status == WorkflowStatus.CANCELLED
         assert wf.finished_at is not None
@@ -120,7 +126,9 @@ class TestResume:
         resp = await client.post(
             "/v1/workflows",
             json={
-                "api_id": 1, "app_id": 1, "trace_id": "tr",
+                "api_id": 1,
+                "app_id": 1,
+                "trace_id": "tr",
                 "spec": {"entrypoint": "main", "templates": [{"name": "main"}]},
             },
         )
@@ -141,7 +149,9 @@ class TestSteps:
         resp = await client.post(
             "/v1/workflows",
             json={
-                "api_id": 1, "app_id": 1, "trace_id": "tr",
+                "api_id": 1,
+                "app_id": 1,
+                "trace_id": "tr",
                 "spec": {
                     "entrypoint": "main",
                     "templates": [{"name": "main"}, {"name": "verify"}],
@@ -166,7 +176,9 @@ class TestLogs:
         resp = await client.post(
             "/v1/workflows",
             json={
-                "api_id": 1, "app_id": 1, "trace_id": "tr",
+                "api_id": 1,
+                "app_id": 1,
+                "trace_id": "tr",
                 "spec": {"entrypoint": "main", "templates": [{"name": "main"}]},
             },
         )
@@ -197,8 +209,13 @@ class TestListWorkflows:
 
         stub_repo["list_returns"] = [
             WorkflowListItem(
-                id=1, tenant_id=42, workflow_uuid="u1", argo_name="wf-1",
-                api_id=100, app_id=200, trace_id="tr1",
+                id=1,
+                tenant_id=42,
+                workflow_uuid="u1",
+                argo_name="wf-1",
+                api_id=100,
+                app_id=200,
+                trace_id="tr1",
                 status=WorkflowStatus.RUNNING,
                 submitted_at=datetime.now(UTC),
             )

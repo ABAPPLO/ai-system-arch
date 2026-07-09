@@ -10,12 +10,19 @@ class _FakeProducer:
         self.calls: list[dict] = []
 
     async def send_and_wait(self, topic, payload, key=None, headers=None):
-        self.calls.append({
-            "topic": topic,
-            "payload": payload,
-            "key": key,
-            "headers": dict(headers or []),
-        })
+        # 生产者把 header value 编码成 bytes（aiokafka 0.14+ 要求，见 kafka.py:94-97）；
+        # 这里 decode 回 str，与消费端 extract_trace_context 语义一致，便于断言。
+        decoded = {}
+        for k, v in headers or []:
+            decoded[k] = v.decode("utf-8") if isinstance(v, bytes) else v
+        self.calls.append(
+            {
+                "topic": topic,
+                "payload": payload,
+                "key": key,
+                "headers": decoded,
+            }
+        )
 
 
 @pytest.fixture
@@ -127,7 +134,9 @@ class TestTracePropagation:
     """W3C traceparent：emit 时注入、consume 时提取。"""
 
     async def test_emit_injects_traceparent_when_span_active(
-        self, fake_producer, otel_setup,
+        self,
+        fake_producer,
+        otel_setup,
     ):
         """emit 时若有活跃 OTel span，traceparent 应写入 Kafka headers。"""
         tracer, exporter = otel_setup
@@ -143,8 +152,8 @@ class TestTracePropagation:
         parts = tp.split("-")
         assert len(parts) == 4
         assert len(parts[1]) == 32  # trace_id
-        assert len(parts[2]) == 16   # span_id
-        assert len(parts[3]) == 2    # flags
+        assert len(parts[2]) == 16  # span_id
+        assert len(parts[3]) == 2  # flags
 
         # producer span 也起了一条
         span_names = [s.name for s in exporter.finished]
@@ -171,7 +180,9 @@ class TestTracePropagation:
         assert kafka_mod.extract_trace_context([]) == {}
 
     async def test_consume_with_trace_propagates_to_processor(
-        self, fake_producer, otel_setup,
+        self,
+        fake_producer,
+        otel_setup,
     ):
         """端到端：producer emit → consumer 处理时，processor 内拿到的
         current span 的 trace_id 应等于 producer 的 trace_id。"""
@@ -202,13 +213,14 @@ class TestTracePropagation:
 
         async def _processor(msg):
             from opentelemetry import trace as _trace
+
             cur = _trace.get_current_span()
-            captured["trace_id"] = format(
-                cur.get_span_context().trace_id, "032x"
-            )
+            captured["trace_id"] = format(cur.get_span_context().trace_id, "032x")
 
         await kafka_mod.consume_with_trace(
-            topic="task-requests", msg=_Msg(), processor=_processor,
+            topic="task-requests",
+            msg=_Msg(),
+            processor=_processor,
         )
 
         # Consumer 的 trace_id 应与 producer 一致（贯穿同一条 trace）

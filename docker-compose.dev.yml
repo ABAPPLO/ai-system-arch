@@ -69,14 +69,20 @@ services:
 
   kafka:
     # KRaft 模式（无需 Zookeeper），与阿里云 Kafka API 兼容
-    image: bitnami/kafka:3.7
+    # 注意：bitnami/kafka:* 全系 tag 已下架（manifest unknown）。
+    # bitnamilegacy/kafka:3.7 是 Bitnami 官方遗留镜像，KRaft 布局 + KAFKA_CFG_* env 与原
+    # bitnami/kafka:3.7 完全一致，无需改 env。apache/kafka 会要求重写所有 env（弃用）。
+    image: bitnamilegacy/kafka:3.7
     container_name: apihub-kafka
     environment:
       KAFKA_CFG_NODE_ID: "1"
       KAFKA_CFG_PROCESS_ROLES: "controller,broker"
       KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
       KAFKA_CFG_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094"
-      KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,EXTERNAL://localhost:9094"
+      # EXTERNAL advertised host 经 KAFKA_EXTERNAL_HOST 注入：默认 localhost（本机直连），
+      # kind bootstrap 脚本探测到 docker 网桥 IP 后通过 .env.dev 覆盖 → kind pod 可达。
+      KAFKA_EXTERNAL_HOST: "${KAFKA_EXTERNAL_HOST:-localhost}"
+      KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://kafka:9092,EXTERNAL://${KAFKA_EXTERNAL_HOST:-localhost}:9094"
       KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT"
       KAFKA_CFG_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
       KAFKA_CFG_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
@@ -92,7 +98,7 @@ services:
     networks: [apihub]
 
   kafka-init:
-    image: bitnami/kafka:3.7
+    image: bitnamilegacy/kafka:3.7
     container_name: apihub-kafka-init
     depends_on:
       kafka:

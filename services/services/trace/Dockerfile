@@ -6,11 +6,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       build-essential libpq-dev libffi-dev \
     && rm -rf /var/lib/apt/lists/*
 
-COPY services/libs/apihub-core /tmp/apihub-core
+RUN useradd -m -u 1000 apihub && chown -R apihub:apihub /app
+USER apihub
+
+COPY --chown=apihub:apihub services/libs/apihub-core /tmp/apihub-core
 RUN pip install --user /tmp/apihub-core
 
-COPY services/services/trace/pyproject.toml /app/
-COPY services/services/trace/src /app/src
+COPY --chown=apihub:apihub services/services/trace/pyproject.toml /app/
+COPY --chown=apihub:apihub services/services/trace/src /app/src
 RUN pip install --user /app
 
 

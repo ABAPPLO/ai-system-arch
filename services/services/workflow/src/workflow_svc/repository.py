@@ -41,6 +41,7 @@ from workflow_svc.models import (
 
 # ============ 写操作 ============
 
+
 async def create_workflow(
     *,
     tenant_id: int,
@@ -117,6 +118,7 @@ async def update_status(
 
 
 # ============ 读操作 ============
+
 
 async def get_workflow(workflow_id: int) -> WorkflowDetail | None:
     async with db.db_session() as conn:
@@ -203,6 +205,7 @@ async def list_workflows(query: ListWorkflowsQuery) -> list[WorkflowListItem]:
 
 
 # ============ 辅助函数 ============
+
 
 def _row_to_detail(row: asyncpg.Record) -> WorkflowDetail:
     spec_raw = row["spec"]

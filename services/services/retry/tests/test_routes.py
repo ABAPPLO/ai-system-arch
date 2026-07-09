@@ -11,8 +11,13 @@ def stub_repo(monkeypatch):
     state = {
         "list_failed_return": [],
         "stats_return": {
-            "total": 0, "pending": 0, "running": 0, "dead": 0,
-            "ignored": 0, "succeeded": 0, "success_rate": 0.0,
+            "total": 0,
+            "pending": 0,
+            "running": 0,
+            "dead": 0,
+            "ignored": 0,
+            "succeeded": 0,
+            "success_rate": 0.0,
             "by_error_code": {},
         },
         "get_detail_return": None,
@@ -36,6 +41,7 @@ def stub_repo(monkeypatch):
         return state["ignore_return"]
 
     from retry_svc import repository as repo
+
     monkeypatch.setattr(repo, "list_failed", _list_failed)
     monkeypatch.setattr(repo, "stats", _stats)
     monkeypatch.setattr(repo, "get_retry_task", _get_detail)
@@ -85,13 +91,23 @@ class TestListFailed:
             RetryStatus,
             RetryTaskRow,
         )
+
         stub_repo["list_failed_return"] = [
             RetryTaskRow(
-                id=1, tenant_id=42, trace_id="tr_1", api_id=100, app_id=200,
-                max_attempts=3, retry_count=0, next_retry_at=None,
-                backoff_policy=BackoffPolicy.EXPONENTIAL, backoff_base_ms=1000,
-                status=RetryStatus.PENDING, env="test",
-                created_at=datetime.now(UTC), updated_at=datetime.now(UTC),
+                id=1,
+                tenant_id=42,
+                trace_id="tr_1",
+                api_id=100,
+                app_id=200,
+                max_attempts=3,
+                retry_count=0,
+                next_retry_at=None,
+                backoff_policy=BackoffPolicy.EXPONENTIAL,
+                backoff_base_ms=1000,
+                status=RetryStatus.PENDING,
+                env="test",
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
             )
         ]
         resp = await client.get(
@@ -116,8 +132,13 @@ class TestListFailed:
 class TestStats:
     async def test_returns_stats(self, client, stub_repo):
         stub_repo["stats_return"] = {
-            "total": 100, "pending": 30, "running": 5, "dead": 10,
-            "ignored": 5, "succeeded": 50, "success_rate": 0.5,
+            "total": 100,
+            "pending": 30,
+            "running": 5,
+            "dead": 10,
+            "ignored": 5,
+            "succeeded": 50,
+            "success_rate": 0.5,
             "by_error_code": {"backend_http_500": 40},
         }
         resp = await client.get(
@@ -146,12 +167,22 @@ class TestGetDetail:
             RetryStatus,
             RetryTaskDetail,
         )
+
         stub_repo["get_detail_return"] = RetryTaskDetail(
-            id=1, tenant_id=42, trace_id="tr_1", api_id=100, app_id=200,
-            max_attempts=3, retry_count=1, next_retry_at=None,
-            backoff_policy=BackoffPolicy.EXPONENTIAL, backoff_base_ms=1000,
-            status=RetryStatus.DEAD, env="test",
-            created_at=datetime.now(UTC), updated_at=datetime.now(UTC),
+            id=1,
+            tenant_id=42,
+            trace_id="tr_1",
+            api_id=100,
+            app_id=200,
+            max_attempts=3,
+            retry_count=1,
+            next_retry_at=None,
+            backoff_policy=BackoffPolicy.EXPONENTIAL,
+            backoff_base_ms=1000,
+            status=RetryStatus.DEAD,
+            env="test",
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
             attempts=[],
             original_request={"task_id": "task_x"},
         )

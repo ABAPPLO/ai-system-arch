@@ -1,8 +1,6 @@
 """event payload 构造测试 —— 验证调用事件字段齐全。"""
 
-import pytest
-
-from apihub_core.tenant import set_tenant_context, TenantContext
+from apihub_core.tenant import set_tenant_context
 from dispatcher.event import build_call_event, new_request_id
 
 
@@ -43,9 +41,15 @@ class TestBuildCallEvent:
     def test_is_success_serialized_as_int(self, tenant_a):
         set_tenant_context(tenant_a)
         event = build_call_event(
-            api_id="a", api_version_id="v", method="GET", path="/",
-            status_code=500, is_success=False,
-            latency_ms=10, request_size=0, response_size=0,
+            api_id="a",
+            api_version_id="v",
+            method="GET",
+            path="/",
+            status_code=500,
+            is_success=False,
+            latency_ms=10,
+            request_size=0,
+            response_size=0,
         )
         assert event["is_success"] == 0
         assert isinstance(event["is_success"], int)
@@ -53,9 +57,15 @@ class TestBuildCallEvent:
     def test_ai_streaming_serialized_as_int(self, tenant_a):
         set_tenant_context(tenant_a)
         event = build_call_event(
-            api_id="a", api_version_id="v", method="POST", path="/llm",
-            status_code=200, is_success=True,
-            latency_ms=1500, request_size=50, response_size=2000,
+            api_id="a",
+            api_version_id="v",
+            method="POST",
+            path="/llm",
+            status_code=200,
+            is_success=True,
+            latency_ms=1500,
+            request_size=50,
+            response_size=2000,
             backend_type="ai_model",
             ai_model="gpt-4o-mini",
             ai_streaming=True,
@@ -73,9 +83,15 @@ class TestBuildCallEvent:
     def test_no_tenant_context_empty_strings(self):
         """无租户上下文（不应该发生在 dispatcher 里，但要安全降级）。"""
         event = build_call_event(
-            api_id="a", api_version_id="v", method="GET", path="/",
-            status_code=200, is_success=True,
-            latency_ms=10, request_size=0, response_size=0,
+            api_id="a",
+            api_version_id="v",
+            method="GET",
+            path="/",
+            status_code=200,
+            is_success=True,
+            latency_ms=10,
+            request_size=0,
+            response_size=0,
         )
         assert event["tenant_id"] == ""
         assert event["tenant_type"] == ""
@@ -84,18 +100,30 @@ class TestBuildCallEvent:
     def test_method_uppercased(self, tenant_a):
         set_tenant_context(tenant_a)
         event = build_call_event(
-            api_id="a", api_version_id="v", method="post", path="/",
-            status_code=200, is_success=True,
-            latency_ms=10, request_size=0, response_size=0,
+            api_id="a",
+            api_version_id="v",
+            method="post",
+            path="/",
+            status_code=200,
+            is_success=True,
+            latency_ms=10,
+            request_size=0,
+            response_size=0,
         )
         assert event["method"] == "POST"
 
     def test_explicit_trace_id_preserved(self, tenant_a):
         set_tenant_context(tenant_a)
         event = build_call_event(
-            api_id="a", api_version_id="v", method="GET", path="/",
-            status_code=200, is_success=True,
-            latency_ms=10, request_size=0, response_size=0,
+            api_id="a",
+            api_version_id="v",
+            method="GET",
+            path="/",
+            status_code=200,
+            is_success=True,
+            latency_ms=10,
+            request_size=0,
+            response_size=0,
             trace_id="trc_provided_123",
             request_id="req_provided_456",
         )

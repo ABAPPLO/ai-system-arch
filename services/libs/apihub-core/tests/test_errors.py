@@ -18,19 +18,22 @@ class TestErrorCodeMapping:
             status = _HTTP_STATUS_MAP.get(code, 500)
             assert 200 <= status < 600, f"{code.name}: {status} out of range"
 
-    @pytest.mark.parametrize("code,expected", [
-        (ErrorCode.INVALID_PARAMS,       400),
-        (ErrorCode.UNAUTHORIZED,         401),
-        (ErrorCode.FORBIDDEN,            403),
-        (ErrorCode.NOT_FOUND,            404),
-        (ErrorCode.RATE_LIMITED,         429),
-        (ErrorCode.TENANT_QUOTA_EXCEEDED, 429),
-        (ErrorCode.TENANT_DISABLED,      403),
-        (ErrorCode.API_DEPRECATED,       410),
-        (ErrorCode.API_DOWN,             503),
-        (ErrorCode.TASK_TIMEOUT,         504),
-        (ErrorCode.INTERNAL,             500),
-    ])
+    @pytest.mark.parametrize(
+        "code,expected",
+        [
+            (ErrorCode.INVALID_PARAMS, 400),
+            (ErrorCode.UNAUTHORIZED, 401),
+            (ErrorCode.FORBIDDEN, 403),
+            (ErrorCode.NOT_FOUND, 404),
+            (ErrorCode.RATE_LIMITED, 429),
+            (ErrorCode.TENANT_QUOTA_EXCEEDED, 429),
+            (ErrorCode.TENANT_DISABLED, 403),
+            (ErrorCode.API_DEPRECATED, 410),
+            (ErrorCode.API_DOWN, 503),
+            (ErrorCode.TASK_TIMEOUT, 504),
+            (ErrorCode.INTERNAL, 500),
+        ],
+    )
     def test_specific_mappings(self, code, expected):
         assert _HTTP_STATUS_MAP[code] == expected
 
@@ -92,6 +95,7 @@ class TestErrorHandlers:
         assert resp.status_code == 404
         body = getattr(resp, "body", b"{}")
         import json
+
         data = json.loads(body)
         assert data["success"] is False
         assert data["code"] == ErrorCode.NOT_FOUND.value
@@ -110,6 +114,7 @@ class TestErrorHandlers:
         resp = unhandled_exception_handler(request, RuntimeError("boom"))
         assert resp.status_code == 500
         import json
+
         body = getattr(resp, "body", b"{}")
         data = json.loads(body)
         assert data["code"] == ErrorCode.INTERNAL.value

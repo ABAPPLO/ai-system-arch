@@ -35,7 +35,6 @@ log = get_logger(__name__)
 
 
 def register_routes(app: FastAPI) -> None:
-
     # ========== 内部端点 ==========
 
     @app.post("/v1/apikey/verify", response_model=VerifyResponse)

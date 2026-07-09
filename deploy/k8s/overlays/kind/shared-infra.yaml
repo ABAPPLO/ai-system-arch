@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apihub-shared-infra
+  namespace: apihub-system
+data:
+  PG_HOST: "__HOST_IP__"
+  PG_PORT: "5432"
+  PG_USER: "apihub_app"
+  PG_DATABASE: "apihub"
+  PG_SSL: "disable"
+  # kind 单节点：11 服务 × 4 worker × pool(min 10) 在启动瞬间打爆 docker-proxy 的连接 backlog
+  # → ConnectionRefused 风暴。dev/kind 缩小连接池（envFrom 顺序在后，覆盖各服务 configmap 的 10/50）。
+  PG_POOL_MIN: "2"
+  PG_POOL_MAX: "10"
+  REDIS_HOST: "__HOST_IP__"
+  REDIS_PORT: "6379"
+  KAFKA_BROKERS: "__HOST_IP__:9094"
+  CH_HOST: "__HOST_IP__"
+  CH_PORT: "8123"
+  CH_USERNAME: "apihub"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://__HOST_IP__:4317"
+  # retry→executor 内部重试跳：executor Service 只暴露 80（targetPort http/8000），
+  # 而 retry worker 默认模板带 {port}=8003 → ClusterIP:8003 无 DNAT、SYN 被 drop →
+  # 每次 attempt 耗满 30s executor_timeout（Task 8 smoke 的 L3 concern）。
+  # 此模板去掉 {port} 占位符 → worker.py 的 .format(port=...) 成为 no-op →
+  # 走 http://executor.apihub-system/v1/internal/retry（命中 Service:80）。
+  EXECUTOR_SERVICE_TEMPLATE: "http://executor.apihub-system/v1/internal/retry"
+  ENV: "dev"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apihub-shared-secret
+  namespace: apihub-system
+type: Opaque
+stringData:
+  # PG_PASSWORD 用业务账号 apihub_app 的密码（非 superuser apihub 的密码）。
+  # 见 scripts/init-db/00-roles.sql:29；.env.dev:PG_PASSWORD。
+  PG_PASSWORD: "apihub_app_dev_pwd"
+  REDIS_PASSWORD: "apihub_dev_pwd"
+  CH_PASSWORD: "apihub_dev_pwd"

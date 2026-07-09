@@ -24,8 +24,7 @@ async def argo_lifespan(app: FastAPI) -> AsyncIterator[None]:
     if mode == "k8s":
         # K8sArgoClient 会自动读 SA token
         init_kwargs = {
-            "api_server": getattr(settings, "k8s_api_server",
-                                   "https://kubernetes.default.svc"),
+            "api_server": getattr(settings, "k8s_api_server", "https://kubernetes.default.svc"),
         }
     argo_client.init_argo_client(mode=mode, **init_kwargs)
 

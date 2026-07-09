@@ -1,6 +1,5 @@
 """consumer 测试 —— Kafka 失败消息 → PG retry_task + ZSet。"""
 
-
 import pytest
 
 
@@ -27,6 +26,7 @@ def captured_creates(monkeypatch):
     from retry_svc import consumer as cmod
     from retry_svc import delay_queue
     from retry_svc import repository as repo
+
     monkeypatch.setattr(repo, "create_retry_task", _create)
     monkeypatch.setattr(cmod, "delay_queue", delay_queue)
     monkeypatch.setattr(delay_queue, "schedule", _schedule)
@@ -34,9 +34,7 @@ def captured_creates(monkeypatch):
 
 
 class TestHandle:
-    async def test_parses_payload_and_schedules(
-        self, fake_settings, captured_creates
-    ):
+    async def test_parses_payload_and_schedules(self, fake_settings, captured_creates):
         """Kafka payload + header → create_retry_task + schedule ZSet。"""
         from retry_svc.consumer import FailureConsumer
 
@@ -79,9 +77,7 @@ class TestHandle:
         assert schedules[0]["tenant_id"] == "42"
         assert schedules[0]["retry_task_id"] == 12345
 
-    async def test_missing_tenant_id_skipped(
-        self, fake_settings, captured_creates
-    ):
+    async def test_missing_tenant_id_skipped(self, fake_settings, captured_creates):
         """没有 tenant_id 不能 schedule（写 PG 也会失败，干脆跳过）。"""
         from retry_svc.consumer import FailureConsumer
 
@@ -101,9 +97,7 @@ class TestHandle:
         assert creates == []
         assert schedules == []
 
-    async def test_invalid_tenant_id_skipped(
-        self, fake_settings, captured_creates
-    ):
+    async def test_invalid_tenant_id_skipped(self, fake_settings, captured_creates):
         """空字符串 / 缺失 tenant_id 必须跳过（避免写出无主租户的脏数据）。"""
         from retry_svc.consumer import FailureConsumer
 

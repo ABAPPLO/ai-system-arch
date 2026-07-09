@@ -1,7 +1,9 @@
 """trace-svc 查询模型。
 
-注意：ClickHouse 表 api_call_log 的字段用 UInt64 存 tenant_id/api_id/app_id，
-但 trace_id / api_path / api_method 是字符串。响应里全部用 str。
+ClickHouse 表 api_call_log 的 tenant_id/api_id/app_id 均为 String；
+trace_id/path/method 也是字符串。响应字段全部用 str/bool。
+部分字段（span_id/retry_no/...）在精简 schema 中无对应列，恒为 None/默认，
+保留在模型里以维持 API 契约向后兼容。
 """
 
 from datetime import datetime

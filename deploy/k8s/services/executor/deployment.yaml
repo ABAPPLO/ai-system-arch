@@ -34,6 +34,8 @@ spec:
         runAsNonRoot: true
         runAsUser: 1000
         fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: app
           image: registry.apihub.internal/apihub/executor:0.1.0-dev

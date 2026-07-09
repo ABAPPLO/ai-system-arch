@@ -1,0 +1,14 @@
+# kind/dev 专用：放开 apihub-system 的 PodSecurity 到 privileged。
+# 原因：base namespaces.yaml 给 apihub-system 打了 enforce: restricted，但 11 个服务
+# Deployment 未设 seccompProfile、mock-backend 无 securityContext，全部被 admission 拒绝
+# （FailedCreate: violates PodSecurity restricted: seccompProfile）。本 overlay 仅用于本地
+# kind 验证，**绝不**影响 prod（prod 走各自 namespace + 合规 manifest）。
+# 以 strategic-merge patch 形式合并 labels（见 kustomization.yaml patches）。
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: apihub-system
+  labels:
+    pod-security.kubernetes.io/enforce: privileged
+    pod-security.kubernetes.io/audit: privileged
+    pod-security.kubernetes.io/warn: privileged

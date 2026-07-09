@@ -7,35 +7,35 @@ resource "alicloud_vpc" "this" {
 }
 
 resource "alicloud_vswitch" "dmz" {
-  count             = length(var.availability_zones)
-  vpc_id            = alicloud_vpc.this.id
-  cidr_block        = cidrsubnet(var.dmz_cidr, 4, count.index)
-  zone_id           = var.availability_zones[count.index]
-  vswitch_name      = "apihub-${var.environment}-dmz-${count.index + 1}"
+  count        = length(var.availability_zones)
+  vpc_id       = alicloud_vpc.this.id
+  cidr_block   = cidrsubnet(var.dmz_cidr, 4, count.index)
+  zone_id      = var.availability_zones[count.index]
+  vswitch_name = "apihub-${var.environment}-dmz-${count.index + 1}"
 }
 
 resource "alicloud_vswitch" "app" {
-  count             = length(var.availability_zones)
-  vpc_id            = alicloud_vpc.this.id
-  cidr_block        = cidrsubnet(var.app_cidr, 4, count.index)
-  zone_id           = var.availability_zones[count.index]
-  vswitch_name      = "apihub-${var.environment}-app-${count.index + 1}"
+  count        = length(var.availability_zones)
+  vpc_id       = alicloud_vpc.this.id
+  cidr_block   = cidrsubnet(var.app_cidr, 4, count.index)
+  zone_id      = var.availability_zones[count.index]
+  vswitch_name = "apihub-${var.environment}-app-${count.index + 1}"
 }
 
 resource "alicloud_vswitch" "data" {
-  count             = length(var.availability_zones)
-  vpc_id            = alicloud_vpc.this.id
-  cidr_block        = cidrsubnet(var.data_cidr, 4, count.index)
-  zone_id           = var.availability_zones[count.index]
-  vswitch_name      = "apihub-${var.environment}-data-${count.index + 1}"
+  count        = length(var.availability_zones)
+  vpc_id       = alicloud_vpc.this.id
+  cidr_block   = cidrsubnet(var.data_cidr, 4, count.index)
+  zone_id      = var.availability_zones[count.index]
+  vswitch_name = "apihub-${var.environment}-data-${count.index + 1}"
 }
 
 resource "alicloud_vswitch" "mgmt" {
-  count             = length(var.availability_zones)
-  vpc_id            = alicloud_vpc.this.id
-  cidr_block        = cidrsubnet(var.mgmt_cidr, 4, count.index)
-  zone_id           = var.availability_zones[count.index]
-  vswitch_name      = "apihub-${var.environment}-mgmt-${count.index + 1}"
+  count        = length(var.availability_zones)
+  vpc_id       = alicloud_vpc.this.id
+  cidr_block   = cidrsubnet(var.mgmt_cidr, 4, count.index)
+  zone_id      = var.availability_zones[count.index]
+  vswitch_name = "apihub-${var.environment}-mgmt-${count.index + 1}"
 }
 
 # 安全组：DMZ（公网入口）
@@ -53,11 +53,11 @@ resource "alicloud_security_group" "app" {
 }
 
 resource "alicloud_security_group_rule" "app_ingress_from_dmz" {
-  type              = "ingress"
-  ip_protocol       = "all"
-  port_range        = "-1/-1"
-  source_group_id   = alicloud_security_group.dmz.id
-  security_group_id = alicloud_security_group.app.id
+  type                     = "ingress"
+  ip_protocol              = "all"
+  port_range               = "-1/-1"
+  source_security_group_id = alicloud_security_group.dmz.id
+  security_group_id        = alicloud_security_group.app.id
 }
 
 # 安全组：Data（数据库，仅允许 App 访问）
@@ -68,11 +68,11 @@ resource "alicloud_security_group" "data" {
 }
 
 resource "alicloud_security_group_rule" "data_ingress_from_app" {
-  type              = "ingress"
-  ip_protocol       = "all"
-  port_range        = "-1/-1"
-  source_group_id   = alicloud_security_group.app.id
-  security_group_id = alicloud_security_group.data.id
+  type                     = "ingress"
+  ip_protocol              = "all"
+  port_range               = "-1/-1"
+  source_security_group_id = alicloud_security_group.app.id
+  security_group_id        = alicloud_security_group.data.id
 }
 
 # 安全组：Mgmt（堡垒机）

@@ -1,6 +1,5 @@
 """rules 合并测试 —— app > tenant > api_version > default。"""
 
-
 from quota.models import QuotaRules
 from quota.repository import _merge, _parse_rules_blob, _parse_tier
 
@@ -44,9 +43,7 @@ class TestParseRulesBlob:
         assert rules.day is None
 
     def test_json_string(self):
-        rules = _parse_rules_blob(
-            '{"second": {"max_count": 10}, "minute": 100, "day": 10000}'
-        )
+        rules = _parse_rules_blob('{"second": {"max_count": 10}, "minute": 100, "day": 10000}')
         assert rules.second.max_count == 10
         assert rules.minute.max_count == 100
         assert rules.day.max_count == 10000
@@ -83,20 +80,20 @@ class TestMerge:
             day=_parse_tier(10000, 86400),
         )
         override = QuotaRules(
-            second=_parse_tier(20, 1),   # 只 override second
+            second=_parse_tier(20, 1),  # 只 override second
             minute=None,
             day=None,
         )
         merged = _merge(base, override)
-        assert merged.second.max_count == 20    # override
-        assert merged.minute.max_count == 100   # base
-        assert merged.day.max_count == 10000    # base
+        assert merged.second.max_count == 20  # override
+        assert merged.minute.max_count == 100  # base
+        assert merged.day.max_count == 10000  # base
 
     def test_chain_three_layers(self):
         """app > tenant > api_version 链式合并。"""
         api_rules = _parse_rules_blob({"second": 5, "minute": 50, "day": 5000})
-        tenant_rules = _parse_rules_blob({"minute": 100})      # 提升 minute
-        app_rules = _parse_rules_blob({"day": 50000})          # 提升 day
+        tenant_rules = _parse_rules_blob({"minute": 100})  # 提升 minute
+        app_rules = _parse_rules_blob({"day": 50000})  # 提升 day
 
         merged = _merge(_merge(api_rules, tenant_rules), app_rules)
         # app 提了 day

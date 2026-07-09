@@ -2,9 +2,9 @@
 # 详见 docs/09-deployment.md §1 + §2
 
 module "vpc" {
-  source           = "../../modules/vpc"
-  environment      = var.environment
-  region           = var.region
+  source             = "../../modules/vpc"
+  environment        = var.environment
+  region             = var.region
   availability_zones = ["cn-shanghai-e", "cn-shanghai-f", "cn-shanghai-g"]
 }
 
@@ -44,7 +44,7 @@ module "kafka" {
 }
 
 module "oss" {
-  source       = "../../modules/oss"
-  environment  = var.environment
-  bucket_name  = "apihub-${var.environment}-objects"
+  source      = "../../modules/oss"
+  environment = var.environment
+  bucket_name = "apihub-${var.environment}-objects"
 }

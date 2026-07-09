@@ -19,7 +19,6 @@ from api_registry.models import (
 
 
 def register_routes(app: FastAPI) -> None:
-
     # ⚠️ 路由顺序：静态段必须在 {param} 之前
 
     @app.get("/v1/apis")
@@ -68,9 +67,7 @@ def register_routes(app: FastAPI) -> None:
     @app.get("/v1/apis/{api_id}")
     async def get_api(api_id: str):
         async with db.db_session() as conn:
-            row = await conn.fetchrow(
-                "SELECT * FROM api WHERE id = $1", api_id
-            )
+            row = await conn.fetchrow("SELECT * FROM api WHERE id = $1", api_id)
         if not row:
             raise ApiError(ErrorCode.NOT_FOUND, f"API {api_id} not found")
         return dict(row)
@@ -82,9 +79,7 @@ def register_routes(app: FastAPI) -> None:
 
         async with db.db_session() as conn:
             # 校验 api 属于本租户（RLS 会自动过滤，没查到就是越权或不存在）
-            api_row = await conn.fetchrow(
-                "SELECT id, name FROM api WHERE id = $1", payload.api_id
-            )
+            api_row = await conn.fetchrow("SELECT id, name FROM api WHERE id = $1", payload.api_id)
             if not api_row:
                 raise ApiError(ErrorCode.API_NOT_FOUND, "API not found")
 
@@ -119,9 +114,7 @@ def register_routes(app: FastAPI) -> None:
                 payload.ai_streaming,
             )
 
-            row = await conn.fetchrow(
-                "SELECT * FROM api_version WHERE id = $1", version_id
-            )
+            row = await conn.fetchrow("SELECT * FROM api_version WHERE id = $1", version_id)
 
         await kafka.emit(
             "audit-events",
@@ -238,6 +231,7 @@ def register_routes(app: FastAPI) -> None:
 
 # ============ 变更评审工单（change_request）============
 
+
 def register_change_request_routes(app: FastAPI) -> None:
     """单独注册 /v1/change-requests/* 路由，便于路由顺序控制。"""
 
@@ -288,7 +282,10 @@ def register_change_request_routes(app: FastAPI) -> None:
                 "target_env": payload.target_env.value,
             },
         )
-        return {"request_id": req_id, "status": "approved" if payload.target_env == cr.TargetEnv.DEV else "pending"}
+        return {
+            "request_id": req_id,
+            "status": "approved" if payload.target_env == cr.TargetEnv.DEV else "pending",
+        }
 
     @app.get("/v1/change-requests")
     async def list_change_requests(
@@ -302,9 +299,13 @@ def register_change_request_routes(app: FastAPI) -> None:
     ):
         require_tenant()
         query = cr.ListChangeRequestsQuery(
-            api_id=api_id, status=status, change_type=change_type,
-            target_env=target_env, submitted_by=submitted_by,
-            limit=limit, offset=offset,
+            api_id=api_id,
+            status=status,
+            change_type=change_type,
+            target_env=target_env,
+            submitted_by=submitted_by,
+            limit=limit,
+            offset=offset,
         )
         return await cr.list_change_requests(query)
 
@@ -322,7 +323,8 @@ def register_change_request_routes(app: FastAPI) -> None:
 
     @app.post("/v1/change-requests/{request_id}/approve")
     async def approve_request(
-        request_id: int, body: cr.ChangeRequestReview | None = None,
+        request_id: int,
+        body: cr.ChangeRequestReview | None = None,
     ):
         ctx = require_tenant()
         # 仅超管可审批（platform_admin 才有 prod 发布权）
@@ -348,7 +350,8 @@ def register_change_request_routes(app: FastAPI) -> None:
 
     @app.post("/v1/change-requests/{request_id}/reject")
     async def reject_request(
-        request_id: int, body: cr.ChangeRequestReview | None = None,
+        request_id: int,
+        body: cr.ChangeRequestReview | None = None,
     ):
         ctx = require_tenant()
         if not ctx.is_platform_admin:
@@ -374,9 +377,7 @@ def register_change_request_routes(app: FastAPI) -> None:
     @app.post("/v1/change-requests/{request_id}/cancel")
     async def cancel_request(request_id: int):
         ctx = require_tenant()
-        ok = await cr.cancel_change_request(
-            request_id, submitted_by=ctx.user_id or ""
-        )
+        ok = await cr.cancel_change_request(request_id, submitted_by=ctx.user_id or "")
         if not ok:
             raise ApiError(
                 ErrorCode.NOT_FOUND,
@@ -425,4 +426,3 @@ def register_change_request_routes(app: FastAPI) -> None:
             },
         )
         return {"request_id": request_id, "status": "applied", "summary": summary}
-

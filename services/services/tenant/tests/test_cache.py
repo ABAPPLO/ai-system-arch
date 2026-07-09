@@ -1,7 +1,5 @@
 """缓存层单测 —— fakeredis 真跑 SETEX / DEL / json。"""
 
-
-
 from tenant import cache
 
 

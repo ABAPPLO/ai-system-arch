@@ -30,8 +30,11 @@ def clear_settings_cache():
 @pytest.fixture
 def fake_settings():
     from apihub_core.config import Settings
+
     return Settings(
-        pg_host="localhost", pg_user="apihub", pg_password="test",  # noqa: S106
+        pg_host="localhost",
+        pg_user="apihub",
+        pg_password="test",  # noqa: S106
         redis_host="localhost",
         kafka_brokers="localhost:9092",
     )

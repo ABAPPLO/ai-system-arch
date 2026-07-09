@@ -11,26 +11,26 @@ from pydantic import BaseModel, Field
 
 
 class ApiStatus(StrEnum):
-    DRAFT      = "draft"
-    REVIEWING  = "reviewing"
-    PUBLISHED  = "published"
+    DRAFT = "draft"
+    REVIEWING = "reviewing"
+    PUBLISHED = "published"
     DEPRECATED = "deprecated"
-    RETIRED    = "retired"
+    RETIRED = "retired"
 
 
 class BackendType(StrEnum):
-    HTTP      = "http"
+    HTTP = "http"
     ASYNC_TASK = "async_task"
-    WORKFLOW  = "workflow"
-    AI_MODEL  = "ai_model"  # ADR-004 AI 网关预留
+    WORKFLOW = "workflow"
+    AI_MODEL = "ai_model"  # ADR-004 AI 网关预留
 
 
 class Method(StrEnum):
-    GET    = "GET"
-    POST   = "POST"
-    PUT    = "PUT"
+    GET = "GET"
+    POST = "POST"
+    PUT = "PUT"
     DELETE = "DELETE"
-    PATCH  = "PATCH"
+    PATCH = "PATCH"
 
 
 class ApiCreate(BaseModel):

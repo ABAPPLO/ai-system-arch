@@ -45,6 +45,7 @@ def stub_emit(monkeypatch):
         emitted.append((topic, payload))
 
     from quota import routes as r
+
     monkeypatch.setattr(r.kafka, "emit", _stub_emit)
     return emitted
 
@@ -52,16 +53,21 @@ def stub_emit(monkeypatch):
 @pytest.fixture
 def authed(monkeypatch):
     """让 middleware 注入 t1/app_x 上下文。"""
+
     async def _fake(request, settings, api_key, required_scopes=None):
         ctx = TenantContext(
-            tenant_id="t1", tenant_type="internal", app_id="app_x",
+            tenant_id="t1",
+            tenant_type="internal",
+            app_id="app_x",
         )
         set_tenant_context(ctx)
         return ctx
+
     monkeypatch.setattr(core_auth, "authenticate_request", _fake)
 
 
 # ========== /v1/quota/check ==========
+
 
 class TestCheck:
     async def test_allows_under_limit(self, client, fake_redis, stub_rules, stub_emit):
@@ -76,9 +82,7 @@ class TestCheck:
         assert len(stub_emit) == 1
         assert stub_emit[0][0] == "api-call-events"
 
-    async def test_blocks_when_second_exceeded(
-        self, client, fake_redis, stub_rules, stub_emit
-    ):
+    async def test_blocks_when_second_exceeded(self, client, fake_redis, stub_rules, stub_emit):
         """second max=2，连发 3 次第 3 次挡。"""
         for _ in range(2):
             r = await client.post(
@@ -101,7 +105,9 @@ class TestCheck:
         r1 = await client.post(
             "/v1/quota/check",
             json={
-                "tenant_id": "t1", "app_id": "app_x", "api_id": "api_users",
+                "tenant_id": "t1",
+                "app_id": "app_x",
+                "api_id": "api_users",
                 "cost": 2,
             },
         )
@@ -115,9 +121,7 @@ class TestCheck:
 
 
 class TestCheckStrict:
-    async def test_strict_returns_429_when_blocked(
-        self, client, fake_redis, stub_rules
-    ):
+    async def test_strict_returns_429_when_blocked(self, client, fake_redis, stub_rules):
         """check-strict 超了直接抛 429。"""
         # 把 second 打满（max=2）
         for _ in range(2):
@@ -133,16 +137,15 @@ class TestCheckStrict:
         )
         assert r.status_code == 429
         body = r.json()
-        assert body["code"] == 10005   # RATE_LIMITED
+        assert body["code"] == 10005  # RATE_LIMITED
 
-    async def test_strict_day_quota_returns_different_code(
-        self, client, fake_redis, monkeypatch
-    ):
+    async def test_strict_day_quota_returns_different_code(self, client, fake_redis, monkeypatch):
         """日配额超 → TENANT_QUOTA_EXCEEDED (20004) 而非 RATE_LIMITED。"""
         day_only = QuotaRules(day=LimitRule(window_seconds=86400, max_count=1))
 
         async def _stub(t, a, b):
             return day_only, "test"
+
         monkeypatch.setattr(repo_mod, "load_rules", _stub)
         routes_mod.repository.load_rules = _stub
 
@@ -155,10 +158,11 @@ class TestCheckStrict:
             json={"tenant_id": "t1", "app_id": "app_x", "api_id": "api_y"},
         )
         assert r.status_code == 429
-        assert r.json()["code"] == 20004   # TENANT_QUOTA_EXCEEDED
+        assert r.json()["code"] == 20004  # TENANT_QUOTA_EXCEEDED
 
 
 # ========== /v1/quota/refund ==========
+
 
 class TestRefund:
     async def test_refund_decrements(self, client, fake_redis, stub_rules, authed):
@@ -188,9 +192,7 @@ class TestRefund:
         )
         assert usage.json()["second"]["used"] == 0
 
-    async def test_refund_unblocks_after_failure(
-        self, client, fake_redis, stub_rules, monkeypatch
-    ):
+    async def test_refund_unblocks_after_failure(self, client, fake_redis, stub_rules, monkeypatch):
         """业务场景：调用失败 → refund 后下次能 retry。
 
         关键：被挡的那次 INCR 已生效（设计如此，参见 limiter.py 注释），
@@ -234,6 +236,7 @@ class TestRefund:
 
 # ========== /v1/quota/usage ==========
 
+
 class TestUsage:
     async def test_requires_auth(self, client, fake_redis, stub_rules):
         """usage 需要鉴权。"""
@@ -257,16 +260,18 @@ class TestUsage:
         assert "day" in body
         assert body["second"]["used"] == 0
 
-    async def test_cannot_view_other_tenant(
-        self, client, fake_redis, stub_rules, monkeypatch
-    ):
+    async def test_cannot_view_other_tenant(self, client, fake_redis, stub_rules, monkeypatch):
         """非超管不能查别的租户。"""
+
         async def _auth_other(request, settings, api_key, required_scopes=None):
             ctx = TenantContext(
-                tenant_id="t2", tenant_type="internal", app_id="app_y",
+                tenant_id="t2",
+                tenant_type="internal",
+                app_id="app_y",
             )
             set_tenant_context(ctx)
             return ctx
+
         monkeypatch.setattr(core_auth, "authenticate_request", _auth_other)
 
         r = await client.get(
@@ -278,6 +283,7 @@ class TestUsage:
 
 
 # ========== /v1/quota/billing ==========
+
 
 class TestBilling:
     async def test_billing_returns_placeholder(self, client, fake_redis, authed):
@@ -293,6 +299,7 @@ class TestBilling:
 
 
 # ========== /v1/quota/health ==========
+
 
 class TestHealth:
     async def test_health_returns_ok(self, client):

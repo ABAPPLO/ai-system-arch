@@ -63,7 +63,9 @@ class Settings(BaseSettings):
     # 下游服务 URL（BFF 聚合用）
     # K8s 默认走集群内 DNS；dev 在 .env.dev 覆盖到 localhost
     tenant_service_url: str = "http://tenant.apihub-system/v1/tenant"
-    executor_service_template: str = "http://executor.apihub-system.svc.cluster.local:{port}/v1/internal/retry"
+    executor_service_template: str = (
+        "http://executor.apihub-system.svc.cluster.local:{port}/v1/internal/retry"
+    )
 
 
 @lru_cache

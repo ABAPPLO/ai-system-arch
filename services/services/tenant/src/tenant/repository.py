@@ -48,13 +48,9 @@ async def create_tenant(payload: TenantCreate) -> dict[str, Any]:
         except Exception as e:
             msg = str(e)
             if "primary key" in msg or replay_unique(msg, payload.id):
-                raise ApiError(
-                    ErrorCode.CONFLICT, f"tenant {payload.id} already exists"
-                ) from e
+                raise ApiError(ErrorCode.CONFLICT, f"tenant {payload.id} already exists") from e
             if "slug" in msg and "unique" in msg.lower():
-                raise ApiError(
-                    ErrorCode.CONFLICT, f"slug '{payload.slug}' already taken"
-                ) from e
+                raise ApiError(ErrorCode.CONFLICT, f"slug '{payload.slug}' already taken") from e
             raise
 
     return dict(row)
@@ -161,9 +157,7 @@ async def update_tenant(tenant_id: str, payload: TenantUpdate) -> dict[str, Any]
             )
         except Exception as e:
             if "slug" in str(e) and "unique" in str(e).lower():
-                raise ApiError(
-                    ErrorCode.CONFLICT, f"slug '{payload.slug}' already taken"
-                ) from e
+                raise ApiError(ErrorCode.CONFLICT, f"slug '{payload.slug}' already taken") from e
             raise
 
     if not row:
@@ -275,9 +269,7 @@ async def add_member(tenant_id: str, user_id: str, role: str) -> dict[str, Any]:
     return dict(row)
 
 
-async def update_member_role(
-    tenant_id: str, user_id: str, role: str
-) -> dict[str, Any]:
+async def update_member_role(tenant_id: str, user_id: str, role: str) -> dict[str, Any]:
     """改成员角色。"""
     if role not in VALID_ROLES:
         raise ApiError(ErrorCode.INVALID_PARAMS, f"bad role {role}")
@@ -384,9 +376,7 @@ async def set_quota(tenant_id: str, quota: dict[str, Any]) -> dict[str, Any]:
 async def _ensure_tenant_exists(tenant_id: str) -> None:
     """快速存在性检查（轻量 SELECT 1）。"""
     async with db.admin_db_session() as conn:
-        row = await conn.fetchrow(
-            "SELECT 1 FROM tenant WHERE id = $1", tenant_id
-        )
+        row = await conn.fetchrow("SELECT 1 FROM tenant WHERE id = $1", tenant_id)
     if not row:
         raise ApiError(ErrorCode.NOT_FOUND, f"tenant {tenant_id} not found")
 

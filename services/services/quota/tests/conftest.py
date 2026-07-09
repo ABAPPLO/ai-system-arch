@@ -32,6 +32,7 @@ def reset_state():
 @pytest.fixture
 def tenant_a():
     from apihub_core.tenant import TenantContext
+
     return TenantContext(
         tenant_id="tenant_a",
         tenant_type="internal",

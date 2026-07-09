@@ -70,7 +70,7 @@ jobs:
           --health-retries 20
 
     env:
-      TEST_PG_DSN: postgresql://apihub:apihub_dev_pwd@localhost:5432/apihub
+      TEST_PG_DSN: postgresql://apihub_app:apihub_app_dev_pwd@localhost:5432/apihub
 
     steps:
       - uses: actions/checkout@v4
@@ -97,11 +97,18 @@ jobs:
           done
           echo "PG not ready"; exit 1
 
-      - name: Load schema + seed
+      - name: Load roles + schema + grants + seed
+        # 顺序：00-roles（建 apihub_app NOSUPERUSER）→ 01-schema（表+RLS 策略+FORCE）→
+        # 99-grants（授权给 apihub_app）→ 02-seed。测试以 apihub_app 连（非 superuser），
+        # 否则 superuser 绕过 RLS，租户隔离测试全挂（同 phase2 findings #1）。
         run: |
-          PGPASSWORD=apihub_dev_pwd psql -h localhost -U apihub -d apihub \
+          PGPASSWORD=apihub_dev_pwd psql -h localhost -U apihub -d apihub -v ON_ERROR_STOP=1 \
+            -f scripts/init-db/00-roles.sql
+          PGPASSWORD=apihub_dev_pwd psql -h localhost -U apihub -d apihub -v ON_ERROR_STOP=1 \
             -f scripts/init-db/01-schema.sql
-          PGPASSWORD=apihub_dev_pwd psql -h localhost -U apihub -d apihub \
+          PGPASSWORD=apihub_dev_pwd psql -h localhost -U apihub -d apihub -v ON_ERROR_STOP=1 \
+            -f scripts/init-db/99-grants.sql
+          PGPASSWORD=apihub_dev_pwd psql -h localhost -U apihub -d apihub -v ON_ERROR_STOP=1 \
             -f scripts/init-db/02-seed.sql
 
       - name: Run integration tests

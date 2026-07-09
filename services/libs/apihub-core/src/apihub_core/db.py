@@ -43,11 +43,9 @@ async def init_pool(settings: Settings) -> None:
     global _pool
     # asyncpg 接受 'disable'/'prefer'/'require'/'verify-ca'/'verify-full'/False/True
     # 这里直接透传 settings.pg_ssl 字符串；False 表示完全关闭。
-    ssl_value: str | bool
-    if settings.pg_ssl.lower() in ("false", "off", "no"):
-        ssl_value = False
-    else:
-        ssl_value = settings.pg_ssl
+    ssl_value: str | bool = (
+        False if settings.pg_ssl.lower() in ("false", "off", "no") else settings.pg_ssl
+    )
 
     _pool = await asyncpg.create_pool(
         host=settings.pg_host,
@@ -94,9 +92,7 @@ async def db_session() -> AsyncIterator[asyncpg.Connection]:
             try:
                 # 注入租户上下文给 RLS 用
                 await conn.execute(f"SET LOCAL app.tenant_id = '{ctx.tenant_id}'")
-                await conn.execute(
-                    f"SET LOCAL app.is_platform_admin = '{ctx.is_platform_admin}'"
-                )
+                await conn.execute(f"SET LOCAL app.is_platform_admin = '{ctx.is_platform_admin}'")
                 yield conn
                 await tr.commit()
             except Exception:

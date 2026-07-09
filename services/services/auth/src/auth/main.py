@@ -1,6 +1,5 @@
 """auth 启动入口。"""
 
-
 from apihub_core import create_app
 
 from auth.routes import register_routes

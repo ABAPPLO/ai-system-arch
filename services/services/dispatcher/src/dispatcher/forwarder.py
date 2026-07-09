@@ -7,15 +7,15 @@
 4. AI 流式：直接 StreamingResponse，chunk-by-chunk 转发 SSE
 """
 
+import json as _json
 import time
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
 
 import httpx
-from fastapi import Request
-from fastapi.responses import StreamingResponse, JSONResponse
-
 from apihub_core.errors import ApiError, ErrorCode
 from apihub_core.logging import get_logger
+from fastapi import Request
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from dispatcher.event import build_call_event, new_request_id
 from dispatcher.masking import apply_masking
@@ -24,13 +24,15 @@ log = get_logger(__name__)
 
 # 不透传给后端的 header
 _DROP_HEADERS = {
-    "host", "content-length", "connection", "transfer-encoding",
-    "x-api-key", "authorization",  # 调用方凭证不能给后端
-    "x-tenant-id", "x-app-id",     # 由 dispatcher 自己注入
+    "host",
+    "content-length",
+    "connection",
+    "transfer-encoding",
+    "x-api-key",
+    "authorization",  # 调用方凭证不能给后端
+    "x-tenant-id",
+    "x-app-id",  # 由 dispatcher 自己注入
 }
-
-# AI SSE chunk 用于解析 token usage 的最小解析（容错）
-import json as _json
 
 
 class HttpForwarder:
@@ -55,9 +57,13 @@ class HttpForwarder:
         start = time.perf_counter()
 
         if snap.is_streaming:
-            return await self._forward_stream(snap, request, url, forward_headers, body, request_id, start)
+            return await self._forward_stream(
+                snap, request, url, forward_headers, body, request_id, start
+            )
 
-        return await self._forward_sync(snap, request, url, forward_headers, body, request_id, start)
+        return await self._forward_sync(
+            snap, request, url, forward_headers, body, request_id, start
+        )
 
     async def _forward_sync(self, snap, request, url, headers, body, request_id, start):
         try:
@@ -76,7 +82,7 @@ class HttpForwarder:
                 ErrorCode.API_DOWN,
                 f"backend unreachable: {e}",
                 http_status=503,
-            )
+            ) from e
 
         backend_latency_ms = int((time.perf_counter() - start) * 1000)
         response_body = resp.content
@@ -85,8 +91,14 @@ class HttpForwarder:
         masked_for_log = apply_masking(_safe_json(response_body), _rules_from_snap(snap))
 
         await _emit_success(
-            snap, request, resp.status_code, len(body), len(response_body),
-            backend_latency_ms, request_id, ai_usage=_extract_ai_usage(snap, response_body),
+            snap,
+            request,
+            resp.status_code,
+            len(body),
+            len(response_body),
+            backend_latency_ms,
+            request_id,
+            ai_usage=_extract_ai_usage(snap, response_body),
             masked_payload=masked_for_log,
         )
 
@@ -128,13 +140,18 @@ class HttpForwarder:
             except httpx.RequestError as e:
                 log.warning("stream_backend_error", error=str(e))
                 # 给客户端一个 SSE 错误事件
-                yield b"data: {\"error\":\"backend error\"}\n\n"
+                yield b'data: {"error":"backend error"}\n\n'
                 status_code = 503
             finally:
                 latency_ms = int((time.perf_counter() - start) * 1000)
                 await _emit_stream_complete(
-                    snap, request, status_code, len(body), total_bytes,
-                    latency_ms, request_id,
+                    snap,
+                    request,
+                    status_code,
+                    len(body),
+                    total_bytes,
+                    latency_ms,
+                    request_id,
                     tokens_prompt=tokens_prompt,
                     tokens_completion=tokens_completion,
                 )
@@ -177,6 +194,7 @@ def _safe_json(body: bytes):
         return None
     try:
         import json
+
         return json.loads(body)
     except Exception:
         # 非 JSON，原样返回让上层透传
@@ -225,13 +243,24 @@ def _extract_tokens_from_chunk(chunk: bytes) -> tuple[int, int]:
                 prompt = u.get("prompt_tokens", 0)
                 completion = u.get("completion_tokens", 0)
     except Exception:
-        pass
+        # SSE usage 解析为 best-effort，失败不影响转发（仅 token 计量缺失）
+        log.debug("sse_usage_parse_failed", exc_info=True)
     return prompt, completion
 
 
-async def _emit_success(snap, request, status_code, req_size, resp_size,
-                       backend_latency_ms, request_id, ai_usage=None, masked_payload=None):
+async def _emit_success(
+    snap,
+    request,
+    status_code,
+    req_size,
+    resp_size,
+    backend_latency_ms,
+    request_id,
+    ai_usage=None,
+    masked_payload=None,
+):
     from apihub_core import kafka
+
     payload = build_call_event(
         api_id=snap.api_id,
         api_version_id=snap.id,
@@ -259,6 +288,7 @@ async def _emit_success(snap, request, status_code, req_size, resp_size,
 
 async def _emit_failure(snap, request, exc, request_id, backend_latency_ms):
     from apihub_core import kafka
+
     payload = build_call_event(
         api_id=snap.api_id,
         api_version_id=snap.id,
@@ -281,9 +311,19 @@ async def _emit_failure(snap, request, exc, request_id, backend_latency_ms):
     await kafka.emit("api-call-events", payload)
 
 
-async def _emit_stream_complete(snap, request, status_code, req_size, total_bytes,
-                                 latency_ms, request_id, tokens_prompt=0, tokens_completion=0):
+async def _emit_stream_complete(
+    snap,
+    request,
+    status_code,
+    req_size,
+    total_bytes,
+    latency_ms,
+    request_id,
+    tokens_prompt=0,
+    tokens_completion=0,
+):
     from apihub_core import kafka
+
     payload = build_call_event(
         api_id=snap.api_id,
         api_version_id=snap.id,

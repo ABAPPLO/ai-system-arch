@@ -48,9 +48,7 @@ def validate_file(path: Path) -> list[str]:
     version = data.get("version", {})
     bt = version.get("backend_type")
     if bt and bt not in VALID_BACKEND_TYPES:
-        errors.append(
-            f"{path}: invalid backend_type '{bt}', must be {VALID_BACKEND_TYPES}"
-        )
+        errors.append(f"{path}: invalid backend_type '{bt}', must be {VALID_BACKEND_TYPES}")
 
     method = version.get("method")
     if method and method not in VALID_METHODS:

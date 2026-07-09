@@ -7,7 +7,6 @@
   - reset_stale_running SQL 模板能跑
 """
 
-
 import pytest
 
 
@@ -50,6 +49,7 @@ class TestGetTaskStatus:
         patch_db.fetchrow_ret = {"status": "pending"}
 
         from executor.repository import get_task_status
+
         result = await get_task_status("task_1")
 
         assert result == "pending"
@@ -59,6 +59,7 @@ class TestGetTaskStatus:
         patch_db.fetchrow_ret = None
 
         from executor.repository import get_task_status
+
         result = await get_task_status("task_missing")
         assert result is None
 
@@ -68,6 +69,7 @@ class TestMarkRunning:
         patch_db.execute_ret = "UPDATE 1"
 
         from executor.repository import mark_running
+
         result = await mark_running("task_1")
 
         assert result is True
@@ -80,6 +82,7 @@ class TestMarkRunning:
         patch_db.execute_ret = "UPDATE 0"
 
         from executor.repository import mark_running
+
         result = await mark_running("task_1")
         assert result is False
 
@@ -87,6 +90,7 @@ class TestMarkRunning:
 class TestMarkSucceeded:
     async def test_updates_response_body_and_status(self, patch_db):
         from executor.repository import mark_succeeded
+
         await mark_succeeded("task_1", response_body='{"ok":1}', http_status=200)
 
         kind, sql, args = patch_db.calls[0]
@@ -100,6 +104,7 @@ class TestMarkSucceeded:
 class TestMarkFailed:
     async def test_normal_failure(self, patch_db):
         from executor.repository import mark_failed
+
         await mark_failed(
             "task_1",
             error_code="backend_http_500",
@@ -108,11 +113,12 @@ class TestMarkFailed:
         )
 
         _, sql, args = patch_db.calls[0]
-        assert "ELSE 'failed'" in sql   # CASE 走 else 分支
+        assert "ELSE 'failed'" in sql  # CASE 走 else 分支
         assert args == ("task_1", "backend_http_500", "boom", 500)
 
     async def test_timeout_maps_to_timeout_status(self, patch_db):
         from executor.repository import mark_failed
+
         await mark_failed(
             "task_1",
             error_code="timeout",
@@ -130,6 +136,7 @@ class TestResetStale:
         patch_db.execute_ret = "UPDATE 3"
 
         from executor.repository import reset_stale_running
+
         n = await reset_stale_running(timeout_seconds=600)
 
         assert n == 3
@@ -141,5 +148,6 @@ class TestResetStale:
         patch_db.execute_ret = "garbage"
 
         from executor.repository import reset_stale_running
+
         n = await reset_stale_running(timeout_seconds=600)
         assert n == 0

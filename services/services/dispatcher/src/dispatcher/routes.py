@@ -4,11 +4,9 @@
 解析：优先 X-API-Version-Id header，回退 path 匹配
 """
 
-import httpx
-from fastapi import FastAPI, Request
-
 from apihub_core.errors import ApiError, ErrorCode
 from apihub_core.logging import get_logger
+from fastapi import FastAPI, Request
 
 from dispatcher.forwarder import HttpForwarder
 from dispatcher.resolver import resolve_by_header, resolve_by_path
@@ -32,7 +30,6 @@ def get_forwarder() -> HttpForwarder:
 
 
 def register_routes(app: FastAPI) -> None:
-
     @app.api_route(
         "/dispatch/{rest:path}",
         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],

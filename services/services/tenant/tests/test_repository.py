@@ -23,9 +23,17 @@ class TestStatusMachinePrecheck:
 
     async def test_closed_is_terminal(self, monkeypatch):
         """已 closed 的租户不能再变状态。"""
+
         async def _get_tenant(tid):
-            return {"id": tid, "status": "closed", "name": "x", "slug": "x",
-                    "type": "internal", "tier": "standard", "metadata": {}}
+            return {
+                "id": tid,
+                "status": "closed",
+                "name": "x",
+                "slug": "x",
+                "type": "internal",
+                "tier": "standard",
+                "metadata": {},
+            }
 
         monkeypatch.setattr(repo, "get_tenant", _get_tenant)
         with pytest.raises(ApiError) as exc:
@@ -34,8 +42,15 @@ class TestStatusMachinePrecheck:
 
     async def test_active_to_suspended_calls_db(self, monkeypatch):
         async def _get_tenant(tid):
-            return {"id": tid, "status": "active", "name": "x", "slug": "x",
-                    "type": "internal", "tier": "standard", "metadata": {}}
+            return {
+                "id": tid,
+                "status": "active",
+                "name": "x",
+                "slug": "x",
+                "type": "internal",
+                "tier": "standard",
+                "metadata": {},
+            }
 
         called = {}
 
@@ -63,10 +78,18 @@ class TestStatusMachinePrecheck:
 
             async def fetchrow(self, *args):
                 called["fetchrow"] = args
-                return {"id": "t1", "status": "suspended", "name": "x",
-                        "slug": "x", "type": "internal", "tier": "standard",
-                        "metadata": {}, "parent_id": None,
-                        "created_at": "2026-07-01", "updated_at": "2026-07-01"}
+                return {
+                    "id": "t1",
+                    "status": "suspended",
+                    "name": "x",
+                    "slug": "x",
+                    "type": "internal",
+                    "tier": "standard",
+                    "metadata": {},
+                    "parent_id": None,
+                    "created_at": "2026-07-01",
+                    "updated_at": "2026-07-01",
+                }
 
         from apihub_core import db as db_mod
 
@@ -97,19 +120,16 @@ class TestRoleValidation:
 
 class TestTenantCreate:
     def test_normalized_type_bad_falls_back(self):
-        payload = TenantCreate(
-            id="t1", name="xx", slug="xx", type="garbage", tier="standard"
-        )
+        payload = TenantCreate(id="t1", name="xx", slug="xx", type="garbage", tier="standard")
         assert payload.normalized_type() == "internal"
 
     def test_normalized_tier_bad_falls_back(self):
-        payload = TenantCreate(
-            id="t1", name="xx", slug="xx", type="internal", tier="platinum"
-        )
+        payload = TenantCreate(id="t1", name="xx", slug="xx", type="internal", tier="platinum")
         assert payload.normalized_tier() == "standard"
 
     def test_id_pattern_rejects_spaces(self):
         from pydantic import ValidationError
+
         with pytest.raises(ValidationError):
             TenantCreate(id="has space", name="x", slug="x")
 
@@ -121,8 +141,15 @@ class TestTenantUpdate:
 
         async def _get_tenant(tid):
             called["get_tenant"] = True
-            return {"id": tid, "name": "n", "slug": "s", "type": "internal",
-                    "status": "active", "tier": "standard", "metadata": {}}
+            return {
+                "id": tid,
+                "name": "n",
+                "slug": "s",
+                "type": "internal",
+                "status": "active",
+                "tier": "standard",
+                "metadata": {},
+            }
 
         monkeypatch.setattr(repo, "get_tenant", _get_tenant)
 
