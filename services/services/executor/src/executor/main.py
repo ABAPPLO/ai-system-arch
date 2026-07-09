@@ -24,10 +24,17 @@ from executor.repository import reset_stale_running
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """启动顺序：DB pool → Redis → Kafka producer（推 task-status 用）
-    → httpx client → reset stale running → Kafka consumer。"""
+    """启动顺序：OTel tracing → DB pool → Redis → Kafka producer（推 task-status 用）
+    → httpx client → reset stale running → Kafka consumer。
+
+    注意：其它服务经 create_app() 自动 configure_tracing + instrument_app；executor
+    手搓 FastAPI，必须显式补上，否则 consume span / SERVER span 都不会导出到 Jaeger。
+    """
+    from apihub_core import tracing
+
     settings = get_settings()
     settings.otel_service_name = "executor"
+    tracing.configure_tracing(settings)  # 初始化 OTel SDK（让 consume span 真导出）
 
     await db.init_pool(settings)
     await redis.init_redis(settings)
@@ -59,6 +66,12 @@ app = FastAPI(
     docs_url=None,  # worker 服务不开 Swagger
     redoc_url=None,
 )
+
+# 与 create_app 一致：对已实例化的 app 显式 instrument，生成 SERVER span。
+# tracer provider 在 lifespan 里 set，instrument_app 请求时懒取，顺序不冲突。
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor  # noqa: E402
+
+FastAPIInstrumentor.instrument_app(app)
 
 
 @app.get("/health/live")

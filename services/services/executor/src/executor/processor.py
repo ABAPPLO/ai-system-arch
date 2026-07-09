@@ -128,6 +128,13 @@ async def _call_backend(msg: TaskMessage) -> TaskResult:
         "X-Tenant-Id": msg.tenant_id or "",
         "X-Trace-Id": msg.trace_id or "",
     }
+    # W3C traceparent：把当前 OTel context（由 consume_with_trace attach）
+    # 注入 header，让 OTel 链延续到业务 backend（与既有 X-Trace-Id 共存）。
+    from opentelemetry import propagate
+
+    tp: dict[str, str] = {}
+    propagate.inject(tp)
+    headers.update(tp)
 
     try:
         resp = await _client.post(
