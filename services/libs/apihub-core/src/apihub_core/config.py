@@ -66,6 +66,9 @@ class Settings(BaseSettings):
     executor_service_template: str = (
         "http://executor.apihub-system.svc.cluster.local:{port}/v1/internal/retry"
     )
+    # workflow-svc（dispatcher /v1/jobs 代理目标，文档 §4）
+    # K8s 默认走集群内 DNS；dev 在 .env.dev 覆盖到 localhost:8010
+    workflow_service_url: str = "http://workflow.apihub-system"
 
 
 @lru_cache

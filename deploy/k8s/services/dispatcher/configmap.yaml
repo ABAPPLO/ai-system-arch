@@ -25,6 +25,9 @@ data:
   KAFKA_TOPIC_TASK_REQUESTS: task-requests
   KAFKA_TOPIC_AUDIT_EVENTS: audit-events
 
+  # workflow-svc（dispatcher /v1/jobs 代理目标，文档 §4）
+  WORKFLOW_SERVICE_URL: http://workflow.apihub-system
+
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.apihub-monitoring:4317
   OTEL_SERVICE_NAME: dispatcher
   OTEL_RESOURCE_ATTRIBUTES: deployment.environment=dev
