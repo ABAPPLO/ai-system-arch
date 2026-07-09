@@ -17,15 +17,15 @@ class TestBuildWhere:
         assert params == {}
 
     def test_viewer_tenant_forced(self):
-        """普通用户：强制 viewer_tenant_id 过滤。"""
+        """普通用户：强制 viewer_tenant_id 过滤（String，原样透传）。"""
         where, params = repo._build_where(CallQuery(), viewer_tenant_id="100")
         assert "tenant_id = %(tenant_id)s" in where
-        assert params["tenant_id"] == 100
+        assert params["tenant_id"] == "100"
 
-    def test_viewer_tenant_non_digit(self):
-        """tenant_id 不是数字（如 'system'）→ 0（CH UInt64 兜底）。"""
+    def test_viewer_tenant_string_passthrough(self):
+        """tenant_id 非数字（如 'system'）→ 原样透传 String。"""
         where, params = repo._build_where(CallQuery(), viewer_tenant_id="system")
-        assert params["tenant_id"] == 0
+        assert params["tenant_id"] == "system"
 
     def test_status_success(self):
         q = CallQuery(status=CallStatusFilter.SUCCESS)
@@ -39,8 +39,9 @@ class TestBuildWhere:
 
     def test_status_timeout(self):
         q = CallQuery(status=CallStatusFilter.TIMEOUT)
-        where, _ = repo._build_where(q, viewer_tenant_id=None)
-        assert "is_timeout = 1" in where
+        where, params = repo._build_where(q, viewer_tenant_id=None)
+        assert "error_code LIKE %(timeout_pat)s" in where
+        assert params["timeout_pat"] == "%timeout%"
 
     def test_all_filters(self):
         q = CallQuery(
@@ -52,8 +53,8 @@ class TestBuildWhere:
             until=datetime(2026, 7, 2),
         )
         where, params = repo._build_where(q, viewer_tenant_id=None)
-        assert "api_uuid = %(api_id)s" in where
-        assert "app_uuid = %(app_id)s" in where
+        assert "api_id = %(api_id)s" in where
+        assert "app_id = %(app_id)s" in where
         assert "trace_id = %(trace_id)s" in where
         assert "is_success = 0" in where
         assert "ts >= %(since)s" in where
@@ -70,18 +71,16 @@ class TestListCalls:
         fake_ch["rows"] = [
             {
                 "trace_id": "t1",
-                "api_uuid": "api_a",
-                "api_path": "/echo",
-                "api_method": "GET",
-                "api_version": "v1",
-                "app_uuid": "app_x",
-                "app_name": "myapp",
-                "caller_ip": "10.0.0.1",
-                "http_status": 200,
+                "api_id": "api_a",
+                "path": "/echo",
+                "method": "GET",
+                "api_version_id": "v1",
+                "app_id": "app_x",
+                "client_ip": "10.0.0.1",
+                "status_code": 200,
                 "is_success": 1,
-                "is_timeout": 0,
                 "latency_ms": 12,
-                "error_type": "",
+                "error_code": "",
                 "error_msg": "",
                 "ts": datetime(2026, 7, 1),
             }
@@ -111,23 +110,26 @@ class TestGetCall:
     async def test_found(self, fake_ch):
         fake_ch["row"] = {
             "trace_id": "t1",
-            "api_uuid": "api_a",
-            "api_path": "/echo",
-            "api_method": "GET",
-            "api_version": "v1",
-            "app_uuid": "app_x",
-            "app_name": None,
-            "caller_ip": "10.0.0.1",
-            "http_status": 200,
+            "api_id": "api_a",
+            "path": "/echo",
+            "method": "GET",
+            "api_version_id": "v1",
+            "app_id": "app_x",
+            "client_ip": "10.0.0.1",
+            "request_id": "r1",
+            "request_size": 100,
+            "response_size": 200,
+            "status_code": 200,
             "is_success": 1,
-            "is_timeout": 0,
             "latency_ms": 5,
-            "is_streaming": 0,
+            "backend_latency_ms": 4,
+            "ai_streaming": 0,
             "token_prompt": 0,
             "token_completion": 0,
             "token_total": 0,
             "ai_model": "",
-            "is_retry": 0,
+            "error_code": "",
+            "error_msg": "",
             "ts": datetime(2026, 7, 1),
         }
         row = await repo.get_call("t1", use_admin_session=True)
@@ -150,7 +152,7 @@ class TestGetCall:
         # SQL 包含 tenant_id 过滤
         _, sql, params, force = fake_ch["calls"][0]
         assert "tenant_id = %(tenant_id)s" in sql
-        assert params["tenant_id"] == 100
+        assert params["tenant_id"] == "100"
 
 
 class TestStats:
@@ -173,11 +175,11 @@ class TestStats:
 
         def _query_all(sql, params=None, *, force_tenant_id="sentinel"):
             call_count["n"] += 1
-            if "GROUP BY api_uuid" in sql:
+            if "GROUP BY api_id" in sql:
                 return [
-                    {"api_id": "api_a", "api_path": "/echo", "n": 500, "success_n": 490}
+                    {"api_id": "api_a", "path": "/echo", "n": 500, "success_n": 490}
                 ]
-            if "GROUP BY ts_hour" in sql:
+            if "GROUP BY toStartOfHour(ts)" in sql:
                 return [
                     {"hour": "2026-07-01 00:00:00", "n": 100, "success_n": 95}
                 ]

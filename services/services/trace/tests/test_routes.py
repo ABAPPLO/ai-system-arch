@@ -9,18 +9,16 @@ from trace_svc import repository as repo_mod
 def _list_row(**overrides):
     base = {
         "trace_id": "t1",
-        "api_uuid": "api_a",
-        "api_path": "/echo",
-        "api_method": "GET",
-        "api_version": "v1",
-        "app_uuid": "app_x",
-        "app_name": "myapp",
-        "caller_ip": "10.0.0.1",
-        "http_status": 200,
+        "api_id": "api_a",
+        "path": "/echo",
+        "method": "GET",
+        "api_version_id": "v1",
+        "app_id": "app_x",
+        "client_ip": "10.0.0.1",
+        "status_code": 200,
         "is_success": 1,
-        "is_timeout": 0,
         "latency_ms": 12,
-        "error_type": "",
+        "error_code": "",
         "error_msg": "",
         "ts": datetime(2026, 7, 1),
     }
@@ -30,28 +28,17 @@ def _list_row(**overrides):
 
 def _detail_row(**overrides):
     base = _list_row()
-    base.update(
-        {
-            "parent_trace_id": "",
-            "span_id": "s1",
-            "api_mode": "sync",
-            "env": "dev",
-            "gateway_node": "node-1",
-            "req_id": "r1",
-            "req_size": 100,
-            "resp_size": 200,
-            "gateway_latency_ms": 2,
-            "backend_latency_ms": 10,
-            "is_streaming": 0,
-            "token_prompt": 0,
-            "token_completion": 0,
-            "token_total": 0,
-            "ai_model": "",
-            "is_retry": 0,
-            "retry_no": 0,
-            "task_id": "",
-        }
-    )
+    base.update({
+        "request_id": "r1",
+        "request_size": 100,
+        "response_size": 200,
+        "backend_latency_ms": 10,
+        "ai_streaming": 0,
+        "token_prompt": 0,
+        "token_completion": 0,
+        "token_total": 0,
+        "ai_model": "",
+    })
     base.update(overrides)
     return base
 
@@ -137,7 +124,8 @@ class TestGetCall:
         body = resp.json()
         assert body["trace_id"] == "tr_abc"
         assert body["is_success"] is True
-        assert body["span_id"] == "s1"
+        assert body["backend_latency_ms"] == 10
+        assert body["span_id"] is None  # 列已删，恒为 None
 
     async def test_normal_user_tenant_filter(self, client, as_normal_user, monkeypatch):
         as_normal_user("t_self")

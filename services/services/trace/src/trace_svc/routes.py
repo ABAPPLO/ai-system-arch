@@ -126,18 +126,18 @@ def _row_to_list_item(r: dict[str, Any]) -> CallListItem:
     """
     return CallListItem(
         trace_id=str(r.get("trace_id", "")),
-        api_id=str(r.get("api_uuid", "")),
-        api_path=str(r.get("api_path", "")),
-        api_method=str(r.get("api_method", "GET")),
-        api_version=str(r.get("api_version", "v1")),
-        app_id=str(r.get("app_uuid", "")),
-        app_name=r.get("app_name"),
-        caller_ip=_format_ip(r.get("caller_ip")),
-        http_status=int(r.get("http_status", 0)),
+        api_id=str(r.get("api_id", "")),
+        api_path=str(r.get("path", "")),
+        api_method=str(r.get("method", "GET")),
+        api_version=str(r.get("api_version_id", "v1")),
+        app_id=str(r.get("app_id", "")),
+        app_name=None,  # 列已删，恒 None
+        caller_ip=_format_ip(r.get("client_ip")),
+        http_status=int(r.get("status_code", 0)),
         is_success=bool(r.get("is_success", 0)),
-        is_timeout=bool(r.get("is_timeout", 0)),
+        is_timeout=False,  # 列已删，恒 False
         latency_ms=int(r.get("latency_ms", 0)),
-        error_type=r.get("error_type") or None,
+        error_type=r.get("error_code") or None,
         error_msg=r.get("error_msg") or None,
         ts=r.get("ts"),
     )
@@ -146,47 +146,39 @@ def _row_to_list_item(r: dict[str, Any]) -> CallListItem:
 def _row_to_detail(r: dict[str, Any]) -> CallDetail:
     return CallDetail(
         trace_id=str(r.get("trace_id", "")),
-        parent_trace_id=r.get("parent_trace_id") or None,
-        span_id=r.get("span_id") or None,
-        api_id=str(r.get("api_uuid", "")),
-        api_path=str(r.get("api_path", "")),
-        api_method=str(r.get("api_method", "GET")),
-        api_version=str(r.get("api_version", "v1")),
-        api_mode=r.get("api_mode"),
-        app_id=str(r.get("app_uuid", "")),
-        app_name=r.get("app_name"),
-        caller_ip=_format_ip(r.get("caller_ip")),
-        env=r.get("env"),
-        gateway_node=r.get("gateway_node"),
-        req_id=r.get("req_id") or None,
-        req_size=int(r.get("req_size", 0)) if r.get("req_size") is not None else None,
-        resp_size=int(r.get("resp_size", 0)) if r.get("resp_size") is not None else None,
-        http_status=int(r.get("http_status", 0)),
-        is_success=bool(r.get("is_success", 0)),
-        is_timeout=bool(r.get("is_timeout", 0)),
-        latency_ms=int(r.get("latency_ms", 0)),
-        gateway_latency_ms=int(r.get("gateway_latency_ms", 0))
-        if r.get("gateway_latency_ms") is not None
-        else None,
+        parent_trace_id=None,
+        span_id=None,
+        api_id=str(r.get("api_id", "")),
+        api_path=str(r.get("path", "")),
+        api_method=str(r.get("method", "GET")),
+        api_version=str(r.get("api_version_id", "v1")),
+        api_mode=None,
+        app_id=str(r.get("app_id", "")),
+        app_name=None,
+        caller_ip=_format_ip(r.get("client_ip")),
+        env=None,
+        gateway_node=None,
+        req_id=r.get("request_id") or None,
+        req_size=int(r.get("request_size", 0)) if r.get("request_size") is not None else None,
+        resp_size=int(r.get("response_size", 0)) if r.get("response_size") is not None else None,
+        gateway_latency_ms=None,
         backend_latency_ms=int(r.get("backend_latency_ms", 0))
         if r.get("backend_latency_ms") is not None
         else None,
-        is_streaming=bool(r.get("is_streaming", 0)),
-        token_prompt=int(r.get("token_prompt", 0))
-        if r.get("token_prompt") is not None
-        else None,
-        token_completion=int(r.get("token_completion", 0))
-        if r.get("token_completion") is not None
-        else None,
-        token_total=int(r.get("token_total", 0))
-        if r.get("token_total") is not None
-        else None,
+        http_status=int(r.get("status_code", 0)),
+        is_success=bool(r.get("is_success", 0)),
+        is_timeout=False,
+        latency_ms=int(r.get("latency_ms", 0)),
+        is_streaming=bool(r.get("ai_streaming", 0)),
+        token_prompt=int(r.get("token_prompt", 0)) if r.get("token_prompt") is not None else None,
+        token_completion=int(r.get("token_completion", 0)) if r.get("token_completion") is not None else None,
+        token_total=int(r.get("token_total", 0)) if r.get("token_total") is not None else None,
         ai_model=r.get("ai_model") or None,
-        error_type=r.get("error_type") or None,
+        error_type=r.get("error_code") or None,
         error_msg=r.get("error_msg") or None,
-        is_retry=bool(r.get("is_retry", 0)),
-        retry_no=int(r.get("retry_no", 0)) if r.get("retry_no") is not None else None,
-        task_id=r.get("task_id") or None,
+        is_retry=False,
+        retry_no=None,
+        task_id=None,
         ts=r.get("ts"),
     )
 
