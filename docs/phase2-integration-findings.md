@@ -283,7 +283,7 @@
 6. **retry→executor 走错端口** — retry worker 默认调 `executor:8003`，但 Service 只暴露 80 → 每次重试 30s timeout。修：kind overlay（`ecd689a`）**及 base retry configmap**（终审修复）均设 `EXECUTOR_SERVICE_TEMPLATE=http://executor.apihub-system/v1/internal/retry`（无 `{port}` → `.format` no-op → 走 Service:80）。⚠️ `main.py` 仍硬编码 `executor_port=8003`，因模板无 `{port}` 占位故已无效；Phase 3 建议把端口也挪进 settings 彻底干净。
 
 **已识别、未修（列入后续）**：
-- **CH Kafka-engine MV 列映射坏**（Phase 3 P2 的具体化）— dispatcher→Kafka→MV 消费能跑，但 JSON 字段→CH 列映射失败，`api_call_log` 里所有列空/epoch。trace 查询本身已验证 OK（用 `INSERT ... SELECT` 造真实行测的），但**真实摄取链路断了**。需重做 MV 的 `SELECT` 字段映射（对齐 `api_call_events_src` 列名）。Stage 3 的 trace 验证走了 D5 降级路径。
+- **CH Kafka-engine 摄取 —— 已修**（`dispatcher/event.py` `_now_ch_ts`）：根因不是 MV 列映射，而是生产者 `ts` 用 ISO-8601（`2026-07-09T09:58:41.537733+00:00`），CH `DateTime64` JSONEachRow 解析不了 → 整行被判解析错误、所有列落 default（epoch ts + 空字符串）。修：生产者改发 CH 格式 `YYYY-MM-DD HH:MM:SS.mmm`。**已验证**：直接往 Kafka 投 CH 格式 ts 的消息能正确入库（真实列），ISO 格式的落 default。dispatcher 镜像 rebuild 后即全链路通（ingest 级已证）。
 - **PodSecurity prod 硬化** — 11 个服务 Deployment 缺 `seccompProfile`，prod `restricted` namespace 会拒。kind overlay 临时放开 `privileged`（dev only，`base/namespaces.yaml` 仍 `restricted`）。prod 需给 11 Deployment + mock-backend 补 `securityContext.seccompProfile.type: RuntimeDefault`。
 - **apihub-core `test_kafka.py` 4 个预存失败** — `kafka.py:94-97` bytes-vs-str header 处理。非任何任务引入，独立 tech debt。
 - **bitnami/kafka:\* 全系镜像已下架** → 用 `bitnamilegacy/kafka:3.7`（同 KRaft 布局）。
@@ -294,5 +294,5 @@
 - ✅ P0 四项全部清偿，单测 + 本地 smoke 验证。
 - ✅ kind 集群 12 pods Running，四条核心链路 genuine green，APISIX 网关进数据面。
 - ✅ trace-svc SQL 修复端到端验证通过（真实 CH schema）。
-- ⚠️ CH 真实摄取链路（Kafka→MV）仍是断的——trace 查询 OK 但日志进不来，是 Phase 3 必修项。
+- ✅ CH 真实摄取链路根因已修（生产者 `ts` ISO→CH 格式，ingest 级验证通过）；dispatcher 镜像 rebuild 后全链路通。
 - ⚠️ PodSecurity prod 硬化、test_kafka 预存失败为后续 tech debt。

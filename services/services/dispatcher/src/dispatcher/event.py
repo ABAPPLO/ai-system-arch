@@ -47,7 +47,7 @@ def build_call_event(
     app_id = ctx.app_id if ctx else ""
 
     return {
-        "ts": datetime.now(timezone.utc).isoformat(),
+        "ts": _now_ch_ts(),
         "tenant_id": tenant_id,
         "tenant_type": tenant_type,
         "app_id": app_id,
@@ -86,3 +86,13 @@ def _gen_request_id() -> str:
 
 def _gen_trace_id() -> str:
     return f"trc_{uuid.uuid4().hex[:16]}"
+
+
+def _now_ch_ts() -> str:
+    """UTC now as ClickHouse DateTime64(3)-compatible string: 'YYYY-MM-DD HH:MM:SS.mmm'。
+
+    CH JSONEachRow 解析 DateTime64 不认 ISO-8601（带 T / 时区偏移）→ 整行被判为解析错误、
+    所有列落 default（见 phase2-findings「K8s 联调」CH Kafka-engine MV 条）。
+    """
+    n = datetime.now(timezone.utc)
+    return n.strftime("%Y-%m-%d %H:%M:%S.") + f"{n.microsecond // 1000:03d}"
