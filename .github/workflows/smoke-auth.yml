@@ -66,6 +66,7 @@ jobs:
           PG_USER: apihub_app
           PG_PASSWORD: apihub_app_dev_pwd
           REDIS_HOST: 127.0.0.1
+          REDIS_PASSWORD: apihub_dev_pwd
           ENV: test
         run: |
           uv pip install --system -e services/libs/apihub-core -e services/services/auth cramjam
@@ -75,6 +76,7 @@ jobs:
           PG_USER: apihub_app
           PG_PASSWORD: apihub_app_dev_pwd
           REDIS_HOST: 127.0.0.1
+          REDIS_PASSWORD: apihub_dev_pwd
           KAFKA_BROKERS: localhost:9094
           ENV: dev
         run: |
