@@ -1,0 +1,32 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apihub-shared-infra
+  namespace: apihub-system
+data:
+  PG_HOST: "__HOST_IP__"
+  PG_PORT: "5432"
+  PG_USER: "apihub_app"
+  PG_DATABASE: "apihub"
+  PG_SSL: "disable"
+  REDIS_HOST: "__HOST_IP__"
+  REDIS_PORT: "6379"
+  KAFKA_BROKERS: "__HOST_IP__:9094"
+  CH_HOST: "__HOST_IP__"
+  CH_PORT: "8123"
+  CH_USERNAME: "apihub"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://__HOST_IP__:4317"
+  ENV: "dev"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apihub-shared-secret
+  namespace: apihub-system
+type: Opaque
+stringData:
+  # PG_PASSWORD 用业务账号 apihub_app 的密码（非 superuser apihub 的密码）。
+  # 见 scripts/init-db/00-roles.sql:29；.env.dev:PG_PASSWORD。
+  PG_PASSWORD: "apihub_app_dev_pwd"
+  REDIS_PASSWORD: "apihub_dev_pwd"
+  CH_PASSWORD: "apihub_dev_pwd"

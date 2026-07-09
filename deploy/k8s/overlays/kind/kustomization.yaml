@@ -1,0 +1,64 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# 不设全局 namespace：所有 base 资源（Deployment/ConfigMap）已在 metadata.namespace 显式
+# 声明 apihub-system；shared-infra/mock-backend 同样显式声明。全局 namespace transformer
+# 会把 namespaces.yaml 里的多个 Namespace（apihub-data/apihub-ingress/...）的 metadata.name
+# 全改成 apihub-system → ID 冲突。
+
+resources:
+  - ../../base/namespaces/namespaces.yaml
+  - shared-infra.yaml
+  - mock-backend.yaml
+  - ../../services/api-registry/configmap.yaml
+  - ../../services/api-registry/deployment.yaml
+  - ../../services/dispatcher/configmap.yaml
+  - ../../services/dispatcher/deployment.yaml
+  - ../../services/auth/configmap.yaml
+  - ../../services/auth/deployment.yaml
+  - ../../services/executor/configmap.yaml
+  - ../../services/executor/deployment.yaml
+  - ../../services/quota/configmap.yaml
+  - ../../services/quota/deployment.yaml
+  - ../../services/tenant/configmap.yaml
+  - ../../services/tenant/deployment.yaml
+  - ../../services/admin/configmap.yaml
+  - ../../services/admin/deployment.yaml
+  - ../../services/docs/configmap.yaml
+  - ../../services/docs/deployment.yaml
+  - ../../services/trace/configmap.yaml
+  - ../../services/trace/deployment.yaml
+  - ../../services/retry/configmap.yaml
+  - ../../services/retry/deployment.yaml
+  - ../../services/workflow/configmap.yaml
+  - ../../services/workflow/deployment.yaml
+
+patches:
+  - path: patches/api-registry-envfrom.yaml
+    target: { kind: Deployment, name: api-registry }
+  - path: patches/dispatcher-envfrom.yaml
+    target: { kind: Deployment, name: dispatcher }
+  - path: patches/auth-envfrom.yaml
+    target: { kind: Deployment, name: auth }
+  - path: patches/executor-envfrom.yaml
+    target: { kind: Deployment, name: executor }
+  - path: patches/quota-envfrom.yaml
+    target: { kind: Deployment, name: quota }
+  - path: patches/tenant-envfrom.yaml
+    target: { kind: Deployment, name: tenant }
+  - path: patches/admin-envfrom.yaml
+    target: { kind: Deployment, name: admin }
+  - path: patches/docs-envfrom.yaml
+    target: { kind: Deployment, name: docs }
+  - path: patches/trace-envfrom.yaml
+    target: { kind: Deployment, name: trace }
+  - path: patches/retry-envfrom.yaml
+    target: { kind: Deployment, name: retry }
+  - path: patches/workflow-envfrom.yaml
+    target: { kind: Deployment, name: workflow }
+  # 副本统一压 1（kind 资源友好）
+  - target: { kind: Deployment }
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
