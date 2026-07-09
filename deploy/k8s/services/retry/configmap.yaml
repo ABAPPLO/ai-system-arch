@@ -24,9 +24,11 @@ data:
   KAFKA_TOPIC_TASK_FAILURES: task-failures
   KAFKA_CONSUMER_GROUP: retry
 
-  # executor 内部 HTTP 接口（k8s 内网 DNS）
-  EXECUTOR_HOST: executor.apihub-system.svc.cluster.local
-  EXECUTOR_PORT: "8003"
+  # executor 内部重试入口：走 executor Service:80（worker.py 读 executor_service_template）。
+  # worker.py 默认模板含 {port} 且 main.py 默认 executor_port=8003，但 executor Service 只暴露 80
+  # → 显式给出无 {port} 的 URL，.format(port=...) 即 no-op，避免误连 :8003 被 drop。
+  # （见 phase2-findings「K8s 联调」retry→executor 条；kind overlay 同样设此值）
+  EXECUTOR_SERVICE_TEMPLATE: "http://executor.apihub-system/v1/internal/retry"
 
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.apihub-monitoring:4317
   OTEL_SERVICE_NAME: retry

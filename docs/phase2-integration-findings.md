@@ -280,7 +280,7 @@
 3. **workflow namespace 拼写** — `apihub-workflows` → `apihub-workflow`（Role/RoleBinding，commit `e5d7643`）。
 4. **PG 连接风暴** — 单节点 kind 上 11 服务 × pool 50 打爆 PG。kind overlay 缩 `PG_POOL_MIN/MAX=2/10` + bootstrap `max_connections=500`（commit `e5d7643`+`26c5747`）。
 5. **bootstrap Redis 端口同步 off-by-one** — 发布端口与写进 overlay 的 REDIS_PORT 不一致。修：bootstrap 用 `docker port` 回读实际发布端口再写 overlay（commit `ecd689a`）。
-6. **retry→executor 走错端口** — retry worker 调 `executor:8003`，但 Service 只暴露 80 → 每次重试 30s timeout。修：kind overlay 设 `EXECUTOR_SERVICE_TEMPLATE=http://executor.apihub-system/v1/internal/retry`（commit `ecd689a`）。
+6. **retry→executor 走错端口** — retry worker 默认调 `executor:8003`，但 Service 只暴露 80 → 每次重试 30s timeout。修：kind overlay（`ecd689a`）**及 base retry configmap**（终审修复）均设 `EXECUTOR_SERVICE_TEMPLATE=http://executor.apihub-system/v1/internal/retry`（无 `{port}` → `.format` no-op → 走 Service:80）。⚠️ `main.py` 仍硬编码 `executor_port=8003`，因模板无 `{port}` 占位故已无效；Phase 3 建议把端口也挪进 settings 彻底干净。
 
 **已识别、未修（列入后续）**：
 - **CH Kafka-engine MV 列映射坏**（Phase 3 P2 的具体化）— dispatcher→Kafka→MV 消费能跑，但 JSON 字段→CH 列映射失败，`api_call_log` 里所有列空/epoch。trace 查询本身已验证 OK（用 `INSERT ... SELECT` 造真实行测的），但**真实摄取链路断了**。需重做 MV 的 `SELECT` 字段映射（对齐 `api_call_events_src` 列名）。Stage 3 的 trace 验证走了 D5 降级路径。
