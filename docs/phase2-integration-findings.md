@@ -224,16 +224,23 @@
 
 ## Phase 3 优先级建议
 
+> 截至 2026-07-09：tasks #95-#108 已全部完成，Phase 2 端到端联调收尾。
+> 下面的项是进入 Phase 3（生产准备 + 灰度上线）的待办，按上线风险排序。
+
 **P0**（必须修，否则上线即坑）：
-- 给生产 K8s 部署补 `apihub_app` 业务账号创建步骤（K8s Secret + init-job）
-- CI 加一个集成 smoke：起栈 → 跑 auth-svc → curl 真实 key verify
-- 把 OTel / asyncpg / clickhouse_connect 锁版本
+- 生产 K8s 部署补 `apihub_app` 业务账号创建步骤（K8s Secret + init-job）—— dev 是手动 `scripts/init-db/00-roles.sql` + `99-grants.sql` 跑的，prod 必须自动化
+- CI 加一个集成 smoke：起栈 → 跑 auth-svc → curl 真实 key verify（防再次出现类似「PG_USER 改成业务账号导致 superuser」的回归）
+- 锁定关键依赖版本：OTel（0.61b0）、asyncpg、clickhouse_connect、aiokafka（防 0.40+ 那种 API 漂移再咬人）
+- trace-svc SQL 修列名（已知 tech debt，#17）—— `api_uuid/app_uuid/api_path/...` 全部对齐到 schema 实际的 `api_id/app_id/path/...`
 
 **P1**（强烈推荐）：
-- 6 个剩余服务跑通（task #97 ~ #100）
-- 声明式 CLI apply 验证评审工单完整流（pending → approved → applied）
-- 失败重试链路（注入 500 → retry_task 创建 → backoff → 最终 dead）
+- workflow-svc 端到端联调（依赖 Argo Workflow CRD 装到集群，目前只跑了单测）
+- dispatcher → executor → backend 的 traceparent 贯通验证（task #100 只跑了 admin/api-registry/auth 链路）
+- 失败重试链路在 K8s 环境复现（task #99 是本地起 backend server 验证的，K8s 还没跑过）
+- 验证 admin-bff dashboard 聚合在 K8s 环境正常（dev 本地 OK，K8s DNS 跨 namespace 还没测）
 
 **P2**（短链路容错）：
 - CH 测试数据 INSERT 改成 `INSERT ... SELECT` 形式（CI 跑通就能加）
 - `PG_SSL` 默认值从 `disable` 改成 `prefer`（dev 友好，prod 要求时再升）
+- ClickHouse Kafka source 表的列默认值由生产端 JSON 带（避免依赖 MV COALESCE）
+- apihub-cli 加 `--dry-run` 模式（输出 diff 不入库，便于评审前预览）
