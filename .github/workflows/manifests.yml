@@ -56,7 +56,11 @@ jobs:
           sudo mv kustomize /usr/local/bin/
 
       - name: Build ${{ matrix.env }}
-        run: kustomize build deploy/k8s/overlays/${{ matrix.env }} > /tmp/manifests-${{ matrix.env }}.yaml
+        # --load-restrictor LoadRestrictionsNone：overlays 引用 ../../base 与 ../../services
+        # （标准 base/+overlays 多环境布局，资源位于 overlay 子树之外）。kustomize 默认安全策略
+        # 禁止向上穿越子树，必须放开 restriction 才能构建——这是 kustomize 多环境布局的官方推荐用法，
+        # 非恶意外部引用，故在此显式放开。
+        run: kustomize build deploy/k8s/overlays/${{ matrix.env }} --load-restrictor LoadRestrictionsNone > /tmp/manifests-${{ matrix.env }}.yaml
 
       - name: Validate YAML syntax
         run: python3 -c "import yaml; list(yaml.safe_load_all(open('/tmp/manifests-${{ matrix.env }}.yaml')))"
@@ -87,5 +91,6 @@ jobs:
 
       - name: Build + check
         run: |
-          kustomize build deploy/k8s/overlays/${{ matrix.env }} \
+          # 同 kustomize job：base/ 在 overlay 子树之外，需 LoadRestrictionsNone（标准多环境布局）
+          kustomize build deploy/k8s/overlays/${{ matrix.env }} --load-restrictor LoadRestrictionsNone \
             | kubeconform -strict -ignore-missing-schemas -summary

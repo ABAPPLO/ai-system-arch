@@ -4,7 +4,10 @@
 apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 
-namespace: apihub-system
+# 不设全局 namespace：base 资源（Deployment/ConfigMap）已在 metadata.namespace 显式声明
+# apihub-system；全局 namespace transformer 会把 namespaces.yaml 里多个 Namespace
+# （apihub-data/apihub-ingress/...）的 metadata.name 全改成 apihub-system → ID 冲突。
+# （与 overlays/kind 写法一致）
 
 resources:
   - ../../base/namespaces/namespaces.yaml
