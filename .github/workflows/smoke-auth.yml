@@ -59,6 +59,7 @@ jobs:
             docker exec apihub-pg pg_isready -U apihub && break
             sleep 2
           done
+          docker exec apihub-pg pg_isready -U apihub
       - name: Install deps
         env:
           PG_HOST: 127.0.0.1
@@ -79,6 +80,7 @@ jobs:
         run: |
           uvicorn auth.main:app --host 127.0.0.1 --port 8002 &
           SVC=$!
+          trap 'kill $SVC 2>/dev/null || true' EXIT
           for i in $(seq 1 30); do curl -sf http://127.0.0.1:8002/health/live && break; sleep 1; done
           RESP=$(curl -s -X POST http://127.0.0.1:8002/v1/apikey/verify \
             -H 'Content-Type: application/json' \
