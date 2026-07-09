@@ -10,11 +10,16 @@ class _FakeProducer:
         self.calls: list[dict] = []
 
     async def send_and_wait(self, topic, payload, key=None, headers=None):
+        # 生产者把 header value 编码成 bytes（aiokafka 0.14+ 要求，见 kafka.py:94-97）；
+        # 这里 decode 回 str，与消费端 extract_trace_context 语义一致，便于断言。
+        decoded = {}
+        for k, v in (headers or []):
+            decoded[k] = v.decode("utf-8") if isinstance(v, bytes) else v
         self.calls.append({
             "topic": topic,
             "payload": payload,
             "key": key,
-            "headers": dict(headers or []),
+            "headers": decoded,
         })
 
 
