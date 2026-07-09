@@ -108,7 +108,7 @@ class TestPlatformAdminBypass:
 
     async def test_admin_can_insert_any_tenant(self):
         """超管可跨租户写入（运维场景）。"""
-        async with _connect() as conn:
+        async with _connect() as conn:  # noqa: SIM117
             async with conn.transaction():
                 await conn.execute("SET LOCAL app.tenant_id = ''")
                 await conn.execute("SET LOCAL app.is_platform_admin = 'true'")

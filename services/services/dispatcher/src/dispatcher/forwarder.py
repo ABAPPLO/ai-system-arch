@@ -8,14 +8,13 @@
 """
 
 import time
-from typing import Any, AsyncIterator
+from collections.abc import AsyncIterator
 
 import httpx
-from fastapi import Request
-from fastapi.responses import StreamingResponse, JSONResponse
-
 from apihub_core.errors import ApiError, ErrorCode
 from apihub_core.logging import get_logger
+from fastapi import Request
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from dispatcher.event import build_call_event, new_request_id
 from dispatcher.masking import apply_masking
@@ -30,7 +29,7 @@ _DROP_HEADERS = {
 }
 
 # AI SSE chunk 用于解析 token usage 的最小解析（容错）
-import json as _json
+import json as _json  # noqa: E402
 
 
 class HttpForwarder:
@@ -72,7 +71,7 @@ class HttpForwarder:
         except httpx.RequestError as e:
             backend_latency_ms = int((time.perf_counter() - start) * 1000)
             await _emit_failure(snap, request, e, request_id, backend_latency_ms)
-            raise ApiError(
+            raise ApiError(  # noqa: B904
                 ErrorCode.API_DOWN,
                 f"backend unreachable: {e}",
                 http_status=503,
@@ -224,7 +223,7 @@ def _extract_tokens_from_chunk(chunk: bytes) -> tuple[int, int]:
                 u = data["usage"]
                 prompt = u.get("prompt_tokens", 0)
                 completion = u.get("completion_tokens", 0)
-    except Exception:
+    except Exception:  # noqa: S110
         pass
     return prompt, completion
 

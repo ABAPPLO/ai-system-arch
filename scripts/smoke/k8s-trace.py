@@ -23,7 +23,6 @@
 仅用 stdlib（urllib + subprocess），无需 venv。
 """
 import json
-import os
 import subprocess
 import sys
 import time
@@ -132,14 +131,14 @@ def generate_traffic():
         use_apisix = False
 
     if use_apisix:
-        print(f"  走 APISIX NodePort 30080（真实网关路径）")
+        print("  走 APISIX NodePort 30080（真实网关路径）")
         for i in range(N_CALLS):
             st, body = http("POST", f"{APISIX_URL}{DISPATCH_PATH}",
                             headers={"X-API-Key": ADMIN_KEY},
                             data={"x": i}, timeout=10)
             print(f"  call{i}: HTTP {st}")
     else:
-        print(f"  APISIX 不可达，退用 dispatcher port-forward")
+        print("  APISIX 不可达，退用 dispatcher port-forward")
         p = pf("dispatcher", 18001)
         try:
             for i in range(N_CALLS):

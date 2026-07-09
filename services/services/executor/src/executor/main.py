@@ -110,8 +110,9 @@ async def internal_retry(req: RetryRequest):
     设计上和 processor._call_backend 一致，但不写 PG 状态机（PG 由 retry-svc 自己维护，
     executor 在这条内部路径上只做"调一次后端"）。
     """
-    from executor.processor import _client  # 复用进程级 httpx 单例
     import time
+
+    from executor.processor import _client  # 复用进程级 httpx 单例
 
     if _client is None:
         return {

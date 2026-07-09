@@ -39,7 +39,7 @@ async def authenticate_request(
                 headers={"X-Internal-Service": settings.app_name},
             )
         except httpx.RequestError as e:
-            raise ApiError(
+            raise ApiError(  # noqa: B904
                 ErrorCode.INTERNAL,
                 f"Auth service unreachable: {e}",
                 http_status=503,

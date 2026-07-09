@@ -3,8 +3,7 @@
 import hashlib
 
 import pytest
-
-from dispatcher.masking import apply_masking, mask_value, _smart_mask
+from dispatcher.masking import _smart_mask, apply_masking, mask_value
 
 
 class TestMaskValue:

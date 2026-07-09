@@ -44,7 +44,7 @@ async def init_pool(settings: Settings) -> None:
     # asyncpg 接受 'disable'/'prefer'/'require'/'verify-ca'/'verify-full'/False/True
     # 这里直接透传 settings.pg_ssl 字符串；False 表示完全关闭。
     ssl_value: str | bool
-    if settings.pg_ssl.lower() in ("false", "off", "no"):
+    if settings.pg_ssl.lower() in ("false", "off", "no"):  # noqa: SIM108
         ssl_value = False
     else:
         ssl_value = settings.pg_ssl

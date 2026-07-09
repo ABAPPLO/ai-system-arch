@@ -1,13 +1,12 @@
 """dispatcher 启动入口。"""
 
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
 
 import httpx
-from fastapi import FastAPI
-
 from apihub_core import create_app
 from apihub_core.logging import get_logger
+from fastapi import FastAPI
 
 from dispatcher.forwarder import HttpForwarder
 from dispatcher.routes import register_routes, set_forwarder
@@ -24,7 +23,7 @@ def _build_routes(app: FastAPI) -> None:
     async def lifespan_with_httpclient(_app: FastAPI) -> AsyncIterator[None]:
         async with original_lifespan(_app):
             client = httpx.AsyncClient(
-                timeout=None,
+                timeout=None,  # noqa: S113
                 limits=httpx.Limits(
                     max_connections=500,
                     max_keepalive_connections=100,

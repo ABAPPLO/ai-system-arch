@@ -1,8 +1,7 @@
 """event payload 构造测试 —— 验证调用事件字段齐全。"""
 
-import pytest
 
-from apihub_core.tenant import set_tenant_context, TenantContext
+from apihub_core.tenant import set_tenant_context
 from dispatcher.event import build_call_event, new_request_id
 
 

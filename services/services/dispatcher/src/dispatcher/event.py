@@ -3,9 +3,8 @@
 ClickHouse 端 schema 与此对齐（见 scripts/init-clickhouse/01-schema.sql）。
 """
 
-import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any
 
 from apihub_core.tenant import get_tenant_context
@@ -94,5 +93,5 @@ def _now_ch_ts() -> str:
     CH JSONEachRow 解析 DateTime64 不认 ISO-8601（带 T / 时区偏移）→ 整行被判为解析错误、
     所有列落 default（见 phase2-findings「K8s 联调」CH Kafka-engine MV 条）。
     """
-    n = datetime.now(timezone.utc)
+    n = datetime.now(UTC)
     return n.strftime("%Y-%m-%d %H:%M:%S.") + f"{n.microsecond // 1000:03d}"

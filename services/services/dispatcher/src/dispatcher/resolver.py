@@ -6,7 +6,6 @@
 """
 
 import json
-from typing import Optional
 
 from apihub_core import db, redis
 from apihub_core.errors import ApiError, ErrorCode
@@ -43,7 +42,7 @@ async def resolve_by_header(version_id: str) -> ApiVersionSnapshot:
 
 async def resolve_by_path(method: str, full_path: str) -> ApiVersionSnapshot:
     """回退路径：无 header 时按 path 反查。性能差，仅用于 dev / 直连。"""
-    ctx = require_tenant()
+    ctx = require_tenant()  # noqa: F841
 
     async with db.db_session() as conn:
         rows = await conn.fetch(
@@ -68,7 +67,7 @@ async def resolve_by_path(method: str, full_path: str) -> ApiVersionSnapshot:
     raise ApiError(ErrorCode.API_NOT_FOUND, f"no API matches {method} {full_path}")
 
 
-async def _get_base_path(conn_pool, api_id: str) -> Optional[str]:
+async def _get_base_path(conn_pool, api_id: str) -> str | None:
     """从 api 表取 base_path（dev 回退路径才用，prod 走 header）。"""
     from apihub_core import db as _db
     async with _db.db_session() as conn:
@@ -86,7 +85,7 @@ def _match_path(pattern: str, actual: str) -> bool:
     aa = actual.strip("/").split("/")
     if len(pp) != len(aa):
         return False
-    for p, a in zip(pp, aa):
+    for p, a in zip(pp, aa):  # noqa: B905
         if p.startswith("{") and p.endswith("}"):
             continue
         if p != a:
@@ -96,7 +95,7 @@ def _match_path(pattern: str, actual: str) -> bool:
 
 def _extract_path_params(pattern: str, actual: str) -> dict[str, str]:
     params: dict[str, str] = {}
-    for p, a in zip(pattern.strip("/").split("/"), actual.strip("/").split("/")):
+    for p, a in zip(pattern.strip("/").split("/"), actual.strip("/").split("/")):  # noqa: B905
         if p.startswith("{") and p.endswith("}"):
             params[p[1:-1]] = a
     return params

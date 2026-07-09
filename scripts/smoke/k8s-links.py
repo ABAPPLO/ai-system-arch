@@ -186,7 +186,7 @@ COMMIT;
     with open("/tmp/smoke_upsert.sql", "w") as f:
         f.write(upsert)
     out = psql("/tmp/smoke_upsert.sql")
-    print("  smoke api upsert:", [l for l in out.strip().splitlines() if l.strip()][-2:])
+    print("  smoke api upsert:", [l for l in out.strip().splitlines() if l.strip()][-2:])  # noqa: E741
 
     # 4) 确认 mock-backend 在集群内有 ClusterIP
     cip = sh(
@@ -262,7 +262,7 @@ def link2_async():
         timeout=20, interval=1.5,
         label=f"task {task_id} status",
     )
-    assert ok, f"L2 fail: task not succeeded (see executor logs)"
+    assert ok, "L2 fail: task not succeeded (see executor logs)"
     final = sh(
         f"docker exec apihub-pg psql -U apihub -d apihub -t -A -c "
         f"\"select status, response_status, left(response_body,80) from task where id='{task_id}';\""

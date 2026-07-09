@@ -1,8 +1,7 @@
 """resolver path 匹配测试 —— 纯函数，不依赖 PG。"""
 
 import pytest
-
-from dispatcher.resolver import _match_path, _extract_path_params
+from dispatcher.resolver import _extract_path_params, _match_path
 
 
 class TestPathMatch:

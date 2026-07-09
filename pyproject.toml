@@ -35,6 +35,9 @@ ignore = [
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S", "E402"]
 "scripts/**" = ["E402"]
+# smoke/kind 是运维/联调脚本，subprocess+shell、/tmp 临时文件、拼 SQL 都是合理用法
+"scripts/smoke/**" = ["S"]
+"scripts/kind/**" = ["S"]
 
 [tool.ruff.format]
 quote-style = "double"
