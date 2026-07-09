@@ -54,6 +54,9 @@ PG_HP=$(pick_host_port postgres 5432)
 echo "host ports: redis=$REDIS_HP (default 6379)  postgres=$PG_HP (default 5432)"
 
 # 1b) 生成 compose override（!override 替换而非追加 ports 列表）
+#     postgres command: 11 服务 × 4 uvicorn worker × pool(min 10) 轻松 > PG 默认
+#     max_connections=100 → TooManyConnections 让晚启动的服务 CrashLoop。dev/kind 下放宽到 500
+#     （仅本 override 生效，不改提交的 compose）。
 OVR=/tmp/kind-compose-override.yml
 {
   echo "services:"
@@ -61,6 +64,7 @@ OVR=/tmp/kind-compose-override.yml
   echo "    ports: !override"
   echo "      - \"$REDIS_HP:6379\""
   echo "  postgres:"
+  echo "    command: [\"postgres\", \"-c\", \"max_connections=500\"]"
   echo "    ports: !override"
   echo "      - \"$PG_HP:5432\""
 } > "$OVR"
@@ -116,6 +120,10 @@ for s in "${SVC[@]}"; do
     -t "registry.apihub.internal/apihub/$s:0.1.0-dev" .
   kind load docker-image "registry.apihub.internal/apihub/$s:0.1.0-dev" --name apihub
 done
+
+# 4b) mock-backend 用 python:3.11-slim（非 11 服务镜像），单独 load 进 kind，否则 ErrImagePull
+docker image inspect python:3.11-slim >/dev/null 2>&1 || docker pull python:3.11-slim
+kind load docker-image python:3.11-slim --name apihub
 
 # 5) apply（--load-restrictor：overlay 引用上级目录资源）
 kustomize build --load-restrictor LoadRestrictionsNone deploy/k8s/overlays/kind | kubectl apply -f -
