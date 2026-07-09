@@ -6,7 +6,6 @@
 详见 docs/08-observability-security.md §7
 """
 
-
 import httpx
 from fastapi import Request
 
@@ -39,11 +38,11 @@ async def authenticate_request(
                 headers={"X-Internal-Service": settings.app_name},
             )
         except httpx.RequestError as e:
-            raise ApiError(  # noqa: B904
+            raise ApiError(
                 ErrorCode.INTERNAL,
                 f"Auth service unreachable: {e}",
                 http_status=503,
-            )
+            ) from e
 
     if resp.status_code == 404:
         raise ApiError(ErrorCode.UNAUTHORIZED, "Invalid API Key")

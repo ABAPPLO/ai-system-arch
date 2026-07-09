@@ -79,9 +79,7 @@ class RetryWorker:
                     log.exception("worker_tick_error", error=str(e))
                 # 等下一轮（或被 stop 唤醒）
                 with contextlib.suppress(asyncio.TimeoutError):
-                    await asyncio.wait_for(
-                        self._stop.wait(), timeout=self._poll_interval
-                    )
+                    await asyncio.wait_for(self._stop.wait(), timeout=self._poll_interval)
         except asyncio.CancelledError:
             log.info("worker_cancelled")
             raise
@@ -102,9 +100,7 @@ class RetryWorker:
     async def _process_tenant(self, tenant_id: str) -> None:
         """处理单个 tenant 的到期任务。"""
         try:
-            due_ids = await delay_queue.pop_due(
-                tenant_id=tenant_id, max_count=self._batch_size
-            )
+            due_ids = await delay_queue.pop_due(tenant_id=tenant_id, max_count=self._batch_size)
         except Exception as e:
             log.warning("pop_due_failed", tenant_id=tenant_id, error=str(e))
             return
@@ -112,11 +108,13 @@ class RetryWorker:
         if not due_ids:
             return
 
-        set_tenant_context(TenantContext(
-            tenant_id=tenant_id,
-            tenant_type="internal",
-            app_id="",
-        ))
+        set_tenant_context(
+            TenantContext(
+                tenant_id=tenant_id,
+                tenant_type="internal",
+                app_id="",
+            )
+        )
         try:
             for retry_task_id in due_ids:
                 if self._stop.is_set():
@@ -199,6 +197,7 @@ class RetryWorker:
                     base_ms=detail.backoff_base_ms,
                 )
                 from datetime import UTC, datetime, timedelta
+
                 next_ts = time.time() + delay_ms / 1000.0
                 next_retry_at = datetime.now(UTC) + timedelta(milliseconds=delay_ms)
 
@@ -286,7 +285,7 @@ class RetryWorker:
         return {
             "succeeded": bool(body.get("succeeded")),
             "status": body.get("status") or resp.status_code,
-            "body": body.get("body") if isinstance(body.get("body"), (dict, list)) else {},
+            "body": body.get("body") if isinstance(body.get("body"), dict | list) else {},
             "error_code": body.get("error_code"),
             "error_msg": body.get("error_msg") or "",
             "latency_ms": body.get("latency_ms") or latency_ms,
@@ -294,8 +293,6 @@ class RetryWorker:
 
     async def _safe_complete(self, tenant_id: str, retry_task_id: int) -> None:
         try:
-            await delay_queue.complete(
-                tenant_id=tenant_id, retry_task_id=retry_task_id
-            )
+            await delay_queue.complete(tenant_id=tenant_id, retry_task_id=retry_task_id)
         except Exception as e:
             log.warning("complete_failed", retry_task_id=retry_task_id, error=str(e))

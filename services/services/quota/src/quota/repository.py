@@ -27,7 +27,7 @@ def _parse_tier(raw: Any, default_window: int) -> LimitRule | None:
     """
     if not raw:
         return None
-    if isinstance(raw, (int, float)):
+    if isinstance(raw, int | float):
         # 简写：直接给 max_count，window 用默认
         return LimitRule(window_seconds=default_window, max_count=int(raw))
 

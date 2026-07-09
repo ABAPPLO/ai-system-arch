@@ -23,7 +23,9 @@ def _build_routes(app: FastAPI) -> None:
     async def lifespan_with_httpclient(_app: FastAPI) -> AsyncIterator[None]:
         async with original_lifespan(_app):
             client = httpx.AsyncClient(
-                timeout=None,  # noqa: S113
+                # 显式超时：connect/pool/write 有界防连接耗尽；read 给 300s
+                # 兼容 AI SSE 慢生成（同步转发另有 per-request timeout=snap.timeout_ms 覆盖）
+                timeout=httpx.Timeout(connect=10.0, read=300.0, write=60.0, pool=30.0),
                 limits=httpx.Limits(
                     max_connections=500,
                     max_keepalive_connections=100,
@@ -48,13 +50,14 @@ app = create_app(
     skip_auth_paths=(
         "/health",
         "/metrics",
-        "/v1/dispatcher/health",   # 自身健康检查
+        "/v1/dispatcher/health",  # 自身健康检查
     ),
 )
 
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run(
         "dispatcher.main:app",
         host="0.0.0.0",
