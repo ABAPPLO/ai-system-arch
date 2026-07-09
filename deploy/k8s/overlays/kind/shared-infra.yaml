@@ -20,6 +20,12 @@ data:
   CH_PORT: "8123"
   CH_USERNAME: "apihub"
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://__HOST_IP__:4317"
+  # retry→executor 内部重试跳：executor Service 只暴露 80（targetPort http/8000），
+  # 而 retry worker 默认模板带 {port}=8003 → ClusterIP:8003 无 DNAT、SYN 被 drop →
+  # 每次 attempt 耗满 30s executor_timeout（Task 8 smoke 的 L3 concern）。
+  # 此模板去掉 {port} 占位符 → worker.py 的 .format(port=...) 成为 no-op →
+  # 走 http://executor.apihub-system/v1/internal/retry（命中 Service:80）。
+  EXECUTOR_SERVICE_TEMPLATE: "http://executor.apihub-system/v1/internal/retry"
   ENV: "dev"
 ---
 apiVersion: v1

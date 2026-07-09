@@ -107,6 +107,24 @@ kind create cluster --name apihub --config /tmp/kind-config.yaml
 kubectl config use-context kind-apihub
 
 # 3) 注入 host IP + 重映射端口到 overlay；apply 后还原占位符
+#
+#    端口同步不变式：overlay 写入的 REDIS_PORT/PG_PORT 必须 == compose 实际 publish
+#    的 host 端口。Task 8 smoke 踩过 off-by-one（redis publish 在 16381 而 ConfigMap
+#    写的是 16380 → pod 连不上 Redis），根因是「pick 的端口」「override publish 的端口」
+#    「overlay 写入的端口」三处独立写入、可人为/笔误错位。此处统一改为以 `docker port`
+#    read-back 的【实际 publish 端口】作为唯一真源写入 overlay：override 用 pick 值发布，
+#    compose up 之后读回真实 host 端口，再用它写 overlay —— 从结构上保证 publish==overlay，
+#    即使 pick 与实际偶发错位（端口被抢占/override 未生效/旧容器残留）也能自我纠正。
+#    Kafka 固定 9094（host 未占用、且 advertize 指向 host:9094，不重映射）compose 与 overlay
+#    两处均为 9094，天然一致，无需 read-back。
+read_compose_host_port() {  # NAME CONTAINER_PORT -> 实际 publish 的 host 端口
+  docker port "$1" "$2" 2>/dev/null | awk -F: '/^0\.0\.0\.0:/ {print $NF; exit}'
+}
+REDIS_HP=$(read_compose_host_port apihub-redis 6379)
+PG_HP=$(read_compose_host_port apihub-pg 5432)
+[ -n "$REDIS_HP" ] || { echo "FATAL: apihub-redis host port read-back empty" >&2; exit 1; }
+[ -n "$PG_HP" ]    || { echo "FATAL: apihub-pg host port read-back empty" >&2; exit 1; }
+echo "overlay-sync host ports (read back from compose): redis=$REDIS_HP pg=$PG_HP  (kafka fixed 9094)"
 sed -i "s/__HOST_IP__/$HOST_IP/g" deploy/k8s/overlays/kind/shared-infra.yaml
 sed -i "s/^\(\s*PG_PORT:\s*\"\)5432/\1$PG_HP/" deploy/k8s/overlays/kind/shared-infra.yaml
 sed -i "s/^\(\s*REDIS_PORT:\s*\"\)6379/\1$REDIS_HP/" deploy/k8s/overlays/kind/shared-infra.yaml
