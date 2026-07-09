@@ -1,0 +1,88 @@
+name: smoke-auth
+on:
+  pull_request:
+    paths:
+      - "services/**"
+      - "docker-compose.dev.yml"
+      - ".github/workflows/smoke-auth.yml"
+  workflow_dispatch:
+
+jobs:
+  auth-verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install uv
+
+      # .env.dev 被 .gitignore 忽略，CI 全新 checkout 时不存在。
+      # 从被跟踪的 example 复制一份，compose 变量插值才不会失败。
+      - name: Ensure .env.dev exists
+        run: cp -n .env.dev.example .env.dev
+
+      - name: Start minimal stack
+        run: docker compose --env-file .env.dev -f docker-compose.dev.yml up -d postgres redis
+
+      # auth-svc 启动（apihub_core.middleware.lifespan）会无条件初始化 Kafka
+      # producer（compression_type=lz4），因此 boot 时必须有一个可达的 broker。
+      # compose 内置的 kafka 服务固定用 bitnami/kafka:3.7（该 tag 已被 Bitnami
+      # 下架，manifest unknown），这里改用 apache/kafka:3.7.1 起一个单节点 KRaft。
+      - name: Start Kafka (auth boot 依赖)
+        run: |
+          docker run -d --name smoke-kafka -p 9094:9094 \
+            -e KAFKA_NODE_ID=1 \
+            -e KAFKA_PROCESS_ROLES=broker,controller \
+            -e KAFKA_LISTENERS=PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:9094 \
+            -e KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://localhost:9092,EXTERNAL://localhost:9094 \
+            -e KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER \
+            -e KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT \
+            -e KAFKA_CONTROLLER_QUORUM_VOTERS=1@localhost:9093 \
+            -e KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT \
+            -e KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1 \
+            -e KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR=1 \
+            -e KAFKA_TRANSACTION_STATE_LOG_MIN_ISR=1 \
+            -e KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS=0 \
+            -e CLUSTER_ID=MkU3OEVBNTcwNTJENDM2Qk \
+            apache/kafka:3.7.1
+          for i in $(seq 1 60); do
+            docker exec smoke-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null 2>&1 && break
+            sleep 1
+          done
+          docker exec smoke-kafka /opt/kafka/bin/kafka-topics.sh --bootstrap-server localhost:9092 --list >/dev/null
+
+      - name: Wait for PG
+        run: |
+          for i in $(seq 1 30); do
+            docker exec apihub-pg pg_isready -U apihub && break
+            sleep 2
+          done
+      - name: Install deps
+        env:
+          PG_HOST: 127.0.0.1
+          PG_USER: apihub_app
+          PG_PASSWORD: apihub_app_dev_pwd
+          REDIS_HOST: 127.0.0.1
+          ENV: test
+        run: |
+          uv pip install --system -e services/libs/apihub-core -e services/services/auth cramjam
+      - name: Verify real seeded key
+        env:
+          PG_HOST: 127.0.0.1
+          PG_USER: apihub_app
+          PG_PASSWORD: apihub_app_dev_pwd
+          REDIS_HOST: 127.0.0.1
+          KAFKA_BROKERS: localhost:9094
+          ENV: dev
+        run: |
+          uvicorn auth.main:app --host 127.0.0.1 --port 8002 &
+          SVC=$!
+          for i in $(seq 1 30); do curl -sf http://127.0.0.1:8002/health/live && break; sleep 1; done
+          RESP=$(curl -s -X POST http://127.0.0.1:8002/v1/apikey/verify \
+            -H 'Content-Type: application/json' \
+            -d '{"api_key":"ak_test_a_demo001"}')
+          echo "$RESP"
+          echo "$RESP" | python3 -c "import sys,json; d=json.load(sys.stdin); assert d.get('tenant_id'), 'no tenant_id'; print('OK tenant=', d['tenant_id'])"
+          kill $SVC
