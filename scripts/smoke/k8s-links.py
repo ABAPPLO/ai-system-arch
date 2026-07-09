@@ -48,6 +48,12 @@ SMOKE_BASE_PATH = "/smoke-sync"  # ApiCreate.base_path 须 ^/[a-z0-9-]+
 SMOKE_API_PATH = "/echo"  # api_version.path
 SMOKE_BACKEND_URL = "http://mock-backend.apihub-system:80"
 
+# L5：经 APISIX 网关（apihub-ingress ns）→ dispatcher（apihub-system ns）跨 ns 断言。
+#   APISIX gateway 以 NodePort 30080 暴露（见 scripts/kind/apisix-setup.sh）；
+#   consumer "smoke" 的 key-auth key = DEMO_KEY（与 ADMIN_KEY 同值 ak_test_a_demo001）。
+APISIX_URL = "http://127.0.0.1:30080"
+DEMO_KEY = "ak_test_a_demo001"
+
 TASK_TOPIC = "task-requests"
 FAIL_TOPIC = "task-failures"
 
@@ -358,6 +364,28 @@ def link4_admin():
 
 
 # ---------------------------------------------------------------------------
+# L5：跨 namespace 解析 APISIX(apihub-ingress) → dispatcher(apihub-system)
+# ---------------------------------------------------------------------------
+
+
+def link5_crossns():
+    """显式断言跨 namespace 解析：APISIX(apihub-ingress) → dispatcher(apihub-system)。
+
+    当前布局数据层走 host compose（外部），服务全在 apihub-system；唯一真实跨 ns
+    调用即 APISIX→dispatcher（已绿）。这里把它从「隐式 200」升为显式断言。
+    """
+    print("\n== L5 cross-ns (apihub-ingress → apihub-system) ==")
+    # 复用 L1 的 smoke-sync echo 路径（APISIX route /dispatch/* → dispatcher.apihub-system:80）
+    path = f"/dispatch{SMOKE_BASE_PATH}{SMOKE_API_PATH}"
+    st, body = http("POST", f"{APISIX_URL}{path}",
+                    headers={"X-API-Key": DEMO_KEY, "Content-Type": "application/json"})
+    assert st == 200, f"L5 HTTP {st}: {body}"
+    # 断言响应确实来自 dispatcher 链路（mock-backend echo 的 ok 字段）
+    assert isinstance(body, dict) and body.get("ok") is True, f"L5 unexpected body: {body}"
+    print("  [L5 cross-ns] OK —— APISIX(ingress)→dispatcher(system) 跨 ns 解析成功")
+
+
+# ---------------------------------------------------------------------------
 # 轮询助手
 # ---------------------------------------------------------------------------
 
@@ -383,7 +411,7 @@ if __name__ == "__main__":
     if os.environ.get("SKIP_SETUP") != "1":
         setup()
 
-    links = [link1_sync, link2_async, link3_retry, link4_admin]
+    links = [link1_sync, link2_async, link3_retry, link4_admin, link5_crossns]
     fails = []
     for fn in links:
         try:
@@ -398,4 +426,4 @@ if __name__ == "__main__":
             print(f"  - {n}: {e}")
         print(f"\n{len(links) - len(fails)}/{len(links)} LINKS GREEN")
         sys.exit(1)
-    print("ALL 4 LINKS GREEN")
+    print(f"ALL {len(links)} LINKS GREEN")
