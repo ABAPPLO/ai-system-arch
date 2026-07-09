@@ -110,7 +110,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
   name: workflow-argo-role
-  namespace: apihub-workflows   # Argo Workflow CRD 所在 namespace
+  namespace: apihub-workflow   # Argo Workflow CRD 所在 namespace
 rules:
   - apiGroups: ["argoproj.io"]
     resources: ["workflows", "workflowtemplates"]
@@ -123,7 +123,7 @@ apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
   name: workflow-argo-binding
-  namespace: apihub-workflows
+  namespace: apihub-workflow
 subjects:
   - kind: ServiceAccount
     name: workflow

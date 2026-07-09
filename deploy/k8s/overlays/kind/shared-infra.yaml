@@ -9,6 +9,10 @@ data:
   PG_USER: "apihub_app"
   PG_DATABASE: "apihub"
   PG_SSL: "disable"
+  # kind 单节点：11 服务 × 4 worker × pool(min 10) 在启动瞬间打爆 docker-proxy 的连接 backlog
+  # → ConnectionRefused 风暴。dev/kind 缩小连接池（envFrom 顺序在后，覆盖各服务 configmap 的 10/50）。
+  PG_POOL_MIN: "2"
+  PG_POOL_MAX: "10"
   REDIS_HOST: "__HOST_IP__"
   REDIS_PORT: "6379"
   KAFKA_BROKERS: "__HOST_IP__:9094"

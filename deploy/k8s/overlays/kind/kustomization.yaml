@@ -34,6 +34,8 @@ resources:
   - ../../services/workflow/deployment.yaml
 
 patches:
+  # kind/dev 放开 PodSecurity 到 privileged（strategic-merge patch on apihub-system Namespace）
+  - path: ns-ps-relax.yaml
   - path: patches/api-registry-envfrom.yaml
     target: { kind: Deployment, name: api-registry }
   - path: patches/dispatcher-envfrom.yaml
