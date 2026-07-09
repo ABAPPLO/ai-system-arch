@@ -284,7 +284,7 @@
 
 **已识别、未修（列入后续）**：
 - **CH Kafka-engine 摄取 —— 已修**（`dispatcher/event.py` `_now_ch_ts`）：根因不是 MV 列映射，而是生产者 `ts` 用 ISO-8601（`2026-07-09T09:58:41.537733+00:00`），CH `DateTime64` JSONEachRow 解析不了 → 整行被判解析错误、所有列落 default（epoch ts + 空字符串）。修：生产者改发 CH 格式 `YYYY-MM-DD HH:MM:SS.mmm`。**已验证**：直接往 Kafka 投 CH 格式 ts 的消息能正确入库（真实列），ISO 格式的落 default。dispatcher 镜像 rebuild 后即全链路通（ingest 级已证）。
-- **PodSecurity prod 硬化** — 11 个服务 Deployment 缺 `seccompProfile`，prod `restricted` namespace 会拒。kind overlay 临时放开 `privileged`（dev only，`base/namespaces.yaml` 仍 `restricted`）。prod 需给 11 Deployment + mock-backend 补 `securityContext.seccompProfile.type: RuntimeDefault`。
+- **PodSecurity prod 硬化 —— 已修**：11 个 base 服务 Deployment 补了 `securityContext.seccompProfile.type: RuntimeDefault`（prod `restricted` namespace 现在能过；kind overlay 仍 dev-only privileged）。mock-backend 在 kind overlay 内（dev），prod 不部署故无需。
 - **apihub-core `test_kafka.py` 4 个预存失败** — `kafka.py:94-97` bytes-vs-str header 处理。非任何任务引入，独立 tech debt。
 - **bitnami/kafka:\* 全系镜像已下架** → 用 `bitnamilegacy/kafka:3.7`（同 KRaft 布局）。
 - **OTel 版本配对** — 见 Stage 0 勘误（`0.61b0 ↔ 1.40.0`）。
@@ -295,4 +295,4 @@
 - ✅ kind 集群 12 pods Running，四条核心链路 genuine green，APISIX 网关进数据面。
 - ✅ trace-svc SQL 修复端到端验证通过（真实 CH schema）。
 - ✅ CH 真实摄取链路根因已修（生产者 `ts` ISO→CH 格式，ingest 级验证通过）；dispatcher 镜像 rebuild 后全链路通。
-- ⚠️ PodSecurity prod 硬化、test_kafka 预存失败为后续 tech debt。
+- ✅ deferred 三项已全部清：CH 摄取、PodSecurity prod 硬化（11 Deployment 补 seccompProfile）、test_kafka 预存失败（stub decode bytes）。
