@@ -224,26 +224,33 @@
 
 ## Phase 3 优先级建议
 
-> 截至 2026-07-09：tasks #95-#108 已全部完成，Phase 2 端到端联调收尾。
-> 下面的项是进入 Phase 3（生产准备 + 灰度上线）的待办，按上线风险排序。
+> 截至 2026-07-10：Phase 2 端到端联调收尾，且「P0 技术债清偿 + kind 全量验证」（PR #8 / `031f588`）已顺手清掉原 Phase 3 **全部 P0**，外加 P1 的两项 K8s 联调。下面是进入 Phase 3（生产准备 + 灰度上线）的**剩余**待办，按上线风险排序。
 
-**P0**（必须修，否则上线即坑）：
-- 生产 K8s 部署补 `apihub_app` 业务账号创建步骤（K8s Secret + init-job）—— dev 是手动 `scripts/init-db/00-roles.sql` + `99-grants.sql` 跑的，prod 必须自动化
-- CI 加一个集成 smoke：起栈 → 跑 auth-svc → curl 真实 key verify（防再次出现类似「PG_USER 改成业务账号导致 superuser」的回归）
-- 锁定关键依赖版本：OTel（0.61b0）、asyncpg、clickhouse_connect、aiokafka（防 0.40+ 那种 API 漂移再咬人）
-- trace-svc SQL 修列名（已知 tech debt，#17）—— `api_uuid/app_uuid/api_path/...` 全部对齐到 schema 实际的 `api_id/app_id/path/...`
+**✅ 已清偿（PR #8 / `031f588` —— 原 P0 全部 + P1 两项）**：
 
-**P1**（强烈推荐）：
-- workflow-svc 端到端联调（依赖 Argo Workflow CRD 装到集群，目前只跑了单测）
-- dispatcher → executor → backend 的 traceparent 贯通验证（task #100 只跑了 admin/api-registry/auth 链路）
-- 失败重试链路在 K8s 环境复现（task #99 是本地起 backend server 验证的，K8s 还没跑过）
-- 验证 admin-bff dashboard 聚合在 K8s 环境正常（dev 本地 OK，K8s DNS 跨 namespace 还没测）
+| 项 | 实现 |
+|---|---|
+| 生产 K8s 自动化 `apihub_app` 业务账号（原 P0） | `deploy/k8s/base/shared/db-init/`：ConfigMap 内联 `00-roles`+`99-grants` + Job + Secret 模板 |
+| CI 集成 smoke（原 P0） | `.github/workflows/smoke-auth.yml`：起 PG+Redis+Kafka → auth-svc → 真实 seed key verify |
+| 锁定关键依赖版本（原 P0） | `apihub-core` pyproject：asyncpg 0.30 / aiokafka 0.12 / clickhouse-connect 0.7.7 / OTel 1.40.0 + 0.61b0 |
+| trace-svc SQL 列名 #17（原 P0） | `trace-svc` SQL 对齐精简 CH schema（删 12 列、改 8 列名、`TIMEOUT`→`error_code`） |
+| 失败重试链路 K8s 复现（原 P1） | `scripts/smoke/k8s-links.py` L3：retry-svc 真打 executor 死后端（latency ~2-4ms `backend_unreachable`，非 timeout） |
+| admin dashboard 聚合 K8s 验证（原 P1） | `k8s-links.py` L4：dashboard 200、3 租户（同 namespace `apihub-system`） |
 
-**P2**（短链路容错）：
+**P1（当前事实上的 P0）**：
+- workflow-svc 端到端联调 —— 依赖 Argo Workflow CRD 装到 kind 集群（目前仅 `argo_mode=stub` 单测，K8s 实跑未做）
+- dispatcher → executor → backend 的 traceparent 贯通**显式**验证 —— `k8s-links.py` 跑通了链路但未断言 traceparent 真传递；task #100 当时只覆盖 admin/api-registry/auth
+- admin dashboard **跨 namespace** DNS —— 同 ns 已验（上表），显式跨 ns（服务在 `apihub-system`、数据源走 host compose）未单独测
+
+**P2（短链路容错）**：
 - CH 测试数据 INSERT 改成 `INSERT ... SELECT` 形式（CI 跑通就能加）
 - `PG_SSL` 默认值从 `disable` 改成 `prefer`（dev 友好，prod 要求时再升）
-- ClickHouse Kafka source 表的列默认值由生产端 JSON 带（避免依赖 MV COALESCE）
+- ClickHouse Kafka source 表的列默认值由生产端 JSON 带（避免依赖 MV COALESCE）—— 注：生产端 `ts` 已改发 CH 格式（`dispatcher/event.py:_now_ch_ts`），其余列仍建议显式带
 - apihub-cli 加 `--dry-run` 模式（输出 diff 不入库，便于评审前预览）
+
+**残留小项（非阻断，可并入 Phase 3 收尾）**：
+- retry `main.py` 硬编码 `executor_port=8003`（因 `EXECUTOR_SERVICE_TEMPLATE` 无 `{port}` 占位已无效，建议把端口也挪进 settings）
+- `apihub-core` `test_kafka.py` 4 个预存失败（bytes-vs-str header，独立 tech debt，非本 PR 引入）
 
 ---
 
