@@ -34,7 +34,7 @@ def register_routes(app: FastAPI) -> None:
     async def submit_workflow(req: SubmitWorkflowRequest):
         """提交工作流到 Argo + 写 PG 索引。"""
         ctx = require_tenant()
-        tenant_id = int(ctx.tenant_id)
+        tenant_id = ctx.tenant_id
 
         workflow_uuid = argo_client.gen_workflow_uuid()
         client = argo_client.get_argo_client()
@@ -77,8 +77,8 @@ def register_routes(app: FastAPI) -> None:
 
     @app.get("/v1/workflows", response_model=list[WorkflowListItem])
     async def list_workflows(
-        api_id: int | None = None,
-        app_id: int | None = None,
+        api_id: str | None = None,
+        app_id: str | None = None,
         trace_id: str | None = None,
         status: WorkflowStatus | None = None,
         since: datetime | None = None,
