@@ -13,7 +13,6 @@
   - 时间槽（slot）切换：跨窗口自动重置
 """
 
-
 from quota.limiter import (
     _slot,
     check_and_consume,
@@ -31,7 +30,9 @@ class TestPass:
     async def test_no_rules_unlimited(self, fake_redis):
         """没配任何限流 → 直接放行，不打 Redis。"""
         resp = await check_and_consume(
-            "t1", "app1", "api1",
+            "t1",
+            "app1",
+            "api1",
             rules=QuotaRules(),
             cost=1,
         )
@@ -40,7 +41,9 @@ class TestPass:
 
     async def test_under_limit_passes(self, fake_redis):
         resp = await check_and_consume(
-            "t1", "app1", "api1",
+            "t1",
+            "app1",
+            "api1",
             rules=rules(
                 second=LimitRule(window_seconds=1, max_count=10),
                 minute=LimitRule(window_seconds=60, max_count=100),
@@ -53,13 +56,17 @@ class TestPass:
     async def test_cost_greater_than_one(self, fake_redis):
         """cost=5 一次扣 5。"""
         await check_and_consume(
-            "t1", "app1", "api1",
+            "t1",
+            "app1",
+            "api1",
             rules=rules(second=LimitRule(window_seconds=1, max_count=100)),
             cost=5,
         )
         # 查 usage 应该显示 used=5
         usage = await get_usage(
-            "t1", "app1", "api1",
+            "t1",
+            "app1",
+            "api1",
             rules=rules(second=LimitRule(window_seconds=1, max_count=100)),
         )
         assert usage.second.used == 5
@@ -133,7 +140,7 @@ class TestRefund:
         """退超了不应该变负数。"""
         r = rules(second=LimitRule(window_seconds=1, max_count=100))
         await check_and_consume("t1", "app1", "api1", r, cost=2)
-        await refund("t1", "app1", "api1", cost=10)   # 退比扣的多
+        await refund("t1", "app1", "api1", cost=10)  # 退比扣的多
 
         usage = await get_usage("t1", "app1", "api1", r)
         assert usage.second.used == 0
@@ -149,19 +156,19 @@ class TestUsage:
         after = await get_usage("t1", "app1", "api1", r)
 
         assert before.second.used == 1
-        assert after.second.used == 1   # 没多打
+        assert after.second.used == 1  # 没多打
 
     async def test_usage_limit_reflects_rules(self, fake_redis):
         """usage.limit 应反映启用的 rule。"""
         r = rules(
             second=LimitRule(window_seconds=1, max_count=10),
             minute=LimitRule(window_seconds=60, max_count=100),
-            day=None,   # day 不限
+            day=None,  # day 不限
         )
         usage = await get_usage("t1", "app1", "api1", r)
         assert usage.second.limit == 10
         assert usage.minute.limit == 100
-        assert usage.day.limit is None   # 没配 → None
+        assert usage.day.limit is None  # 没配 → None
 
 
 class TestFallback:
@@ -174,6 +181,7 @@ class TestFallback:
         class _Boom:
             async def eval(self, *args, **kwargs):
                 raise RuntimeError("redis down")
+
         monkeypatch.setattr(redis_mod, "_client", _Boom())
 
         r = rules(second=LimitRule(window_seconds=1, max_count=1))

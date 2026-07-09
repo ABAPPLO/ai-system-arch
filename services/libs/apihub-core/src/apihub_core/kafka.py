@@ -24,9 +24,11 @@ from apihub_core.tenant import get_tenant_context
 _producer: aiokafka.AIOKafkaProducer | None = None
 
 # W3C traceparent + Baggage（OTel 默认 composite，显式列出便于测试）
-_PROPAGATOR = composite.CompositePropagator([
-    TraceContextTextMapPropagator(),
-])
+_PROPAGATOR = composite.CompositePropagator(
+    [
+        TraceContextTextMapPropagator(),
+    ]
+)
 
 
 async def init_producer(settings: Settings) -> None:
@@ -92,13 +94,14 @@ async def emit(
     ):
         # aiokafka 0.14+ 要求 header value 是 bytes（旧版自动 encode 现已报 TypeError）
         raw_headers = [
-            (k, v.encode("utf-8") if isinstance(v, str) else v)
-            for k, v in headers.items()
+            (k, v.encode("utf-8") if isinstance(v, str) else v) for k, v in headers.items()
         ]
         await _producer.send_and_wait(topic, payload, key=key, headers=raw_headers)
 
 
-def extract_trace_context(headers: list[tuple[str, bytes]] | dict[str, str] | None) -> dict[str, str]:
+def extract_trace_context(
+    headers: list[tuple[str, bytes]] | dict[str, str] | None,
+) -> dict[str, str]:
     """从 Kafka message headers 还原 W3C carrier。
 
     消费端用：先把 carrier 还原出来，再 propagate.extract(carrier) 拿到 context。

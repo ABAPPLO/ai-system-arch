@@ -176,13 +176,9 @@ class TestStats:
         def _query_all(sql, params=None, *, force_tenant_id="sentinel"):
             call_count["n"] += 1
             if "GROUP BY api_id" in sql:
-                return [
-                    {"api_id": "api_a", "path": "/echo", "n": 500, "success_n": 490}
-                ]
+                return [{"api_id": "api_a", "path": "/echo", "n": 500, "success_n": 490}]
             if "GROUP BY toStartOfHour(ts)" in sql:
-                return [
-                    {"hour": "2026-07-01 00:00:00", "n": 100, "success_n": 95}
-                ]
+                return [{"hour": "2026-07-01 00:00:00", "n": 100, "success_n": 95}]
             return []
 
         from apihub_core import clickhouse as ch_mod

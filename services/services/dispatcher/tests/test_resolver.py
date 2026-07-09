@@ -5,19 +5,20 @@ from dispatcher.resolver import _extract_path_params, _match_path
 
 
 class TestPathMatch:
-    @pytest.mark.parametrize("pattern,actual,expected", [
-        ("/v1/users/{user_id}", "/v1/users/u_001", True),
-        ("/v1/users/{user_id}", "/v1/users/u_001/orders", False),
-        ("/v1/users/{user_id}", "/v1/users/", False),       # 段数不等
-        ("/v1/health",          "/v1/health", True),
-        ("/v1/health",          "/v1/healthz", False),
-        ("/v1/{org}/repos",     "/v1/acme/repos", True),
-        ("/v1/{org}/repos",     "/v1/acme/repo", False),    # repos != repo
-        ("/v1/orders/{order_id}/items/{item_id}",
-         "/v1/orders/o1/items/i1", True),
-        ("/v1/orders/{order_id}/items/{item_id}",
-         "/v1/orders/o1/items", False),
-    ])
+    @pytest.mark.parametrize(
+        "pattern,actual,expected",
+        [
+            ("/v1/users/{user_id}", "/v1/users/u_001", True),
+            ("/v1/users/{user_id}", "/v1/users/u_001/orders", False),
+            ("/v1/users/{user_id}", "/v1/users/", False),  # 段数不等
+            ("/v1/health", "/v1/health", True),
+            ("/v1/health", "/v1/healthz", False),
+            ("/v1/{org}/repos", "/v1/acme/repos", True),
+            ("/v1/{org}/repos", "/v1/acme/repo", False),  # repos != repo
+            ("/v1/orders/{order_id}/items/{item_id}", "/v1/orders/o1/items/i1", True),
+            ("/v1/orders/{order_id}/items/{item_id}", "/v1/orders/o1/items", False),
+        ],
+    )
     def test_match(self, pattern, actual, expected):
         assert _match_path(pattern, actual) is expected
 

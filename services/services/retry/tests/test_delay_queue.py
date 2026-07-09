@@ -83,9 +83,7 @@ class TestScheduleAndPop:
     async def test_schedule_pushes_to_zset(self, fake_redis):
         from retry_svc import delay_queue
 
-        await delay_queue.schedule(
-            tenant_id=42, retry_task_id=100, next_attempt_at_ts=9999.0
-        )
+        await delay_queue.schedule(tenant_id=42, retry_task_id=100, next_attempt_at_ts=9999.0)
         z = fake_redis.zsets["t:42:retry:delayed"]
         assert z["100"] == 9999.0
 
@@ -109,9 +107,7 @@ class TestScheduleAndPop:
         from retry_svc import delay_queue
 
         for i in range(5):
-            await delay_queue.schedule(
-                tenant_id=42, retry_task_id=i, next_attempt_at_ts=100.0
-            )
+            await delay_queue.schedule(tenant_id=42, retry_task_id=i, next_attempt_at_ts=100.0)
         due = await delay_queue.pop_due(tenant_id=42, max_count=2, now_ts=200.0)
         assert len(due) == 2
 

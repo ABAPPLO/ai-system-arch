@@ -7,11 +7,21 @@ list，故这里不用 strategic-merge，而用 patches + JSON patch 确保是 a
 base deployment 已有 envFrom（见 services/<svc>/deployment.yaml），故 add 到 /envFrom/-
 成立。若某服务 base 无 envFrom，需先 add /envFrom（空 list）再 append。
 """
+
 import pathlib
 
 SERVICES = [
-    "api-registry", "dispatcher", "auth", "executor", "quota", "tenant",
-    "admin", "docs", "trace", "retry", "workflow",
+    "api-registry",
+    "dispatcher",
+    "auth",
+    "executor",
+    "quota",
+    "tenant",
+    "admin",
+    "docs",
+    "trace",
+    "retry",
+    "workflow",
 ]
 OUT = pathlib.Path("deploy/k8s/overlays/kind/patches")
 OUT.mkdir(parents=True, exist_ok=True)

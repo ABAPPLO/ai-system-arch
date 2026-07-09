@@ -28,17 +28,19 @@ def _list_row(**overrides):
 
 def _detail_row(**overrides):
     base = _list_row()
-    base.update({
-        "request_id": "r1",
-        "request_size": 100,
-        "response_size": 200,
-        "backend_latency_ms": 10,
-        "ai_streaming": 0,
-        "token_prompt": 0,
-        "token_completion": 0,
-        "token_total": 0,
-        "ai_model": "",
-    })
+    base.update(
+        {
+            "request_id": "r1",
+            "request_size": 100,
+            "response_size": 200,
+            "backend_latency_ms": 10,
+            "ai_streaming": 0,
+            "token_prompt": 0,
+            "token_completion": 0,
+            "token_total": 0,
+            "ai_model": "",
+        }
+    )
     base.update(overrides)
     return base
 
@@ -169,7 +171,9 @@ class TestStats:
                 "p99_latency_ms": 500.0,
                 "avg_latency_ms": 25.0,
                 "qps": 1.0,
-                "top_apis": [{"api_id": "api_a", "api_path": "/echo", "n": 500, "success_rate": 0.98}],
+                "top_apis": [
+                    {"api_id": "api_a", "api_path": "/echo", "n": 500, "success_rate": 0.98}
+                ],
                 "by_hour": [{"hour": "2026-07-01 00:00:00", "n": 100, "success_rate": 0.95}],
             }
 

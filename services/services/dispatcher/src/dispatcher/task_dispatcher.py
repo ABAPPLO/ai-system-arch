@@ -55,7 +55,7 @@ async def dispatch_async_task(snap: ApiVersionSnapshot, request: Request) -> JSO
             "backend_url": snap.backend_url,
             "payload": body.decode("utf-8", errors="replace"),
         },
-        key=task_id,   # 同任务的消息进同一分区（用于状态更新顺序）
+        key=task_id,  # 同任务的消息进同一分区（用于状态更新顺序）
         extra_headers={
             "request_id": request_id,
         },

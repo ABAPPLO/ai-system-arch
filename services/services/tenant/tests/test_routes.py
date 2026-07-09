@@ -31,9 +31,7 @@ def _row(**overrides):
 
 
 class TestCreateTenant:
-    async def test_admin_creates_tenant(
-        self, client, fake_redis, as_platform_admin, monkeypatch
-    ):
+    async def test_admin_creates_tenant(self, client, fake_redis, as_platform_admin, monkeypatch):
         captured = {}
 
         async def _create(payload):
@@ -70,9 +68,7 @@ class TestCreateTenant:
 
 
 class TestListTenants:
-    async def test_admin_lists_all(
-        self, client, fake_redis, as_platform_admin, monkeypatch
-    ):
+    async def test_admin_lists_all(self, client, fake_redis, as_platform_admin, monkeypatch):
         async def _list_tenants(
             *,
             parent_id=None,
@@ -90,9 +86,7 @@ class TestListTenants:
         body = resp.json()
         assert len(body) == 2
 
-    async def test_normal_user_lists_own(
-        self, client, fake_redis, as_normal_user, monkeypatch
-    ):
+    async def test_normal_user_lists_own(self, client, fake_redis, as_normal_user, monkeypatch):
         as_normal_user("user_bob")
 
         async def _user_tenants(user_id):
@@ -111,9 +105,7 @@ class TestListTenants:
 
 
 class TestGetTenant:
-    async def test_member_can_view(
-        self, client, fake_redis, as_normal_user, monkeypatch
-    ):
+    async def test_member_can_view(self, client, fake_redis, as_normal_user, monkeypatch):
         as_normal_user("user_alice", tenant_id="tenant_a")
 
         async def _get_membership(tenant_id, user_id):
@@ -130,9 +122,7 @@ class TestGetTenant:
         # developer 不是超管 → 脱敏
         assert "*" in resp.json()["name"]
 
-    async def test_non_member_forbidden(
-        self, client, fake_redis, as_normal_user, monkeypatch
-    ):
+    async def test_non_member_forbidden(self, client, fake_redis, as_normal_user, monkeypatch):
         as_normal_user("user_stranger")
 
         async def _get_membership(tenant_id, user_id):
@@ -143,9 +133,7 @@ class TestGetTenant:
         resp = await client.get("/v1/tenant/tenants/tenant_a")
         assert resp.status_code == 403
 
-    async def test_admin_views_no_mask(
-        self, client, fake_redis, as_platform_admin, monkeypatch
-    ):
+    async def test_admin_views_no_mask(self, client, fake_redis, as_platform_admin, monkeypatch):
         async def _get_tenant(tenant_id):
             return _row(id=tenant_id, name="完整名")
 
@@ -178,9 +166,7 @@ class TestStatusMachine:
         cached = await fake_redis.get("t:t1:meta")
         assert cached is None
 
-    async def test_resume_warm_caches(
-        self, client, fake_redis, as_platform_admin, monkeypatch
-    ):
+    async def test_resume_warm_caches(self, client, fake_redis, as_platform_admin, monkeypatch):
         async def _change_status(tid, new):
             return _row(id="t1", status="active")
 
@@ -227,9 +213,7 @@ class TestStatusMachine:
 
 
 class TestMembers:
-    async def test_add_member_as_owner(
-        self, client, fake_redis, as_normal_user, monkeypatch
-    ):
+    async def test_add_member_as_owner(self, client, fake_redis, as_normal_user, monkeypatch):
         as_normal_user("user_alice", tenant_id="t1")
 
         async def _get_membership(tid, uid):
@@ -272,9 +256,7 @@ class TestMembers:
         )
         assert resp.status_code == 403
 
-    async def test_update_member_role(
-        self, client, fake_redis, as_normal_user, monkeypatch
-    ):
+    async def test_update_member_role(self, client, fake_redis, as_normal_user, monkeypatch):
         as_normal_user("user_alice", tenant_id="t1")
 
         async def _get_membership(tid, uid):
@@ -299,9 +281,7 @@ class TestMembers:
         )
         assert resp.status_code == 200
 
-    async def test_remove_member(
-        self, client, fake_redis, as_normal_user, monkeypatch
-    ):
+    async def test_remove_member(self, client, fake_redis, as_normal_user, monkeypatch):
         as_normal_user("user_alice", tenant_id="t1")
 
         async def _get_membership(tid, uid):
@@ -325,9 +305,7 @@ class TestMembers:
 
 
 class TestQuota:
-    async def test_member_reads_quota(
-        self, client, fake_redis, as_normal_user, monkeypatch
-    ):
+    async def test_member_reads_quota(self, client, fake_redis, as_normal_user, monkeypatch):
         as_normal_user("user_alice", tenant_id="t1")
 
         async def _get_membership(tid, uid):
@@ -390,9 +368,7 @@ class TestQuota:
 
 
 class TestUsage:
-    async def test_usage_returns_day_limit(
-        self, client, fake_redis, as_normal_user, monkeypatch
-    ):
+    async def test_usage_returns_day_limit(self, client, fake_redis, as_normal_user, monkeypatch):
         as_normal_user("user_alice", tenant_id="t1")
 
         async def _get_membership(tid, uid):
@@ -420,9 +396,7 @@ class TestUsage:
 
 
 class TestChildren:
-    async def test_list_children(
-        self, client, fake_redis, as_platform_admin, monkeypatch
-    ):
+    async def test_list_children(self, client, fake_redis, as_platform_admin, monkeypatch):
         async def _list_children(pid):
             return [
                 _row(id="child1", parent_id=pid),

@@ -32,9 +32,7 @@ class TestComputeDelay:
 
     def test_cap(self):
         """超过 cap_ms 限制。"""
-        d = compute_delay_ms(
-            20, policy=BackoffPolicy.EXPONENTIAL, base_ms=1000, cap_ms=60_000
-        )
+        d = compute_delay_ms(20, policy=BackoffPolicy.EXPONENTIAL, base_ms=1000, cap_ms=60_000)
         assert d == 60_000
 
     def test_invalid_attempt_no_clamped(self):
@@ -51,15 +49,11 @@ class TestComputeDelay:
 class TestNextAttemptDelay:
     def test_retry_count_zero(self):
         """0 次失败 → 第一次 attempt 延迟 = base。"""
-        d = next_attempt_delay_ms(
-            0, policy=BackoffPolicy.FIXED, base_ms=1000
-        )
+        d = next_attempt_delay_ms(0, policy=BackoffPolicy.FIXED, base_ms=1000)
         assert d == 1000
 
     def test_retry_count_increments(self):
         """2 次失败 → 第 3 次 attempt = 4x base（exponential + jitter）。"""
-        d = next_attempt_delay_ms(
-            2, policy=BackoffPolicy.EXPONENTIAL, base_ms=1000
-        )
+        d = next_attempt_delay_ms(2, policy=BackoffPolicy.EXPONENTIAL, base_ms=1000)
         # 3rd attempt = 1000 * 2^2 = 4000 ± 25%
         assert 3000 <= d <= 5000

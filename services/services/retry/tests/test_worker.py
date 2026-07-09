@@ -65,6 +65,7 @@ def worker_state(monkeypatch):
 
     from retry_svc import delay_queue
     from retry_svc import repository as repo
+
     monkeypatch.setattr(repo, "mark_attempt_started", _mark_started)
     monkeypatch.setattr(repo, "mark_succeeded", _mark_succeeded)
     monkeypatch.setattr(repo, "mark_failed_attempt", _mark_failed)
@@ -88,14 +89,13 @@ def fake_detail_factory(monkeypatch):
         return details.get(rid)
 
     from retry_svc import repository as repo
+
     monkeypatch.setattr(repo, "get_retry_task", _get)
     return details
 
 
 class TestExecuteOne:
-    async def test_succeeded(
-        self, monkeypatch, worker_state, fake_detail_factory
-    ):
+    async def test_succeeded(self, monkeypatch, worker_state, fake_detail_factory):
         """executor 200 → mark_succeeded。"""
         from datetime import datetime
 
@@ -107,11 +107,20 @@ class TestExecuteOne:
         )
 
         detail = RetryTaskDetail(
-            id=1, tenant_id=42, trace_id="tr_x", api_id=100, app_id=200,
-            max_attempts=3, retry_count=0, next_retry_at=None,
-            backoff_policy=BackoffPolicy.EXPONENTIAL, backoff_base_ms=1000,
-            status=RetryStatus.PENDING, env="test",
-            created_at=datetime(2026, 7, 1), updated_at=datetime(2026, 7, 1),
+            id=1,
+            tenant_id=42,
+            trace_id="tr_x",
+            api_id=100,
+            app_id=200,
+            max_attempts=3,
+            retry_count=0,
+            next_retry_at=None,
+            backoff_policy=BackoffPolicy.EXPONENTIAL,
+            backoff_base_ms=1000,
+            status=RetryStatus.PENDING,
+            env="test",
+            created_at=datetime(2026, 7, 1),
+            updated_at=datetime(2026, 7, 1),
             original_request={"task_id": "task_abc", "backend_url": "http://b/h"},
         )
         fake_detail_factory[1] = detail
@@ -129,9 +138,7 @@ class TestExecuteOne:
         assert worker_state["mark_failed"] == []
         assert worker_state["schedules"] == []
 
-    async def test_failed_rescheduled(
-        self, monkeypatch, worker_state, fake_detail_factory
-    ):
+    async def test_failed_rescheduled(self, monkeypatch, worker_state, fake_detail_factory):
         """executor 500 + retry_count < max → mark_failed_attempt + schedule。"""
         from datetime import datetime
 
@@ -143,11 +150,20 @@ class TestExecuteOne:
         )
 
         detail = RetryTaskDetail(
-            id=2, tenant_id=42, trace_id="tr_x", api_id=100, app_id=200,
-            max_attempts=3, retry_count=0, next_retry_at=None,
-            backoff_policy=BackoffPolicy.EXPONENTIAL, backoff_base_ms=1000,
-            status=RetryStatus.PENDING, env="test",
-            created_at=datetime(2026, 7, 1), updated_at=datetime(2026, 7, 1),
+            id=2,
+            tenant_id=42,
+            trace_id="tr_x",
+            api_id=100,
+            app_id=200,
+            max_attempts=3,
+            retry_count=0,
+            next_retry_at=None,
+            backoff_policy=BackoffPolicy.EXPONENTIAL,
+            backoff_base_ms=1000,
+            status=RetryStatus.PENDING,
+            env="test",
+            created_at=datetime(2026, 7, 1),
+            updated_at=datetime(2026, 7, 1),
             original_request={"task_id": "task_abc", "backend_url": "http://b/h"},
         )
         fake_detail_factory[2] = detail
@@ -164,9 +180,7 @@ class TestExecuteOne:
         assert kwargs["next_retry_at"] is not None  # 还有重试机会
         assert len(worker_state["schedules"]) == 1
 
-    async def test_failed_to_dead_letter(
-        self, monkeypatch, worker_state, fake_detail_factory
-    ):
+    async def test_failed_to_dead_letter(self, monkeypatch, worker_state, fake_detail_factory):
         """retry_count + 1 > max_attempts → mark_failed_attempt(next_retry_at=None)。"""
         from datetime import datetime
 
@@ -178,11 +192,20 @@ class TestExecuteOne:
         )
 
         detail = RetryTaskDetail(
-            id=3, tenant_id=42, trace_id="tr_x", api_id=100, app_id=200,
-            max_attempts=3, retry_count=3, next_retry_at=None,
-            backoff_policy=BackoffPolicy.EXPONENTIAL, backoff_base_ms=1000,
-            status=RetryStatus.PENDING, env="test",
-            created_at=datetime(2026, 7, 1), updated_at=datetime(2026, 7, 1),
+            id=3,
+            tenant_id=42,
+            trace_id="tr_x",
+            api_id=100,
+            app_id=200,
+            max_attempts=3,
+            retry_count=3,
+            next_retry_at=None,
+            backoff_policy=BackoffPolicy.EXPONENTIAL,
+            backoff_base_ms=1000,
+            status=RetryStatus.PENDING,
+            env="test",
+            created_at=datetime(2026, 7, 1),
+            updated_at=datetime(2026, 7, 1),
             original_request={"task_id": "task_abc", "backend_url": "http://b/h"},
         )
         fake_detail_factory[3] = detail
@@ -199,9 +222,7 @@ class TestExecuteOne:
         assert kwargs["next_retry_at"] is None  # 进死信
         assert worker_state["schedules"] == []
 
-    async def test_skip_if_not_pending(
-        self, monkeypatch, worker_state, fake_detail_factory
-    ):
+    async def test_skip_if_not_pending(self, monkeypatch, worker_state, fake_detail_factory):
         """mark_attempt_started 返回 False（其他 worker 已抢）→ 跳过。"""
         from retry_svc import worker as wmod
 
@@ -221,9 +242,7 @@ class TestExecuteOne:
         assert worker_state["mark_succeeded"] == []
         assert worker_state["mark_failed"] == []
 
-    async def test_executor_timeout(
-        self, monkeypatch, worker_state, fake_detail_factory
-    ):
+    async def test_executor_timeout(self, monkeypatch, worker_state, fake_detail_factory):
         """httpx.TimeoutException → 视为失败，按重试逻辑走。"""
         from datetime import datetime
 
@@ -236,19 +255,26 @@ class TestExecuteOne:
         )
 
         detail = RetryTaskDetail(
-            id=4, tenant_id=42, trace_id="tr_x", api_id=100, app_id=200,
-            max_attempts=3, retry_count=0, next_retry_at=None,
-            backoff_policy=BackoffPolicy.EXPONENTIAL, backoff_base_ms=1000,
-            status=RetryStatus.PENDING, env="test",
-            created_at=datetime(2026, 7, 1), updated_at=datetime(2026, 7, 1),
+            id=4,
+            tenant_id=42,
+            trace_id="tr_x",
+            api_id=100,
+            app_id=200,
+            max_attempts=3,
+            retry_count=0,
+            next_retry_at=None,
+            backoff_policy=BackoffPolicy.EXPONENTIAL,
+            backoff_base_ms=1000,
+            status=RetryStatus.PENDING,
+            env="test",
+            created_at=datetime(2026, 7, 1),
+            updated_at=datetime(2026, 7, 1),
             original_request={"task_id": "task_abc", "backend_url": "http://b/h"},
         )
         fake_detail_factory[4] = detail
 
         worker = wmod.RetryWorker()
-        worker._client = _FakeExecutorClient(
-            raise_error=httpx.TimeoutException("timeout")
-        )
+        worker._client = _FakeExecutorClient(raise_error=httpx.TimeoutException("timeout"))
 
         await worker._execute_one(tenant_id=42, retry_task_id=4)
 
@@ -270,11 +296,20 @@ class TestTick:
         )
 
         detail = RetryTaskDetail(
-            id=10, tenant_id=42, trace_id="tr_x", api_id=100, app_id=200,
-            max_attempts=3, retry_count=0, next_retry_at=None,
-            backoff_policy=BackoffPolicy.EXPONENTIAL, backoff_base_ms=1000,
-            status=RetryStatus.PENDING, env="test",
-            created_at=datetime(2026, 7, 1), updated_at=datetime(2026, 7, 1),
+            id=10,
+            tenant_id=42,
+            trace_id="tr_x",
+            api_id=100,
+            app_id=200,
+            max_attempts=3,
+            retry_count=0,
+            next_retry_at=None,
+            backoff_policy=BackoffPolicy.EXPONENTIAL,
+            backoff_base_ms=1000,
+            status=RetryStatus.PENDING,
+            env="test",
+            created_at=datetime(2026, 7, 1),
+            updated_at=datetime(2026, 7, 1),
             original_request={"task_id": "task_abc", "backend_url": "http://b/h"},
         )
         fake_detail_factory[10] = detail
@@ -290,6 +325,7 @@ class TestTick:
     async def test_tick_no_tenants(self, worker_state):
         """没租户 → 不抛，正常结束。"""
         from retry_svc import worker as wmod
+
         worker_state["tenants_returned"] = []
 
         worker = wmod.RetryWorker()

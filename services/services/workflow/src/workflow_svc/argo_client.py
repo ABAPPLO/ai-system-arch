@@ -29,11 +29,13 @@ log = get_logger(__name__)
 
 # ============ 异常 ============
 
+
 class ArgoError(Exception):
     """Argo / K8s API 调用失败。"""
 
 
 # ============ 抽象接口 ============
+
 
 class ArgoClient:
     """Argo 客户端抽象。子类：StubArgoClient / K8sArgoClient。"""
@@ -55,19 +57,13 @@ class ArgoClient:
         """查询 workflow 状态。返回 (status, message)。"""
         raise NotImplementedError
 
-    async def cancel(
-        self, *, namespace: str, argo_name: str
-    ) -> None:
+    async def cancel(self, *, namespace: str, argo_name: str) -> None:
         raise NotImplementedError
 
-    async def resume(
-        self, *, namespace: str, argo_name: str
-    ) -> None:
+    async def resume(self, *, namespace: str, argo_name: str) -> None:
         raise NotImplementedError
 
-    async def get_steps(
-        self, *, namespace: str, argo_name: str
-    ) -> list[WorkflowStep]:
+    async def get_steps(self, *, namespace: str, argo_name: str) -> list[WorkflowStep]:
         raise NotImplementedError
 
     async def stream_logs(
@@ -81,6 +77,7 @@ class ArgoClient:
 
 
 # ============ Stub 模式（dev / test） ============
+
 
 class StubArgoClient(ArgoClient):
     """内存模拟 Argo。每次 submit 返回随机 name，状态机简单走过。"""
@@ -120,12 +117,14 @@ class StubArgoClient(ArgoClient):
         for tmpl in spec.get("templates", []):
             name = tmpl.get("name")
             if name:
-                steps.append(WorkflowStep(
-                    name=name,
-                    template=name,
-                    status=StepStatus.RUNNING,
-                    started_at=datetime.now(UTC),
-                ))
+                steps.append(
+                    WorkflowStep(
+                        name=name,
+                        template=name,
+                        status=StepStatus.RUNNING,
+                        started_at=datetime.now(UTC),
+                    )
+                )
         return steps
 
     async def get_status(
@@ -134,7 +133,9 @@ class StubArgoClient(ArgoClient):
         key = f"{namespace}/{argo_name}"
         wf = self._workflows.get(key)
         if wf is None:
-            raise ArgoError(f"workflow {argo_name} not found", )
+            raise ArgoError(
+                f"workflow {argo_name} not found",
+            )
         return wf["status"], wf["message"]
 
     async def cancel(self, *, namespace: str, argo_name: str) -> None:
@@ -157,9 +158,7 @@ class StubArgoClient(ArgoClient):
         wf["status"] = WorkflowStatus.RUNNING
         wf["finished_at"] = None
 
-    async def get_steps(
-        self, *, namespace: str, argo_name: str
-    ) -> list[WorkflowStep]:
+    async def get_steps(self, *, namespace: str, argo_name: str) -> list[WorkflowStep]:
         key = f"{namespace}/{argo_name}"
         wf = self._workflows.get(key)
         if wf is None:
@@ -180,6 +179,7 @@ class StubArgoClient(ArgoClient):
 
 
 # ============ K8s 模式（prod） ============
+
 
 # Argo Workflow CRD endpoint:
 #   /apis/argoproj.io/v1alpha1/namespaces/{ns}/workflows
@@ -251,9 +251,7 @@ class K8sArgoClient(ArgoClient):
         except httpx.RequestError as e:
             raise ArgoError(f"k8s submit request failed: {e}") from e
         if resp.status_code not in (200, 201):
-            raise ArgoError(
-                f"k8s submit returned {resp.status_code}: {resp.text[:500]}"
-            )
+            raise ArgoError(f"k8s submit returned {resp.status_code}: {resp.text[:500]}")
         data = resp.json()
         return data["metadata"]["name"]
 
@@ -269,9 +267,7 @@ class K8sArgoClient(ArgoClient):
         if resp.status_code == 404:
             raise ArgoError(f"workflow {argo_name} not found")
         if resp.status_code != 200:
-            raise ArgoError(
-                f"k8s get returned {resp.status_code}: {resp.text[:500]}"
-            )
+            raise ArgoError(f"k8s get returned {resp.status_code}: {resp.text[:500]}")
         data = resp.json()
         phase = data.get("status", {}).get("phase", "")
         msg = data.get("status", {}).get("message")
@@ -288,9 +284,7 @@ class K8sArgoClient(ArgoClient):
         except httpx.RequestError as e:
             raise ArgoError(f"k8s cancel failed: {e}") from e
         if resp.status_code not in (200, 202):
-            raise ArgoError(
-                f"k8s cancel returned {resp.status_code}: {resp.text[:500]}"
-            )
+            raise ArgoError(f"k8s cancel returned {resp.status_code}: {resp.text[:500]}")
 
     async def resume(self, *, namespace: str, argo_name: str) -> None:
         # Argo resume 走子资源：POST /workflows/{name}/resume
@@ -301,13 +295,9 @@ class K8sArgoClient(ArgoClient):
         except httpx.RequestError as e:
             raise ArgoError(f"k8s resume failed: {e}") from e
         if resp.status_code not in (200, 202):
-            raise ArgoError(
-                f"k8s resume returned {resp.status_code}: {resp.text[:500]}"
-            )
+            raise ArgoError(f"k8s resume returned {resp.status_code}: {resp.text[:500]}")
 
-    async def get_steps(
-        self, *, namespace: str, argo_name: str
-    ) -> list[WorkflowStep]:
+    async def get_steps(self, *, namespace: str, argo_name: str) -> list[WorkflowStep]:
         try:
             resp = await self._client.get(
                 f"/apis/argoproj.io/v1alpha1/namespaces/{namespace}/workflows/{argo_name}"
@@ -315,9 +305,7 @@ class K8sArgoClient(ArgoClient):
         except httpx.RequestError as e:
             raise ArgoError(f"k8s get steps failed: {e}") from e
         if resp.status_code != 200:
-            raise ArgoError(
-                f"k8s get steps returned {resp.status_code}: {resp.text[:500]}"
-            )
+            raise ArgoError(f"k8s get steps returned {resp.status_code}: {resp.text[:500]}")
         data = resp.json()
         nodes = data.get("status", {}).get("nodes", {})
         return [_node_to_step(n) for n in nodes.values()]
@@ -328,10 +316,7 @@ class K8sArgoClient(ArgoClient):
         # Argo logs endpoint: GET /workflows/{name}/log?podName=...
         # 真实环境用 SSE / chunked；这里简化为一次性拉取后逐行 yield。
         # 后续可以接 httpx.stream 持续读。
-        url = (
-            f"/apis/argoproj.io/v1alpha1/namespaces/{namespace}"
-            f"/workflows/{argo_name}/log"
-        )
+        url = f"/apis/argoproj.io/v1alpha1/namespaces/{namespace}" f"/workflows/{argo_name}/log"
         params = {}
         if step_name:
             params["podName"] = step_name
@@ -339,9 +324,7 @@ class K8sArgoClient(ArgoClient):
             async with self._client.stream("GET", url, params=params) as resp:
                 if resp.status_code != 200:
                     text = await resp.aread()
-                    raise ArgoError(
-                        f"k8s logs returned {resp.status_code}: {text[:500]!r}"
-                    )
+                    raise ArgoError(f"k8s logs returned {resp.status_code}: {text[:500]!r}")
                 async for line in resp.aiter_lines():
                     yield line + "\n"
         except httpx.RequestError as e:

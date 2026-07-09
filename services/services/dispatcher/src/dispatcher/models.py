@@ -8,14 +8,14 @@ from typing import Any
 class ApiVersionSnapshot:
     """dispatcher 转发需要的最小字段集（避免每次查全表）。"""
 
-    id: str                       # api_version.id (ver_xxx)
-    api_id: str                   # 父 API id
+    id: str  # api_version.id (ver_xxx)
+    api_id: str  # 父 API id
     tenant_id: str
-    version: str                  # v1 / v2
-    backend_type: str             # http / async_task / workflow / ai_model
-    backend_url: str              # 含 {path_var} 占位符
+    version: str  # v1 / v2
+    backend_type: str  # http / async_task / workflow / ai_model
+    backend_url: str  # 含 {path_var} 占位符
     method: str
-    path: str                     # 业务侧 path
+    path: str  # 业务侧 path
     masking: dict[str, Any] | None
     rate_limit: dict[str, Any] | None
     retry_policy: dict[str, Any] | None

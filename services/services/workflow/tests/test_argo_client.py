@@ -6,6 +6,7 @@ import pytest
 @pytest.fixture
 async def stub_client():
     from workflow_svc.argo_client import StubArgoClient
+
     c = StubArgoClient()
     yield c
     await c.close()
@@ -56,6 +57,7 @@ class TestStubStatus:
 
     async def test_get_status_not_found(self, stub_client):
         from workflow_svc.argo_client import ArgoError
+
         with pytest.raises(ArgoError):
             await stub_client.get_status(namespace="ns", argo_name="nope")
 
@@ -111,9 +113,7 @@ class TestStubLogs:
             labels={},
         )
         lines = []
-        async for line in stub_client.stream_logs(
-            namespace="ns", argo_name=name, step_name="solo"
-        ):
+        async for line in stub_client.stream_logs(namespace="ns", argo_name=name, step_name="solo"):
             lines.append(line)
         assert len(lines) >= 1
         assert "solo" in lines[0]
@@ -122,6 +122,7 @@ class TestStubLogs:
 class TestFactory:
     async def test_init_stub(self):
         from workflow_svc import argo_client
+
         c = argo_client.init_argo_client(mode="stub")
         assert isinstance(c, argo_client.StubArgoClient)
         assert argo_client.get_argo_client() is c
@@ -129,11 +130,13 @@ class TestFactory:
 
     def test_init_unknown_mode(self):
         from workflow_svc import argo_client
+
         with pytest.raises(ValueError, match="unknown argo_mode"):
             argo_client.init_argo_client(mode="bogus")
 
     def test_get_uninitialized(self):
         from workflow_svc import argo_client
+
         argo_client._client = None
         with pytest.raises(RuntimeError, match="not initialized"):
             argo_client.get_argo_client()

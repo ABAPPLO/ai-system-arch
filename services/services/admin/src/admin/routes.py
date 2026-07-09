@@ -74,7 +74,6 @@ def _resolve_query_params(
 
 
 def register_routes(app: FastAPI) -> None:
-
     # ========== 审计查询 ==========
 
     @app.get("/v1/admin/audit", response_model=list[AuditListItem])
@@ -87,9 +86,7 @@ def register_routes(app: FastAPI) -> None:
             rows = await repository.list_events(query, use_admin_session=True)
         else:
             # 普通用户：强制 tenant_id = 自己
-            rows = await repository.list_events(
-                query, viewer_tenant_id=ctx.tenant_id
-            )
+            rows = await repository.list_events(query, viewer_tenant_id=ctx.tenant_id)
         return [AuditListItem(**r) for r in rows]
 
     @app.get("/v1/admin/audit/stats", response_model=AuditStats)
@@ -102,9 +99,7 @@ def register_routes(app: FastAPI) -> None:
         if ctx.is_platform_admin:
             data = await repository.stats(use_admin_session=True, days=days)
         else:
-            data = await repository.stats(
-                viewer_tenant_id=ctx.tenant_id, days=days
-            )
+            data = await repository.stats(viewer_tenant_id=ctx.tenant_id, days=days)
         return AuditStats(**data)
 
     @app.get("/v1/admin/audit/{audit_id}", response_model=AuditDetail)
@@ -114,9 +109,7 @@ def register_routes(app: FastAPI) -> None:
         if ctx.is_platform_admin:
             row = await repository.get_event(audit_id, use_admin_session=True)
         else:
-            row = await repository.get_event(
-                audit_id, viewer_tenant_id=ctx.tenant_id
-            )
+            row = await repository.get_event(audit_id, viewer_tenant_id=ctx.tenant_id)
         return AuditDetail(**row)
 
     @app.get("/v1/admin/audit/export/csv")
@@ -184,12 +177,8 @@ def register_routes(app: FastAPI) -> None:
             tenants={
                 "total": len(tenants_list),
                 "active": sum(1 for t in tenants_list if t.get("status") == "active"),
-                "suspended": sum(
-                    1 for t in tenants_list if t.get("status") == "suspended"
-                ),
-                "closed": sum(
-                    1 for t in tenants_list if t.get("status") == "closed"
-                ),
+                "suspended": sum(1 for t in tenants_list if t.get("status") == "suspended"),
+                "closed": sum(1 for t in tenants_list if t.get("status") == "closed"),
             },
             audit_today=audit_today,
             audit_7d=audit_7d,

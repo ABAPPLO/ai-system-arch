@@ -18,7 +18,6 @@ from docs import repository as repo
 
 
 def register_routes(app: FastAPI) -> None:
-
     @app.get("/v1/docs/apis/{api_id}/openapi.json")
     async def get_openapi_json(api_id: str, request: Request, version: str | None = None):
         """OpenAPI 3.0 spec（JSON 格式）。"""

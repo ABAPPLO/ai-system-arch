@@ -46,7 +46,6 @@ def _resolve_query(
 
 
 def register_routes(app: FastAPI) -> None:
-
     @app.get("/v1/trace/calls", response_model=list[CallListItem])
     async def list_calls(
         api_id: str | None = None,
@@ -59,9 +58,7 @@ def register_routes(app: FastAPI) -> None:
         offset: int = Query(default=0, ge=0),
     ):
         ctx = require_tenant()
-        query = _resolve_query(
-            api_id, app_id, trace_id, status, since, until, limit, offset
-        )
+        query = _resolve_query(api_id, app_id, trace_id, status, since, until, limit, offset)
 
         if ctx.is_platform_admin:
             rows = await repo.list_calls(query, use_admin_session=True)
@@ -79,9 +76,7 @@ def register_routes(app: FastAPI) -> None:
         until: datetime | None = None,
     ):
         ctx = require_tenant()
-        query = _resolve_query(
-            api_id, app_id, None, status, since, until, limit=1, offset=0
-        )
+        query = _resolve_query(api_id, app_id, None, status, since, until, limit=1, offset=0)
 
         if ctx.is_platform_admin:
             data = await repo.stats(query, use_admin_session=True)
@@ -171,7 +166,9 @@ def _row_to_detail(r: dict[str, Any]) -> CallDetail:
         latency_ms=int(r.get("latency_ms", 0)),
         is_streaming=bool(r.get("ai_streaming", 0)),
         token_prompt=int(r.get("token_prompt", 0)) if r.get("token_prompt") is not None else None,
-        token_completion=int(r.get("token_completion", 0)) if r.get("token_completion") is not None else None,
+        token_completion=int(r.get("token_completion", 0))
+        if r.get("token_completion") is not None
+        else None,
         token_total=int(r.get("token_total", 0)) if r.get("token_total") is not None else None,
         ai_model=r.get("ai_model") or None,
         error_type=r.get("error_code") or None,

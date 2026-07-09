@@ -9,7 +9,9 @@ from typing import Any
 from docs.models import ApiMeta
 
 
-def build_openapi_spec(meta: ApiMeta, *, base_url: str = "https://api.apihub.example") -> dict[str, Any]:
+def build_openapi_spec(
+    meta: ApiMeta, *, base_url: str = "https://api.apihub.example"
+) -> dict[str, Any]:
     """生成 OpenAPI 3.0.3 文档。"""
     method = _infer_method(meta)
     path = meta.base_path

@@ -71,7 +71,9 @@ class FailureConsumer:
                 try:
                     # 包在 consume_span 里 → Jaeger 上能看到 producer→consumer 的链路
                     await core_kafka.consume_with_trace(
-                        topic=TOPIC, msg=msg, processor=self._handle,
+                        topic=TOPIC,
+                        msg=msg,
+                        processor=self._handle,
                     )
                     await self._consumer.commit()
                 except Exception as e:
@@ -116,11 +118,13 @@ class FailureConsumer:
         )
 
         # 设 TenantContext（虽然写走 admin_db_session，但 log / OTel 需要 tenant）
-        set_tenant_context(TenantContext(
-            tenant_id=tenant_id,
-            tenant_type="internal",
-            app_id=failure.app_id or "",
-        ))
+        set_tenant_context(
+            TenantContext(
+                tenant_id=tenant_id,
+                tenant_type="internal",
+                app_id=failure.app_id or "",
+            )
+        )
 
         # 计算 next_retry_at
         delay_ms = next_attempt_delay_ms(
@@ -130,8 +134,10 @@ class FailureConsumer:
         )
         # 转 unix ts（秒，浮点）
         import time
+
         next_ts = time.time() + delay_ms / 1000.0
         from datetime import UTC, datetime, timedelta
+
         next_retry_at = datetime.now(UTC) + timedelta(milliseconds=delay_ms)
 
         try:

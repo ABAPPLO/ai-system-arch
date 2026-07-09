@@ -1,6 +1,5 @@
 """请求 / 响应 / 规则模型。"""
 
-
 from pydantic import BaseModel, Field
 
 # 三 tier 的固定窗口长度（秒）
@@ -37,7 +36,7 @@ class QuotaCheckRequest(BaseModel):
     tenant_id: str = Field(min_length=1)
     app_id: str = Field(min_length=1)
     api_id: str = Field(min_length=1)
-    cost: int = Field(default=1, ge=1, le=1000)   # 一次调用扣几个（AI 按 token 折算）
+    cost: int = Field(default=1, ge=1, le=1000)  # 一次调用扣几个（AI 按 token 折算）
 
 
 class QuotaCheckResponse(BaseModel):
@@ -48,11 +47,11 @@ class QuotaCheckResponse(BaseModel):
     """
 
     allowed: bool
-    tier_blocked: str | None = None       # "second" / "minute" / "day" / None
-    limit: int | None = None              # 哪一层超了，对应的 max
-    remaining: int | None = None          # 还剩多少（仅 allowed=True 有意义）
+    tier_blocked: str | None = None  # "second" / "minute" / "day" / None
+    limit: int | None = None  # 哪一层超了，对应的 max
+    remaining: int | None = None  # 还剩多少（仅 allowed=True 有意义）
     retry_after_seconds: int = 0
-    rule_source: str = "default"             # app / tenant / api_version / default
+    rule_source: str = "default"  # app / tenant / api_version / default
 
 
 class QuotaRefundRequest(BaseModel):
@@ -69,7 +68,7 @@ class UsagePoint(BaseModel):
 
     window_seconds: int
     used: int
-    limit: int | None = None   # None = 不限流
+    limit: int | None = None  # None = 不限流
 
 
 class UsageResponse(BaseModel):

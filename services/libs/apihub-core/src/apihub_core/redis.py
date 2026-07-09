@@ -4,7 +4,6 @@ key 规范：`t:{tenant_id}:{namespace}:{key}`
 详见 docs/04-data-model.md §7 Redis 键空间。
 """
 
-
 import redis.asyncio as redis
 
 from apihub_core.config import Settings

@@ -1,7 +1,6 @@
 """change_request workflow 测试 —— 状态机 + 路由权限 + 环境分级。"""
 
 
-
 class TestSubmit:
     async def test_dev_auto_applied(self, admin_client, stub_cr):
         """dev 环境 submit → status=applied（自助）。"""
@@ -47,9 +46,12 @@ class TestSubmit:
         resp = await admin_client.post(
             "/v1/change-requests",
             json={
-                "api_id": 100, "target_version": "v1",
-                "change_type": "publish", "target_env": "staging",
-                "proposed_config": {}, "submitted_by": "u_alice",
+                "api_id": 100,
+                "target_version": "v1",
+                "change_type": "publish",
+                "target_env": "staging",
+                "proposed_config": {},
+                "submitted_by": "u_alice",
             },
         )
         rid = resp.json()["request_id"]
@@ -75,10 +77,16 @@ class TestReviewPermissions:
         )
 
         cr_obj = ChangeRequest(
-            id=1, tenant_id=42, api_id=100, target_version="v1",
-            change_type=ChangeType.PUBLISH, target_env=TargetEnv.PROD,
-            proposed_config={}, status=ChangeRequestStatus.PENDING,
-            submitted_by="u_alice", submitted_at=datetime.now(UTC),
+            id=1,
+            tenant_id=42,
+            api_id=100,
+            target_version="v1",
+            change_type=ChangeType.PUBLISH,
+            target_env=TargetEnv.PROD,
+            proposed_config={},
+            status=ChangeRequestStatus.PENDING,
+            submitted_by="u_alice",
+            submitted_at=datetime.now(UTC),
         )
         stub_cr["requests"][1] = cr_obj
         stub_cr["next_id"][0] = 2
@@ -95,9 +103,12 @@ class TestReviewPermissions:
         resp = await admin_client.post(
             "/v1/change-requests",
             json={
-                "api_id": 1, "target_version": "v1",
-                "change_type": "publish", "target_env": "prod",
-                "proposed_config": {}, "submitted_by": "u_alice",
+                "api_id": 1,
+                "target_version": "v1",
+                "change_type": "publish",
+                "target_env": "prod",
+                "proposed_config": {},
+                "submitted_by": "u_alice",
             },
         )
         rid = resp.json()["request_id"]
@@ -117,9 +128,12 @@ class TestReviewPermissions:
         resp = await admin_client.post(
             "/v1/change-requests",
             json={
-                "api_id": 1, "target_version": "v1",
-                "change_type": "publish", "target_env": "prod",
-                "proposed_config": {}, "submitted_by": "u_alice",
+                "api_id": 1,
+                "target_version": "v1",
+                "change_type": "publish",
+                "target_env": "prod",
+                "proposed_config": {},
+                "submitted_by": "u_alice",
             },
         )
         rid = resp.json()["request_id"]
@@ -139,9 +153,12 @@ class TestApply:
         resp = await admin_client.post(
             "/v1/change-requests",
             json={
-                "api_id": 1, "target_version": "v1",
-                "change_type": "publish", "target_env": "prod",
-                "proposed_config": {}, "submitted_by": "u_alice",
+                "api_id": 1,
+                "target_version": "v1",
+                "change_type": "publish",
+                "target_env": "prod",
+                "proposed_config": {},
+                "submitted_by": "u_alice",
             },
         )
         rid = resp.json()["request_id"]
@@ -158,9 +175,12 @@ class TestApply:
         resp = await admin_client.post(
             "/v1/change-requests",
             json={
-                "api_id": 1, "target_version": "v1",
-                "change_type": "publish", "target_env": "prod",
-                "proposed_config": {}, "submitted_by": "u_alice",
+                "api_id": 1,
+                "target_version": "v1",
+                "change_type": "publish",
+                "target_env": "prod",
+                "proposed_config": {},
+                "submitted_by": "u_alice",
             },
         )
         rid = resp.json()["request_id"]
@@ -173,9 +193,12 @@ class TestApply:
         resp = await admin_client.post(
             "/v1/change-requests",
             json={
-                "api_id": 1, "target_version": "v1",
-                "change_type": "publish", "target_env": "prod",
-                "proposed_config": {}, "submitted_by": "u_alice",
+                "api_id": 1,
+                "target_version": "v1",
+                "change_type": "publish",
+                "target_env": "prod",
+                "proposed_config": {},
+                "submitted_by": "u_alice",
             },
         )
         rid = resp.json()["request_id"]
@@ -193,9 +216,12 @@ class TestCancel:
         resp = await admin_client.post(
             "/v1/change-requests",
             json={
-                "api_id": 1, "target_version": "v1",
-                "change_type": "publish", "target_env": "prod",
-                "proposed_config": {}, "submitted_by": "u_admin",
+                "api_id": 1,
+                "target_version": "v1",
+                "change_type": "publish",
+                "target_env": "prod",
+                "proposed_config": {},
+                "submitted_by": "u_admin",
             },
         )
         rid = resp.json()["request_id"]
@@ -213,9 +239,12 @@ class TestGetAndList:
         resp = await admin_client.post(
             "/v1/change-requests",
             json={
-                "api_id": 5, "target_version": "v2",
-                "change_type": "update", "target_env": "staging",
-                "proposed_config": {"x": 1}, "submitted_by": "u_alice",
+                "api_id": 5,
+                "target_version": "v2",
+                "change_type": "update",
+                "target_env": "staging",
+                "proposed_config": {"x": 1},
+                "submitted_by": "u_alice",
             },
         )
         rid = resp.json()["request_id"]
@@ -233,9 +262,12 @@ class TestGetAndList:
             await admin_client.post(
                 "/v1/change-requests",
                 json={
-                    "api_id": i, "target_version": "v1",
-                    "change_type": "publish", "target_env": "prod",
-                    "proposed_config": {}, "submitted_by": "u_alice",
+                    "api_id": i,
+                    "target_version": "v1",
+                    "change_type": "publish",
+                    "target_env": "prod",
+                    "proposed_config": {},
+                    "submitted_by": "u_alice",
                 },
             )
         resp = await admin_client.get("/v1/change-requests")

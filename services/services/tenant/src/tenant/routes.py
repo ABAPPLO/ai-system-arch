@@ -86,7 +86,6 @@ def _to_response(row: dict, viewer_is_admin: bool) -> TenantResponse:
 
 
 def register_routes(app: FastAPI) -> None:
-
     # ========== 租户 CRUD ==========
 
     @app.post(
@@ -187,9 +186,7 @@ def register_routes(app: FastAPI) -> None:
         response_model=list[MemberResponse],
     )
     async def list_members(tenant_id: str):
-        await _require_tenant_role(
-            tenant_id, min_roles=("owner", "admin", "developer", "viewer")
-        )
+        await _require_tenant_role(tenant_id, min_roles=("owner", "admin", "developer", "viewer"))
         rows = await repo.list_members(tenant_id)
         return [MemberResponse(**r) for r in rows]
 
@@ -228,18 +225,14 @@ def register_routes(app: FastAPI) -> None:
 
     @app.get("/v1/tenant/tenants/{tenant_id}/quota", response_model=QuotaConfig)
     async def get_quota(tenant_id: str):
-        await _require_tenant_role(
-            tenant_id, min_roles=("owner", "admin", "developer", "viewer")
-        )
+        await _require_tenant_role(tenant_id, min_roles=("owner", "admin", "developer", "viewer"))
         quota = await repo.get_quota(tenant_id)
         return QuotaConfig(**_normalize_quota(quota))
 
     @app.put("/v1/tenant/tenants/{tenant_id}/quota", response_model=QuotaConfig)
     async def set_quota(tenant_id: str, payload: QuotaConfig):
         _require_platform_admin()
-        row = await repo.set_quota(
-            tenant_id, payload.model_dump(mode="json")
-        )
+        row = await repo.set_quota(tenant_id, payload.model_dump(mode="json"))
         # 配额变更 → 失效缓存（quota 服务下次 load_rules 会重读）
         await cache.invalidate(tenant_id)
         log.info("quota_updated", tenant_id=tenant_id)
@@ -250,9 +243,7 @@ def register_routes(app: FastAPI) -> None:
     @app.get("/v1/tenant/tenants/{tenant_id}/usage", response_model=UsageResponse)
     async def get_usage(tenant_id: str):
         """当日用量（Phase 1 占位 —— Phase 3 调 quota/analyzer 聚合）。"""
-        await _require_tenant_role(
-            tenant_id, min_roles=("owner", "admin", "developer", "viewer")
-        )
+        await _require_tenant_role(tenant_id, min_roles=("owner", "admin", "developer", "viewer"))
         quota = await repo.get_quota(tenant_id)
         day_limit = int((quota or {}).get("day_limit", 0))
         return UsageResponse(

@@ -83,6 +83,7 @@ class TestSuccess:
         http_client.post.return_value = make_response(200, '{"ok":1}')
 
         from executor.processor import process_task
+
         result = await process_task(make_msg())
 
         assert result.status == "succeeded"
@@ -102,6 +103,7 @@ class TestSuccess:
         http_client.post.return_value = make_response(201, "created")
 
         from executor.processor import process_task
+
         result = await process_task(make_msg())
 
         assert result.status == "succeeded"
@@ -113,6 +115,7 @@ class TestHttpErrors:
         http_client.post.return_value = make_response(404, "not found")
 
         from executor.processor import process_task
+
         result = await process_task(make_msg())
 
         assert result.status == "failed"
@@ -124,6 +127,7 @@ class TestHttpErrors:
         http_client.post.return_value = make_response(500, "boom")
 
         from executor.processor import process_task
+
         result = await process_task(make_msg())
 
         assert result.status == "failed"
@@ -133,6 +137,7 @@ class TestHttpErrors:
         http_client.post.return_value = make_response(500, "x" * 10000)
 
         from executor.processor import process_task
+
         await process_task(make_msg())
 
         # mark_failed 收到的 error_msg 截断到 500
@@ -143,11 +148,14 @@ class TestHttpErrors:
 class TestTimeout:
     async def test_timeout_marks_timeout(self, http_client, mocks):
         import asyncio
+
         async def _slow(*args, **kwargs):
             await asyncio.sleep(10)
+
         http_client.post.side_effect = httpx.TimeoutException("read timeout")
 
         from executor.processor import process_task
+
         result = await process_task(make_msg(timeout_seconds=0.05))
 
         assert result.status == "timeout"
@@ -160,6 +168,7 @@ class TestConnectionError:
         http_client.post.side_effect = httpx.ConnectError("conn refused")
 
         from executor.processor import process_task
+
         result = await process_task(make_msg())
 
         assert result.status == "failed"
@@ -171,9 +180,11 @@ class TestIdempotency:
     async def test_skipped_when_already_running(self, http_client, mocks, monkeypatch):
         """mark_running 返回 False → 跳过，不打 backend。"""
         from executor import processor as p
+
         # 强制 mark_running 返回 False
         async def _false(task_id):
             return False
+
         monkeypatch.setattr(p.repo, "mark_running", _false)
 
         result = await p.process_task(make_msg())
@@ -190,6 +201,7 @@ class TestHeaders:
         http_client.post.return_value = make_response(200, "{}")
 
         from executor.processor import process_task
+
         await process_task(make_msg())
 
         args, kwargs = http_client.post.call_args
@@ -202,6 +214,7 @@ class TestHeaders:
         http_client.post.return_value = make_response(200, "{}")
 
         from executor.processor import process_task
+
         await process_task(make_msg(payload='{"k":"v"}'))
 
         _, kwargs = http_client.post.call_args

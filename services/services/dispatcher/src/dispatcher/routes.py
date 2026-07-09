@@ -30,7 +30,6 @@ def get_forwarder() -> HttpForwarder:
 
 
 def register_routes(app: FastAPI) -> None:
-
     @app.api_route(
         "/dispatch/{rest:path}",
         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],

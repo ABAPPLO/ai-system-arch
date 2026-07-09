@@ -36,7 +36,7 @@ class TestCurlExample:
         )
         assert "curl -X POST" in ex.curl
         assert "Content-Type" in ex.curl
-        assert '-d' in ex.curl
+        assert "-d" in ex.curl
 
 
 class TestPythonExample:
@@ -93,7 +93,5 @@ class TestNotes:
         assert any("draft" in n for n in ex.notes)
 
     def test_streaming_note(self):
-        ex = build_examples(
-            _basic_meta(backend_type="ai_model", ai_streaming=True)
-        )
+        ex = build_examples(_basic_meta(backend_type="ai_model", ai_streaming=True))
         assert any("SSE" in n for n in ex.notes)

@@ -6,7 +6,9 @@
 from docs.models import ApiMeta, ExampleResponse
 
 
-def build_examples(meta: ApiMeta, *, base_url: str = "https://api.apihub.example") -> ExampleResponse:
+def build_examples(
+    meta: ApiMeta, *, base_url: str = "https://api.apihub.example"
+) -> ExampleResponse:
     """生成 curl / Python / JavaScript 调用示例。"""
     method = _infer_method(meta)
     full_url = f"{base_url.rstrip('/')}{meta.base_path}"
@@ -56,7 +58,7 @@ def _curl(method: str, url: str, has_body: bool) -> str:
 def _python(method: str, url: str, has_body: bool, meta: ApiMeta) -> str:
     if meta.backend_type == "ai_model" and meta.ai_streaming:
         # 流式用 stream 接收
-        return f'''import httpx
+        return f"""import httpx
 
 API_KEY = "YOUR_API_KEY"
 
@@ -71,12 +73,12 @@ with httpx.stream(
     for line in resp.iter_lines():
         if line.startswith("data: "):
             print(line[6:])
-'''
+"""
 
     body_arg = ""
     if has_body:
         body_arg = ',\n    json={"key": "value"}'
-    return f'''import httpx
+    return f"""import httpx
 
 API_KEY = "YOUR_API_KEY"
 
@@ -88,12 +90,12 @@ resp = httpx.request(
 )
 print(resp.status_code)
 print(resp.json())
-'''
+"""
 
 
 def _javascript(method: str, url: str, has_body: bool, meta: ApiMeta) -> str:
     if meta.backend_type == "ai_model" and meta.ai_streaming:
-        return f'''const API_KEY = "YOUR_API_KEY";
+        return f"""const API_KEY = "YOUR_API_KEY";
 
 // AI 流式：用 ReadableStream 读 SSE，按 "data: " 前缀解析每行
 const resp = await fetch("{url}", {{
@@ -120,13 +122,13 @@ while (true) {{
     }}
   }}
 }}
-'''
+"""
 
     body_lines = ""
     if has_body:
         body_lines = """,
   body: JSON.stringify({ key: "value" })"""
-    return f'''const API_KEY = "YOUR_API_KEY";
+    return f"""const API_KEY = "YOUR_API_KEY";
 
 const resp = await fetch("{url}", {{
   method: "{method.upper()}",
@@ -138,4 +140,4 @@ const resp = await fetch("{url}", {{
 
 const data = await resp.json();
 console.log(data);
-'''
+"""

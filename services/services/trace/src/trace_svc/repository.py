@@ -150,8 +150,7 @@ async def get_call(
     if not row:
         raise ApiError(
             ErrorCode.NOT_FOUND,
-            f"call {trace_id} not found"
-            + (" (or not in your tenant)" if viewer_tenant_id else ""),
+            f"call {trace_id} not found" + (" (or not in your tenant)" if viewer_tenant_id else ""),
         )
     return row
 
@@ -193,11 +192,14 @@ async def stats(
             window_seconds = delta
 
     try:
-        base = ch.query_one(
-            base_sql,
-            params,
-            force_tenant_id=None if use_admin_session else "sentinel",
-        ) or {}
+        base = (
+            ch.query_one(
+                base_sql,
+                params,
+                force_tenant_id=None if use_admin_session else "sentinel",
+            )
+            or {}
+        )
     except RuntimeError as e:
         log.warning("trace_stats_clickhouse_unavailable", error=str(e))
         return _empty_stats()

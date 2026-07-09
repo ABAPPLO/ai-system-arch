@@ -49,6 +49,4 @@ def next_attempt_delay_ms(
 
     即将执行的是第 retry_count+1 次。
     """
-    return compute_delay_ms(
-        retry_count + 1, policy=policy, base_ms=base_ms, cap_ms=cap_ms
-    )
+    return compute_delay_ms(retry_count + 1, policy=policy, base_ms=base_ms, cap_ms=cap_ms)

@@ -56,11 +56,13 @@ async def process_task(msg: TaskMessage) -> TaskResult:
         return TaskResult(task_id=msg.task_id, status="skipped")
 
     if tenant_id:
-        set_tenant_context(TenantContext(
-            tenant_id=tenant_id,
-            tenant_type="internal",
-            app_id=msg.app_id or "",
-        ))
+        set_tenant_context(
+            TenantContext(
+                tenant_id=tenant_id,
+                tenant_type="internal",
+                app_id=msg.app_id or "",
+            )
+        )
 
     try:
         result = await _call_backend(msg)
@@ -112,7 +114,8 @@ async def _call_backend(msg: TaskMessage) -> TaskResult:
     """POST backend。所有异常都转成 TaskResult，不向上抛。"""
     if _client is None:
         return TaskResult(
-            task_id=msg.task_id, status="failed",
+            task_id=msg.task_id,
+            status="failed",
             error_code="http_client_not_init",
             error_msg="executor http client not initialized",
         )
@@ -135,14 +138,16 @@ async def _call_backend(msg: TaskMessage) -> TaskResult:
         )
     except httpx.TimeoutException as e:
         return TaskResult(
-            task_id=msg.task_id, status="timeout",
+            task_id=msg.task_id,
+            status="timeout",
             error_code="backend_timeout",
             error_msg=f"{type(e).__name__}: {e}",
             duration_ms=int((time.monotonic() - started) * 1000),
         )
     except httpx.RequestError as e:
         return TaskResult(
-            task_id=msg.task_id, status="failed",
+            task_id=msg.task_id,
+            status="failed",
             error_code="backend_unreachable",
             error_msg=f"{type(e).__name__}: {e}",
             duration_ms=int((time.monotonic() - started) * 1000),
@@ -152,17 +157,19 @@ async def _call_backend(msg: TaskMessage) -> TaskResult:
 
     if 200 <= resp.status_code < 300:
         return TaskResult(
-            task_id=msg.task_id, status="succeeded",
+            task_id=msg.task_id,
+            status="succeeded",
             http_status=resp.status_code,
             response_body=resp.text,
             duration_ms=duration_ms,
         )
 
     return TaskResult(
-        task_id=msg.task_id, status="failed",
+        task_id=msg.task_id,
+        status="failed",
         http_status=resp.status_code,
         error_code=f"backend_http_{resp.status_code}",
-        error_msg=resp.text[:500],   # 截断，避免巨型错误写爆 PG
+        error_msg=resp.text[:500],  # 截断，避免巨型错误写爆 PG
         duration_ms=duration_ms,
     )
 
@@ -173,4 +180,4 @@ class _suppress_kafka_err(contextlib.AbstractAsyncContextManager):
     async def __aexit__(self, exc_type, exc, tb):
         if exc:
             log.warning("kafka_emit_failed", error=str(exc))
-        return True   # swallow
+        return True  # swallow

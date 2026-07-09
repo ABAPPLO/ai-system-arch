@@ -50,6 +50,7 @@ def stub_cr(monkeypatch):
         from datetime import UTC, datetime
 
         from api_registry.change_request import ChangeRequest, ChangeRequestStatus
+
         rid = state["next_id"][0]
         state["next_id"][0] += 1
         return ChangeRequest(
@@ -81,6 +82,7 @@ def stub_cr(monkeypatch):
 
     async def _approve(rid, **kwargs):
         from api_registry.change_request import ChangeRequestStatus
+
         cr_obj = state["requests"].get(rid)
         if cr_obj is None or cr_obj.status != ChangeRequestStatus.PENDING:
             return False
@@ -89,6 +91,7 @@ def stub_cr(monkeypatch):
 
     async def _reject(rid, **kwargs):
         from api_registry.change_request import ChangeRequestStatus
+
         cr_obj = state["requests"].get(rid)
         if cr_obj is None or cr_obj.status != ChangeRequestStatus.PENDING:
             return False
@@ -97,6 +100,7 @@ def stub_cr(monkeypatch):
 
     async def _cancel(rid, **kwargs):
         from api_registry.change_request import ChangeRequestStatus
+
         cr_obj = state["requests"].get(rid)
         if cr_obj is None or cr_obj.status != ChangeRequestStatus.PENDING:
             return False
@@ -105,6 +109,7 @@ def stub_cr(monkeypatch):
 
     async def _mark_applied(rid):
         from api_registry.change_request import ChangeRequestStatus
+
         cr_obj = state["requests"].get(rid)
         if cr_obj is None or cr_obj.status != ChangeRequestStatus.APPROVED:
             return False
@@ -122,6 +127,7 @@ def stub_cr(monkeypatch):
         return state["apply_summary"]
 
     from api_registry import change_request as cr_mod
+
     monkeypatch.setattr(cr_mod, "submit_change_request", _submit)
     monkeypatch.setattr(cr_mod, "get_change_request", _get)
     monkeypatch.setattr(cr_mod, "list_change_requests", _list)
@@ -143,6 +149,7 @@ def stub_kafka(monkeypatch):
         events.append((topic, payload))
 
     from apihub_core import kafka as k_mod
+
     monkeypatch.setattr(k_mod, "emit", _noop)
     return events
 

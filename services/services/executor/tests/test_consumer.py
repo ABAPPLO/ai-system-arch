@@ -69,8 +69,11 @@ def stub_processor(monkeypatch, captured_tasks):
 @pytest.fixture
 def fake_settings():
     from apihub_core.config import Settings
+
     return Settings(
-        pg_host="localhost", pg_user="apihub", pg_password="test",  # noqa: S106
+        pg_host="localhost",
+        pg_user="apihub",
+        pg_password="test",  # noqa: S106
         redis_host="localhost",
         kafka_brokers="localhost:9092",
     )
@@ -122,7 +125,7 @@ class TestHandle:
         )
 
         c = TaskConsumer(fake_settings)
-        await c._handle(msg)   # 不应抛
+        await c._handle(msg)  # 不应抛
 
         assert captured_tasks[0].tenant_id is None
         assert captured_tasks[0].request_id is None
@@ -135,10 +138,12 @@ class TestRun:
         """每条消息处理完应 commit。"""
         from executor import consumer as mod
 
-        fake = _FakeConsumer([
-            _FakeKafkaMsg(value={"task_id": "task_aaaaaaaa", "backend_url": "http://b/1"}),
-            _FakeKafkaMsg(value={"task_id": "task_bbbbbbbb", "backend_url": "http://b/2"}),
-        ])
+        fake = _FakeConsumer(
+            [
+                _FakeKafkaMsg(value={"task_id": "task_aaaaaaaa", "backend_url": "http://b/1"}),
+                _FakeKafkaMsg(value={"task_id": "task_bbbbbbbb", "backend_url": "http://b/2"}),
+            ]
+        )
 
         c = mod.TaskConsumer(fake_settings)
         c._consumer = fake
@@ -155,9 +160,7 @@ class TestRun:
         assert fake.commits == 2
         assert len(captured_tasks) == 2
 
-    async def test_processor_exception_doesnt_crash_loop(
-        self, fake_settings, monkeypatch
-    ):
+    async def test_processor_exception_doesnt_crash_loop(self, fake_settings, monkeypatch):
         """process_task 抛异常 → 记 log + 继续拽下条 + 仍 commit。"""
         from executor import consumer as mod
 
@@ -171,10 +174,12 @@ class TestRun:
 
         monkeypatch.setattr(mod, "process_task", _flaky)
 
-        fake = _FakeConsumer([
-            _FakeKafkaMsg(value={"task_id": "task_aaaaaaaa", "backend_url": "http://b/1"}),
-            _FakeKafkaMsg(value={"task_id": "task_bbbbbbbb", "backend_url": "http://b/2"}),
-        ])
+        fake = _FakeConsumer(
+            [
+                _FakeKafkaMsg(value={"task_id": "task_aaaaaaaa", "backend_url": "http://b/1"}),
+                _FakeKafkaMsg(value={"task_id": "task_bbbbbbbb", "backend_url": "http://b/2"}),
+            ]
+        )
         c = mod.TaskConsumer(fake_settings)
         c._consumer = fake
 

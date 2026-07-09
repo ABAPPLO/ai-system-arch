@@ -12,50 +12,50 @@ from fastapi.responses import JSONResponse
 
 class ErrorCode(IntEnum):
     # 通用 1xxxx
-    INVALID_PARAMS       = 10001
-    UNAUTHORIZED         = 10002
-    FORBIDDEN            = 10003
-    NOT_FOUND            = 10004
-    RATE_LIMITED         = 10005
-    CONFLICT             = 10006   # 状态机非法转换 / 唯一约束冲突
-    INTERNAL             = 10000
+    INVALID_PARAMS = 10001
+    UNAUTHORIZED = 10002
+    FORBIDDEN = 10003
+    NOT_FOUND = 10004
+    RATE_LIMITED = 10005
+    CONFLICT = 10006  # 状态机非法转换 / 唯一约束冲突
+    INTERNAL = 10000
 
     # 租户 2xxxx
-    TENANT_NOT_FOUND     = 20001
-    TENANT_DISABLED      = 20002
+    TENANT_NOT_FOUND = 20001
+    TENANT_DISABLED = 20002
     TENANT_CONTEXT_MISSING = 20003
-    TENANT_QUOTA_EXCEEDED  = 20004
+    TENANT_QUOTA_EXCEEDED = 20004
 
     # 接口 3xxxx
-    API_NOT_FOUND        = 30001
-    API_NOT_PUBLISHED    = 30002
-    API_DEPRECATED       = 30003
-    API_DOWN             = 30004
+    API_NOT_FOUND = 30001
+    API_NOT_PUBLISHED = 30002
+    API_DEPRECATED = 30003
+    API_DOWN = 30004
 
     # 任务 4xxxx
-    TASK_NOT_FOUND       = 40001
-    TASK_FAILED          = 40002
-    TASK_TIMEOUT         = 40003
+    TASK_NOT_FOUND = 40001
+    TASK_FAILED = 40002
+    TASK_TIMEOUT = 40003
 
 
 _HTTP_STATUS_MAP = {
-    ErrorCode.INVALID_PARAMS:       400,
-    ErrorCode.UNAUTHORIZED:         401,
-    ErrorCode.FORBIDDEN:            403,
-    ErrorCode.NOT_FOUND:            404,
-    ErrorCode.CONFLICT:             409,
-    ErrorCode.RATE_LIMITED:         429,
-    ErrorCode.TENANT_QUOTA_EXCEEDED:429,
-    ErrorCode.TENANT_NOT_FOUND:     404,
-    ErrorCode.TENANT_DISABLED:      403,
-    ErrorCode.TENANT_CONTEXT_MISSING:500,
-    ErrorCode.API_NOT_FOUND:        404,
-    ErrorCode.API_NOT_PUBLISHED:    404,
-    ErrorCode.API_DEPRECATED:       410,
-    ErrorCode.API_DOWN:             503,
-    ErrorCode.TASK_NOT_FOUND:       404,
-    ErrorCode.TASK_TIMEOUT:         504,
-    ErrorCode.INTERNAL:             500,
+    ErrorCode.INVALID_PARAMS: 400,
+    ErrorCode.UNAUTHORIZED: 401,
+    ErrorCode.FORBIDDEN: 403,
+    ErrorCode.NOT_FOUND: 404,
+    ErrorCode.CONFLICT: 409,
+    ErrorCode.RATE_LIMITED: 429,
+    ErrorCode.TENANT_QUOTA_EXCEEDED: 429,
+    ErrorCode.TENANT_NOT_FOUND: 404,
+    ErrorCode.TENANT_DISABLED: 403,
+    ErrorCode.TENANT_CONTEXT_MISSING: 500,
+    ErrorCode.API_NOT_FOUND: 404,
+    ErrorCode.API_NOT_PUBLISHED: 404,
+    ErrorCode.API_DEPRECATED: 410,
+    ErrorCode.API_DOWN: 503,
+    ErrorCode.TASK_NOT_FOUND: 404,
+    ErrorCode.TASK_TIMEOUT: 504,
+    ErrorCode.INTERNAL: 500,
 }
 
 
@@ -80,6 +80,7 @@ class ErrorResponse(JSONResponse):
 
 def api_error_handler(request: Request, exc: ApiError) -> JSONResponse:
     from apihub_core.logging import get_logger
+
     log = get_logger(__name__)
     log.warning(
         "api_error",
@@ -102,6 +103,7 @@ def api_error_handler(request: Request, exc: ApiError) -> JSONResponse:
 
 def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     from apihub_core.logging import get_logger
+
     log = get_logger(__name__)
     log.exception("unhandled_exception", path=str(request.url.path), error=str(exc))
     return JSONResponse(

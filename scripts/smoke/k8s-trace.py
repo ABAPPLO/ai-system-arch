@@ -22,6 +22,7 @@
 
 仅用 stdlib（urllib + subprocess），无需 venv。
 """
+
 import json
 import subprocess
 import sys
@@ -33,13 +34,13 @@ import urllib.request
 # 常量（与 seed / k8s-links 对齐 / 由源码摸清）
 # ---------------------------------------------------------------------------
 NAMESPACE = "apihub-system"
-ADMIN_KEY = "ak_test_a_demo001"          # tenant_a / app_trading（02-seed.sql）
+ADMIN_KEY = "ak_test_a_demo001"  # tenant_a / app_trading（02-seed.sql）
 TENANT_ID = "tenant_a"
 APP_ID = "app_trading"
 
 # APISIX 真实网关路径（apihub-ingress/apisix-gateway NodePort 30080）
 APISIX_URL = "http://127.0.0.1:30080"
-DISPATCH_PATH = "/dispatch/smoke-sync/echo"   # mock-backend POST {"ok":true,"echo":...}
+DISPATCH_PATH = "/dispatch/smoke-sync/echo"  # mock-backend POST {"ok":true,"echo":...}
 
 # 直查 CH 的 docker exec 句柄
 CH_CONTAINER = "apihub-clickhouse"
@@ -60,6 +61,7 @@ N_CALLS = 6
 # 小工具
 # ---------------------------------------------------------------------------
 
+
 def sh(cmd, check=True):
     """跑 shell 命令，返回 stdout(text)。失败抛异常带 stderr。"""
     r = subprocess.run(cmd, shell=True, text=True, capture_output=True)
@@ -74,9 +76,9 @@ def sh(cmd, check=True):
 def pf(svc, local, remote_port=80):
     """kubectl port-forward svc/{svc} local:remote；返回 Popen（用完 terminate）。"""
     p = subprocess.Popen(
-        ["kubectl", "-n", NAMESPACE, "port-forward", f"svc/{svc}",
-         f"{local}:{remote_port}"],
-        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+        ["kubectl", "-n", NAMESPACE, "port-forward", f"svc/{svc}", f"{local}:{remote_port}"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
     )
     time.sleep(3)  # 等 port-forward 起来
     return p
@@ -85,7 +87,8 @@ def pf(svc, local, remote_port=80):
 def http(method, url, headers=None, data=None, timeout=15):
     body = json.dumps(data).encode() if data is not None else None
     req = urllib.request.Request(
-        url, data=body,
+        url,
+        data=body,
         headers={"Content-Type": "application/json", **(headers or {})},
         method=method,
     )
@@ -118,6 +121,7 @@ def ch_query(sql):
 # Step 1：产生调用（APISIX 真实路径；不可达则退 dispatcher port-forward）
 # ---------------------------------------------------------------------------
 
+
 def generate_traffic():
     print(f"== 产生 {N_CALLS} 次调用 ==")
     use_apisix = True
@@ -133,18 +137,26 @@ def generate_traffic():
     if use_apisix:
         print("  走 APISIX NodePort 30080（真实网关路径）")
         for i in range(N_CALLS):
-            st, body = http("POST", f"{APISIX_URL}{DISPATCH_PATH}",
-                            headers={"X-API-Key": ADMIN_KEY},
-                            data={"x": i}, timeout=10)
+            st, body = http(
+                "POST",
+                f"{APISIX_URL}{DISPATCH_PATH}",
+                headers={"X-API-Key": ADMIN_KEY},
+                data={"x": i},
+                timeout=10,
+            )
             print(f"  call{i}: HTTP {st}")
     else:
         print("  APISIX 不可达，退用 dispatcher port-forward")
         p = pf("dispatcher", 18001)
         try:
             for i in range(N_CALLS):
-                st, body = http("POST", f"http://127.0.0.1:18001{DISPATCH_PATH}",
-                                headers={"X-API-Key": ADMIN_KEY},
-                                data={"x": i}, timeout=10)
+                st, body = http(
+                    "POST",
+                    f"http://127.0.0.1:18001{DISPATCH_PATH}",
+                    headers={"X-API-Key": ADMIN_KEY},
+                    data={"x": i},
+                    timeout=10,
+                )
                 print(f"  call{i}: HTTP {st}")
         finally:
             p.terminate()
@@ -154,11 +166,10 @@ def generate_traffic():
 # Step 2/3：直查 CH —— count + 非空行（api_id!=''）
 # ---------------------------------------------------------------------------
 
+
 def ch_snapshot():
     """返回 (count, nonempty, max_ts)。nonempty = api_id!='' 的行数（真实数据）。"""
-    out = ch_query(
-        f"select count(), countIf(api_id!=''), max(ts) from {CH_TABLE}"
-    )
+    out = ch_query(f"select count(), countIf(api_id!=''), max(ts) from {CH_TABLE}")
     # 形如 "15\t2\t2026-07-09 10:59:17.000"
     parts = out.split("\t") if out else ["0", "0", ""]
     try:
@@ -177,12 +188,17 @@ def ch_snapshot():
 # Step 4：查 trace-svc
 # ---------------------------------------------------------------------------
 
+
 def query_trace(limit=10):
     """port-forward trace svc → GET /v1/trace/calls；返回 (status, rows_or_body)。"""
     p = pf("trace", 18008)
     try:
-        st, body = http("GET", f"http://127.0.0.1:18008/v1/trace/calls?limit={limit}",
-                        headers={"X-API-Key": ADMIN_KEY}, timeout=15)
+        st, body = http(
+            "GET",
+            f"http://127.0.0.1:18008/v1/trace/calls?limit={limit}",
+            headers={"X-API-Key": ADMIN_KEY},
+            timeout=15,
+        )
         return st, body
     finally:
         p.terminate()
@@ -191,6 +207,7 @@ def query_trace(limit=10):
 # ---------------------------------------------------------------------------
 # Step 5（D5 兜底）：合成一行匹配精简 schema 的数据，专验查询本身
 # ---------------------------------------------------------------------------
+
 
 def d5_insert_synthetic():
     """直插一行真实值到 api_call_log（绕过坏掉的 Kafka-engine MV）。
@@ -220,6 +237,7 @@ def d5_insert_synthetic():
 # ---------------------------------------------------------------------------
 # 主流程
 # ---------------------------------------------------------------------------
+
 
 def main():
     # --- Step 1：先看 CH 摄取基线 ---
@@ -274,8 +292,10 @@ def main():
     real_row = next((r for r in rows if r.get("api_id")), rows[0])
     print(f"[trace] OK rows={len(rows)} real_path={'D5-fallback' if used_d5 else 'real'}")
     print(f"[trace] sample={json.dumps(real_row, default=str)[:240]}")
-    print(f"[trace] columns OK: api_id={real_row.get('api_id')!r} "
-          f"http_status={real_row.get('http_status')!r}")
+    print(
+        f"[trace] columns OK: api_id={real_row.get('api_id')!r} "
+        f"http_status={real_row.get('http_status')!r}"
+    )
 
     print("\n" + "=" * 60)
     path = "D5 fallback (合成行)" if used_d5 else "real-path (Kafka 摄取)"

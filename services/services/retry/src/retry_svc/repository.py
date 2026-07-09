@@ -21,6 +21,7 @@ from retry_svc.models import (
 
 # ============ 写操作（admin pool，显式 tenant_id）============
 
+
 async def create_retry_task(
     *,
     tenant_id: str,
@@ -229,6 +230,7 @@ async def requeue_for_retry(retry_task_id: int) -> tuple[bool, str]:
 
 # ============ 读操作（HTTP route 上下文用 db_session，自动 RLS）============
 
+
 async def get_retry_task(retry_task_id: int) -> RetryTaskDetail | None:
     async with db.db_session() as conn:
         row = await conn.fetchrow(
@@ -404,6 +406,7 @@ async def stats() -> dict:
 
 
 # ============ 辅助函数 ============
+
 
 async def _tenant_of(conn: asyncpg.Connection, retry_task_id: int) -> str:
     return await conn.fetchval(
