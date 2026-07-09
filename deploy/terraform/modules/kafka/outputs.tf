@@ -3,7 +3,7 @@ output "instance_id" {
 }
 
 output "domain" {
-  value = alicloud_alikafka_instance.this.domain
+  value = alicloud_alikafka_instance.this.domain_endpoint
 }
 
 output "topics" {

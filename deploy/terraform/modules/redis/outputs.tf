@@ -11,5 +11,6 @@ output "port" {
 }
 
 output "user_name" {
-  value = alicloud_kvstore_instance.this.user_name
+  # alicloud Redis 默认账号名即实例 ID（无独立 user_name 属性）
+  value = alicloud_kvstore_instance.this.id
 }
