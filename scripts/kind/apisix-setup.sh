@@ -1,0 +1,244 @@
+#!/usr/bin/env bash
+# APISIX 进数据面 (Task 9 / Stage 3a):
+#   helm 装 APISIX+etcd（NodePort 固定 30080）+ 配 key-auth consumer + route → dispatcher
+#
+# 路由策略：直用 Task 8 已验证过的 L1 同步转发路径 /dispatch/*  → dispatcher.apihub-system:80
+#   （dispatcher 入口 ANY /dispatch/{rest:path}，seed 的 smoke-sync API 命中）。
+#   APISIX key-auth 校验 X-API-Key，header 原样透传给 dispatcher，dispatcher 自身 auth
+#   用同一把 ak_test_a_demo001 也通过 → 端到端 200 {"ok":true,...}。
+#
+# 对 brief 的修正 / 增强：
+#   1) NodePort 固定到 30080（对齐 kind extraPortMapping）：helm 值 + 兜底 patch。
+#   2) 路由指向真实 dispatcher 端点 /dispatch/*（而非不存在的 /smoke/* + /health/ready）。
+#   3) Admin key 运行时从 apisix ConfigMap 发现（chart 2.16.0 未暴露 admin_key 取值入口，
+#      自定义值不生效，故读取实际生效的 key，避免硬编码依赖 chart 行为）。
+#   4) key-auth 插件显式 header="X-API-Key"（默认 header 是 "apikey"，会让带 X-API-Key
+#      的请求被判 "Missing API key"；同时 dispatcher 也认 X-API-Key，一把钥匙两头通）。
+#   5) 镜像预装：kind 节点继承宿主机 localhost 代理，容器内不可达 → 无法直拉 docker.io。
+#      故先在宿主机 docker pull，再 kind load 进节点（与栈内其它 12 个 pod 同款做法）。
+set -euo pipefail
+export PATH="$HOME/.local/bin:$PATH"
+
+NS=apihub-ingress
+DEMO_KEY="ak_test_a_demo001"          # tenant_a/app_trading（02-seed.sql）
+LOCAL_ADMIN_PORT=19180
+GATEWAY_NODEPORT=30080
+CLUSTER_NAME="${KIND_CLUSTER_NAME:-apihub}"
+
+log() { printf '\n\033[1m== %s ==\033[0m\n' "$*"; }
+say() { printf '  %s\n' "$*"; }
+
+# ---------------------------------------------------------------------------
+# 1) 装 helm
+# ---------------------------------------------------------------------------
+log "install helm"
+if command -v helm >/dev/null 2>&1; then
+  say "helm present: $(helm version --short)"
+else
+  say "downloading helm v3.16.0 ..."
+  curl -sSL https://get.helm.sh/helm-v3.16.0-linux-amd64.tar.gz \
+    | tar -xz -C "$HOME/.local/bin" --strip-components=1 linux-amd64/helm
+  say "installed: $(helm version --short)"
+fi
+
+helm repo add apisix https://charts.apiseven.com >/dev/null
+helm repo update >/dev/null
+say "apisix chart repo ready"
+
+# ---------------------------------------------------------------------------
+# 2) helm install APISIX + etcd（NodePort，单副本 etcd）
+#    先不用 --wait：节点拉不到镜像会超时，但资源已创建；下面预装镜像后再起 pod。
+#    NodePort 30080 在 helm 值里指定，安装后再核对 / 兜底 patch（修正 #1）。
+# ---------------------------------------------------------------------------
+log "helm install APISIX (gateway NodePort $GATEWAY_NODEPORT)"
+cat >/tmp/apisix-kind-values.yaml <<EOF
+gateway:
+  type: NodePort
+  service:
+    type: NodePort
+    http:
+      nodePort: ${GATEWAY_NODEPORT}
+dashboard:
+  enabled: true
+etcd:
+  replicaCount: 1
+EOF
+
+# 容忍首次安装可能因镜像拉取超时失败（资源仍会创建）
+helm upgrade --install apisix apisix/apisix -n "${NS}" --create-namespace \
+  -f /tmp/apisix-kind-values.yaml --timeout 5m || \
+  say "(helm install did not fully wait — continuing to pre-load images)"
+
+# ---------------------------------------------------------------------------
+# 3) 预装镜像到 kind 节点（修正 #5：节点继承宿主机 localhost 代理，不可达 docker.io）
+# ---------------------------------------------------------------------------
+log "pre-load APISIX images into kind node"
+LOADED_NEW=0
+preload_one() {
+  local img="$1"
+  [ -z "$img" ] && return 0
+  # 归一化：去掉 docker.io/ 与 library/ 前缀，得到 docker 本地 tag
+  local short="${img#docker.io/}"
+  short="${short#library/}"
+  say "image: ${img}  (local tag: ${short})"
+  if docker image inspect "${short}" >/dev/null 2>&1; then
+    say "  already present on host"
+  else
+    say "  pulling on host ..."
+    if docker pull "${short}" || docker pull "${img}"; then
+      LOADED_NEW=1
+    else
+      say "  PULL FAILED: ${img}"; return 1
+    fi
+  fi
+  kind load docker-image "${short}" --name "${CLUSTER_NAME}" >/dev/null 2>&1 \
+    || say "  (kind load skipped/failed for ${short})"
+}
+
+# 遍历命名空间内每个 pod 的每个容器镜像，逐行输出（jsonpath \n 自带换行，不会粘连）
+mapfile -t IMAGES < <(kubectl -n "${NS}" get pods -o \
+  jsonpath='{range .items[*]}{range .spec.initContainers[*]}{.image}{"\n"}{end}{range .spec.containers[*]}{.image}{"\n"}{end}{end}' \
+  2>/dev/null | grep -v '^$')
+for img in "${IMAGES[@]}"; do preload_one "$img" || true; done
+
+# 仅在镜像刚补 / 或 pod 处于坏态时才重启，避免幂等重跑时无谓重启
+podstate=$(kubectl -n "${NS}" get pods --no-headers 2>/dev/null || true)
+if [ "${LOADED_NEW}" = "1" ] || echo "${podstate}" | grep -qE 'ImagePullBackOff|ErrImagePull|Init:|0/1|Pending'; then
+  say "restart pods to pick up loaded images (or recover from bad state)"
+  kubectl -n "${NS}" delete pod --all --ignore-not-found >/dev/null 2>&1 || true
+else
+  say "pods already healthy; skipping restart"
+fi
+
+# ---------------------------------------------------------------------------
+# 4) 兜底：确保 gateway Service 的 http 端口 nodePort == 30080（修正 #1）
+# ---------------------------------------------------------------------------
+log "ensure gateway nodePort == ${GATEWAY_NODEPORT}"
+pname=$(kubectl -n "${NS}" get svc apisix-gateway \
+  -o jsonpath='{.spec.ports[?(@.port==80)].name}' 2>/dev/null || true)
+[ -z "${pname}" ] && pname=$(kubectl -n "${NS}" get svc apisix-gateway \
+  -o jsonpath='{.spec.ports[0].name}' 2>/dev/null || true)
+[ -z "${pname}" ] && pname="http"
+cur_np=$(kubectl -n "${NS}" get svc apisix-gateway \
+  -o jsonpath="{.spec.ports[?(@.name=='${pname}')].nodePort}" 2>/dev/null || true)
+if [ "${cur_np}" != "${GATEWAY_NODEPORT}" ]; then
+  say "current nodePort=${cur_np:-<none>} (${pname}); patching -> ${GATEWAY_NODEPORT}"
+  kubectl -n "${NS}" patch svc apisix-gateway \
+    -p "{\"spec\":{\"ports\":[{\"name\":\"${pname}\",\"port\":80,\"nodePort\":${GATEWAY_NODEPORT}}]}"
+else
+  say "nodePort already ${GATEWAY_NODEPORT}"
+fi
+say "apisix-gateway service:"
+kubectl -n "${NS}" get svc apisix-gateway
+
+# ---------------------------------------------------------------------------
+# 5) 等 APISIX / etcd pod 全部 Ready
+# ---------------------------------------------------------------------------
+log "wait for APISIX + etcd pods Ready"
+# 轮询直到 apisix-* 与 apisix-etcd-0 都 Running 1/1（按 pod 名前缀匹配，最稳）
+deadline=$(( $(date +%s) + 240 ))
+while :; do
+  ps=$(kubectl -n "${NS}" get pods --no-headers 2>/dev/null || true)
+  apisix_ok=$(printf '%s\n' "${ps}" | awk '$1 ~ /^apisix-[a-f0-9]+-/ && $2=="1/1" && $3=="Running" {print "y"}')
+  etcd_ok=$(printf '%s\n' "${ps}" | awk '$1 == "apisix-etcd-0" && $2=="1/1" && $3=="Running" {print "y"}')
+  [ -n "${apisix_ok}" ] && [ -n "${etcd_ok}" ] && break
+  if [ "$(date +%s)" -gt "${deadline}" ]; then
+    echo "ERROR: APISIX/etcd pods not Ready within 240s" >&2
+    kubectl -n "${NS}" get pods -o wide >&2 || true
+    exit 1
+  fi
+  sleep 5
+done
+say "pods:"
+kubectl -n "${NS}" get pods -o wide
+
+say "data-plane probe (expect any APISIX response, e.g. 404):"
+curl -s -o /dev/null -w "  curl http://127.0.0.1:${GATEWAY_NODEPORT} -> HTTP %{http_code}\n" \
+  --max-time 10 "http://127.0.0.1:${GATEWAY_NODEPORT}/" || true
+
+# ---------------------------------------------------------------------------
+# 6) 通过 port-forward 拿到 Admin API；admin key 从 ConfigMap 发现（修正 #3）
+# ---------------------------------------------------------------------------
+log "configure consumer + key-auth + route via Admin API"
+
+# 发现实际生效的 admin key（chart 2.16.0 不接受自定义 admin_key 取值）
+ADMIN_KEY=$(kubectl -n "${NS}" get cm apisix -o jsonpath="{.data['config\.yaml']}" 2>/dev/null \
+  | awk '/name: "admin"/{found=1} found && /key:/ {print $2; exit}')
+[ -z "${ADMIN_KEY}" ] && ADMIN_KEY="edd1c9f034335f136f87ad84b625c8f1"   # APISIX 默认 admin key 兜底
+say "discovered admin key: ${ADMIN_KEY}"
+
+admin_svc=$(kubectl -n "${NS}" get svc -l app.kubernetes.io/component=admin \
+  -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)
+[ -z "${admin_svc}" ] && admin_svc="apisix-admin"
+admin_port=$(kubectl -n "${NS}" get svc "${admin_svc}" \
+  -o jsonpath='{.spec.ports[0].port}' 2>/dev/null || echo 9180)
+say "admin service=${admin_svc} port=${admin_port}"
+
+kubectl -n "${NS}" port-forward "svc/${admin_svc}" \
+  "${LOCAL_ADMIN_PORT}:${admin_port}" >/tmp/apisix-admin-pf.log 2>&1 &
+PF_PID=$!
+trap 'kill ${PF_PID} 2>/dev/null || true' EXIT
+say "port-forward pid=${PF_PID}; waiting for admin API ..."
+ADMIN_UP=0
+for _ in $(seq 1 40); do
+  if curl -s -o /dev/null --max-time 2 \
+       -H "X-API-KEY: ${ADMIN_KEY}" "http://127.0.0.1:${LOCAL_ADMIN_PORT}/apisix/admin/consumers"; then
+    ADMIN_UP=1; break
+  fi
+  sleep 0.5
+done
+if [ "${ADMIN_UP}" != "1" ]; then
+  echo "ERROR: admin API port-forward did not come up" >&2
+  cat /tmp/apisix-admin-pf.log >&2 || true
+  exit 1
+fi
+say "admin API reachable"
+
+ADMIN="http://127.0.0.1:${LOCAL_ADMIN_PORT}/apisix/admin"
+
+# 6a) consumer：smoke / key-auth key = ak_test_a_demo001
+say "upsert consumer 'smoke' (key-auth key=${DEMO_KEY})"
+curl -s "${ADMIN}/consumers/smoke" -H "X-API-KEY: ${ADMIN_KEY}" -X PUT \
+  -d "{\"username\":\"smoke\",\"plugins\":{\"key-auth\":{\"key\":\"${DEMO_KEY}\"}}}" \
+  -o /dev/null -w "  consumer PUT -> %{http_code}\n"
+
+# 6b) route：/dispatch/* → dispatcher.apihub-system:80，key-auth 读 X-API-Key（修正 #4）
+say "upsert route 'dispatcher' (/dispatch/* -> dispatcher.apihub-system:80)"
+curl -s "${ADMIN}/routes/dispatcher" -H "X-API-KEY: ${ADMIN_KEY}" -X PUT \
+  -d '{"uri":"/dispatch/*","upstream":{"type":"roundrobin","nodes":{"dispatcher.apihub-system:80":1}},"plugins":{"key-auth":{"header":"X-API-Key"}}}' \
+  -o /dev/null -w "  route PUT -> %{http_code}\n"
+
+# 关掉 admin port-forward（配置完成）
+kill "${PF_PID}" 2>/dev/null || true
+trap - EXIT
+
+# ---------------------------------------------------------------------------
+# 7) 端到端验证：经 APISIX key-auth → dispatcher → mock-backend
+# ---------------------------------------------------------------------------
+log "end-to-end: curl through APISIX -> dispatcher"
+say "1) no key (expect 401, key-auth rejects):"
+nokey=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+  -X POST "http://127.0.0.1:${GATEWAY_NODEPORT}/dispatch/smoke-sync/echo" \
+  -H "Content-Type: application/json" -d '{"hello":"world"}')
+say "  no-key  POST /dispatch/smoke-sync/echo -> HTTP ${nokey}"
+
+say "2) wrong key (expect 401):"
+badkey=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 \
+  -X POST "http://127.0.0.1:${GATEWAY_NODEPORT}/dispatch/smoke-sync/echo" \
+  -H "X-API-Key: wrong-key" -H "Content-Type: application/json" -d '{"hello":"world"}')
+say "  bad-key POST /dispatch/smoke-sync/echo -> HTTP ${badkey}"
+
+say "3) valid key (expect 200 {\"ok\":true,...} from mock-backend echo):"
+code=$(curl -s -o /tmp/apisix-resp.json -w "%{http_code}" --max-time 15 \
+  -X POST "http://127.0.0.1:${GATEWAY_NODEPORT}/dispatch/smoke-sync/echo" \
+  -H "X-API-Key: ${DEMO_KEY}" -H "Content-Type: application/json" \
+  -d '{"hello":"world"}')
+say "  good-key POST /dispatch/smoke-sync/echo -> HTTP ${code}"
+say "  response body: $(cat /tmp/apisix-resp.json)"
+
+if [ "${code}" = "200" ] && [ "${nokey}" = "401" ]; then
+  log "SUCCESS: APISIX in data path — key-auth gate + dispatcher 200"
+else
+  log "WARNING: expected (good=200, nokey=401); got (good=${code}, nokey=${nokey})"
+  log "  401=auth mismatch, 502/503=upstream, 404=path/route missing"
+fi
