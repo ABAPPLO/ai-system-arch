@@ -5,14 +5,14 @@
 ## Goal
 
 把 Phase 3 的三项「事实 P0」在现有 kind 集群上补齐并端到端验证：
-1. **traceparent 贯通** —— dispatcher → Kafka → executor 的 W3C trace 上下文真连通（目前断在 Kafka 消费侧）。
+1. **traceparent 贯通** —— dispatcher → Kafka → executor 的 W3C trace 上下文真连通（**勘误**：实际断点是 executor 未接 OTel + `_call_backend` 未注入 W3C，消费侧早已通——见下「背景」）。
 2. **cross-ns DNS** —— 显式断言并记录跨 namespace 解析现状。
 3. **workflow stub e2e** —— 按文档 §4 接通 dispatcher → workflow-svc（stub 模式），经 APISIX 端到端跑通「提交 + 轮询」。
 
 ## Architecture / 背景（已探查确认）
 
 - **traceparent 生产端已就绪**：`apihub_core.kafka.emit`（kafka.py:55）在发消息前 `_PROPAGATOR.inject(carrier)` 注入 W3C traceparent，并起 `kafka.produce` PRODUCER span（kafka.py:68-94）。`apihub_core.kafka.consume_with_trace`（kafka.py:177）/ `consume_span`（kafka.py:123）消费侧还原 carrier、起 CONSUMER span 并 `attach` 上下文。
-- **断点在 executor**：`executor/processor.process_task`（processor.py:41）由 `executor/consumer.py` 直接调用，**未包在 `consume_with_trace` 里** → 消费侧没有还原 traceparent → executor 的处理 span、回发的 `task-status`（processor.py:88）都拿不到上溯 context → Jaeger 上 dispatcher 与 executor 不在同一条 trace。
+- **真正的断点有两个（勘误：消费侧早已包好）**：`executor/consumer.py:73` **已经**把 `_handle`（内含 `process_task`）包在 `consume_with_trace` 里，消费侧 traceparent 还原本就是通的。实际缺的是：(1) `executor/main.py` 是唯一没走 `apihub_core.create_app` 的服务（手搓 `FastAPI()`），tracer 为 NoOp → executor 根本不产 span，Jaeger 里看不到 executor；(2) `_call_backend` 只发自定义 `X-Trace-Id`（processor.py:129），没注入 W3C `traceparent` → OTel 链不延续到业务 backend。
 - **`_call_backend` 只发自定义 header**：processor.py:124-130 给 backend 的 header 里有 `X-Trace-Id`（line 129），没有 W3C `traceparent`，OTel 链不延续到 backend。
 - **workflow-svc 已完整实现**：`StubArgoClient`（内存状态机）+ `K8sArgoClient`（打 Argo CRD）双实现；路由 `POST /v1/workflows`、`GET /v1/workflows/{id}`（含实时状态+steps）、list/cancel/resume/steps/logs 全套（workflow_svc/routes.py）。kind 用 `argo_mode=stub`。
 - **dispatcher 对 workflow 抛 501**：dispatcher/routes.py:53-58，`backend_type=="workflow"` 分支直接 501；且无文档 §4 要求的 `POST /v1/jobs` 入口。
@@ -42,13 +42,7 @@ Python 3.11 / FastAPI / asyncpg / aiokafka / OpenTelemetry（1.40.0 + instrument
 
 ### A.1 代码改动
 
-1. **`executor/consumer.py`**：把消费循环里对 `process_task(msg)` 的直接调用改为：
-   ```python
-   await kafka.consume_with_trace(
-       topic="task-requests", msg=msg, processor=process_task
-   )
-   ```
-   （实现者需读 consumer.py 定位实际调用点；`consume_with_trace` 会从 `msg.headers` 还原 traceparent、起 CONSUMER span 并 attach context，使 `process_task` 内的 `kafka.emit("task-status", …)` 与 `_call_backend` 都链接到原 trace。）
+1. **`executor/main.py`**（勘误后的真正改动）：executor 是唯一没走 `apihub_core.create_app` 的服务（手搓 `FastAPI()`），tracer 为 NoOp、Jaeger 里看不到它。补 `configure_tracing()` + `FastAPIInstrumentor.instrument_app(app)`，与其它服务一致。**`executor/consumer.py` 无需改动**——`consumer.py:73` 早已把 `_handle`（含 `process_task`）包在 `consume_with_trace` 里，消费侧 traceparent 还原 + CONSUMER span 本就是通的。
 2. **`executor/processor._call_backend`**（processor.py:124-130）：在现有 headers 基础上注入 W3C traceparent，让 OTel 链延续到业务 backend：
    ```python
    from opentelemetry import propagate

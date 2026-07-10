@@ -3,6 +3,8 @@
 from dataclasses import dataclass
 from typing import Any
 
+from pydantic import BaseModel
+
 
 @dataclass(frozen=True, slots=True)
 class ApiVersionSnapshot:
@@ -33,3 +35,18 @@ class ApiVersionSnapshot:
     @property
     def is_streaming(self) -> bool:
         return self.backend_type == "ai_model" and self.ai_streaming
+
+
+class SubmitJobRequest(BaseModel):
+    """POST /v1/jobs 请求体（dispatcher 代理到 workflow-svc）。
+
+    用 Pydantic 模型而非裸 request.json()：缺 api_id/app_id/spec 或非 JSON
+    时 FastAPI 直接返回 422，而非在 handler 里 KeyError/JSONDecodeError → 500。
+    字段对齐 workflow-svc 的 SubmitWorkflowRequest。
+    """
+
+    api_id: str
+    app_id: str
+    spec: dict
+    trace_id: str | None = None
+    namespace: str = "apihub-workflow"

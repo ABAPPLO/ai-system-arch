@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 from opentelemetry import trace
 
 from dispatcher.forwarder import HttpForwarder
+from dispatcher.models import SubmitJobRequest
 from dispatcher.resolver import resolve_by_header, resolve_by_path
 from dispatcher.task_dispatcher import dispatch_async_task
 
@@ -93,16 +94,18 @@ def register_routes(app: FastAPI) -> None:
 
     # ---- workflow 入口（文档 §4）：代理到 workflow-svc ----
     @app.post("/v1/jobs", status_code=201)
-    async def submit_job(request: Request):
-        """workflow 入口（文档 §4）：代理到 workflow-svc POST /v1/workflows。"""
-        body = await request.json()
+    async def submit_job(body: SubmitJobRequest, request: Request):
+        """workflow 入口（文档 §4）：代理到 workflow-svc POST /v1/workflows。
+
+        body 经 Pydantic 校验：缺 api_id/app_id/spec 或非 JSON → 422（不再 500）。
+        """
         settings = get_settings()
         wf_body = {
-            "api_id": body["api_id"],
-            "app_id": body["app_id"],
-            "spec": body["spec"],
-            "trace_id": body.get("trace_id") or _trace_id(),
-            "namespace": body.get("namespace", "apihub-workflow"),
+            "api_id": body.api_id,
+            "app_id": body.app_id,
+            "spec": body.spec,
+            "trace_id": body.trace_id or _trace_id(),
+            "namespace": body.namespace,
         }
         client = _wf_client(request)
         resp = await client.post(
