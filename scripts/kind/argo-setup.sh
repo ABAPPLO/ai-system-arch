@@ -15,6 +15,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 CLUSTER_NAME="${KIND_CLUSTER_NAME:-apihub}"
 ARGO_NS=argo
+ARGO_VERSION="${ARGO_VERSION:-v3.0.3}"
 WF_NS=apihub-workflow
 MINIO_CONTAINER=apihub-minio
 MINIO_USER="${MINIO_USER:-apihub}"
@@ -39,17 +40,20 @@ MINIO_EP_NOSCHEME="${HOST_IP}:${MINIO_HP}"
 say "host_ip=$HOST_IP minio_endpoint=$MINIO_EP (s3-endpoint=$MINIO_EP_NOSCHEME)"
 
 # ---------- 1) 拉 install.yaml（绕代理）----------
-log "fetch argo-workflows install.yaml (stable)"
+# 版本钉死 v3.0.3（非 stable）：本分支的 pns executor、sleep-2 PNS 竞态、no-scheme S3 endpoint、
+# 无引号 image 正则、ns 处理、configmap-name 双探测 等绕坑均与 v3.0.3 耦合；stable tag 一旦前进到
+# v3.5.x/emissary 会静默崩。升级时改顶部 ARGO_VERSION 并逐一复核上述 workaround。
+log "fetch argo-workflows install.yaml ($ARGO_VERSION)"
 INSTALL=/tmp/argo-install.yaml
 env -u HTTPS_PROXY -u HTTP_PROXY -u https_proxy -u http_proxy -u ALL_PROXY -u all_proxy \
   curl --noproxy '*' -fsSL \
-  https://raw.githubusercontent.com/argoproj/argo-workflows/stable/manifests/install.yaml \
+  "https://raw.githubusercontent.com/argoproj/argo-workflows/${ARGO_VERSION}/manifests/install.yaml" \
   -o "$INSTALL"
 say "fetched $(grep -c '^kind:' "$INSTALL") manifests"
 
 # ---------- 2) 镜像预拉 → kind load ----------
 log "preload argo images (host pull → kind load)"
-# 注：当前 Argo stable install.yaml 用无引号 image:（v3.0.x）；旧版用双引号。两者兼容。
+# 注：当前 Argo install.yaml（v3.0.3）用无引号 image:（v3.0.x）；旧版用双引号。两者兼容。
 mapfile -t IMAGES < <(grep -oE 'image:[[:space:]]*("[^"]+"|[^[:space:]]+)' "$INSTALL" \
   | sed -E 's/image:[[:space:]]*//; s/^"//; s/"$//' | sort -u)
 for img in "${IMAGES[@]}"; do
@@ -142,4 +146,5 @@ kubectl -n "$ARGO_NS" get deploy workflow-controller >/dev/null
 kubectl -n "$WF_NS" get sa argo-exec >/dev/null
 kubectl -n "$ARGO_NS" get cm "$CM_NAME" >/dev/null
 kubectl -n "$ARGO_NS" get secret argo-minio-secret >/dev/null
+kubectl -n "$WF_NS" get secret argo-minio-secret >/dev/null
 say "ARGO SETUP OK —— controller ready, argo-exec SA present, artifactRepository→MinIO"
