@@ -348,6 +348,15 @@ def _phase_to_status(phase: str) -> WorkflowStatus:
     return mapping.get(phase, WorkflowStatus.UNKNOWN)
 
 
+def _params_to_dict(params: list | None) -> dict[str, str]:
+    """Argo parameters [{name, value}, ...] → {name: value}。
+
+    WorkflowStep.inputs/outputs 类型是 dict[str,str]；直接塞 Argo 的 list
+    会触发 pydantic 校验错误（k8s 模式 get_steps 必经路径）。
+    """
+    return {p.get("name", ""): str(p.get("value", "")) for p in (params or [])}
+
+
 def _node_to_step(node: dict) -> WorkflowStep:
     """Argo node → WorkflowStep。"""
     name = node.get("name", "unknown")
@@ -372,8 +381,8 @@ def _node_to_step(node: dict) -> WorkflowStep:
         started_at=_parse_argo_time(started),
         finished_at=_parse_argo_time(finished),
         message=msg,
-        inputs=node.get("inputs", {}).get("parameters", []),
-        outputs=node.get("outputs", {}).get("parameters", []),
+        inputs=_params_to_dict(node.get("inputs", {}).get("parameters")),
+        outputs=_params_to_dict(node.get("outputs", {}).get("parameters")),
     )
 
 
