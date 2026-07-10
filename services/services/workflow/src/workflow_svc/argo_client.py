@@ -275,7 +275,7 @@ class K8sArgoClient(ArgoClient):
         # Argo v3.0.x 无原生 Cancelled/Stopped phase —— 手动 stop 的 wf 报
         # phase=Failed + message="Stopped with strategy 'Stop'"。映射回 cancelled
         # 以区别真失败（cancel 已先在 routes 层落库 cancelled，但 GET 会重派生覆盖）。
-        if status is WorkflowStatus.FAILED and msg and "Stopped with strategy" in msg:
+        if status is WorkflowStatus.FAILED and msg and msg.startswith("Stopped with strategy"):
             status = WorkflowStatus.CANCELLED
         return status, msg
 
@@ -331,12 +331,24 @@ class K8sArgoClient(ArgoClient):
             raise ArgoError(f"k8s list pods failed: {e}") from e
         if resp.status_code != 200:
             raise ArgoError(f"k8s list pods returned {resp.status_code}: {resp.text[:500]!r}")
-        pods = [p["metadata"]["name"] for p in resp.json().get("items", [])]
+        items = resp.json().get("items", [])
         if step_name:
-            # Argo step pod 名形如 wf-xxx-<hash>；step_name 为 node 名时做包含过滤
-            pods = [p for p in pods if step_name in p]
+            # Argo 把 node 名（如 wf-x[0].s1）写在 pod annotation
+            # workflows.argoproj.io/node-name 上；pod 名形如 wf-x-<hash>，
+            # 与 node 名无子串关系，故必须按 annotation 过滤而非 pod 名包含匹配。
+            pods = [
+                p["metadata"]["name"]
+                for p in items
+                if p["metadata"].get("annotations", {}).get("workflows.argoproj.io/node-name")
+                == step_name
+            ]
+        else:
+            pods = [p["metadata"]["name"] for p in items]
         if not pods:
-            raise ArgoError(f"no pods found for workflow {argo_name}")
+            raise ArgoError(
+                f"no pods found for workflow {argo_name}"
+                + (f" step={step_name}" if step_name else "")
+            )
         for pod in sorted(pods):
             try:
                 log_resp = await self._client.get(
