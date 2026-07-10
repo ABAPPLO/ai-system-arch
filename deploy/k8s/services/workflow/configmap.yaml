@@ -1,3 +1,6 @@
+# ⚠️ 这是 kustomize base（ARGO_MODE=stub）。kind/dev 经 overlays/kind/patches/workflow-argo-mode.yaml
+# patch 成 k8s。禁止直接 kubectl apply -f 本文件（会 revert overlay → workflow 回 stub 模式）。
+# 正确入口：make k8s-apply-kind。详见 deploy/k8s/services/README.md。
 apiVersion: v1
 kind: ConfigMap
 metadata:
