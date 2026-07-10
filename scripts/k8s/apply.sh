@@ -42,4 +42,6 @@ esac
 
 echo "== kustomize build + apply ($ENV) $say_host =="
 kustomize build $LOAD_REST "$OVERLAY" | kubectl apply -f -
-echo "== apply ($ENV) done. 建议跟跑：scripts/k8s/check-overlay.sh $ENV =="
+echo "== apply ($ENV) done. =="
+# check-overlay.sh 仅支持 kind，ACK env（dev/staging/prod）跟跑会 exit 2，故仅 kind 提示。
+[ "$ENV" = kind ] && echo "建议跟跑：scripts/k8s/check-overlay.sh $ENV"

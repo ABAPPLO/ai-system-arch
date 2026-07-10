@@ -11,8 +11,10 @@ _REQUIRED = {
 }
 
 
-def test_pg_ssl_default_is_prefer():
+def test_pg_ssl_default_is_prefer(monkeypatch):
     """dev 默认 prefer（先试 SSL，无则明文）；prod 由 env 显式覆盖。"""
+    monkeypatch.delenv("PG_SSL", raising=False)
+    get_settings.cache_clear()
     s = Settings(**_REQUIRED)
     assert s.pg_ssl == "prefer"
 
@@ -24,7 +26,9 @@ def test_pg_ssl_env_override(monkeypatch):
     get_settings.cache_clear()
 
 
-def test_executor_port_default():
+def test_executor_port_default(monkeypatch):
+    monkeypatch.delenv("EXECUTOR_PORT", raising=False)
+    get_settings.cache_clear()
     s = Settings(**_REQUIRED)
     assert s.executor_port == 8003
 
