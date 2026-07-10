@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS workflow_instance (
     tenant_id       text NOT NULL,
     workflow_uuid   varchar(64) NOT NULL UNIQUE,
     argo_name       varchar(128) NOT NULL,
-    namespace       varchar(64) NOT NULL DEFAULT 'apihub-workflows',
+    namespace       varchar(64) NOT NULL DEFAULT 'apihub-workflow',
     api_id          text,
     app_id          text,
     trace_id        varchar(64),

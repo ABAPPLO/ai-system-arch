@@ -59,7 +59,7 @@ class SubmitWorkflowRequest(BaseModel):
     app_id: str
     trace_id: str
     spec: dict = Field(..., description="Argo Workflow spec")
-    namespace: str = Field(default="apihub-workflows")
+    namespace: str = Field(default="apihub-workflow")
 
 
 class Workflow(BaseModel):
