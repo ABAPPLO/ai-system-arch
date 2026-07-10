@@ -5,7 +5,7 @@
   A) succeeded 主路径：2-step busybox echo → 轮询到 succeeded，
      断言真 phase 转换（观测过 running）+ steps 来自 Argo nodes。
   B) cancel：sleep 300 长 wf → running → POST cancel → 轮询到 cancelled。
-  C) resume（软断言）：suspend wf → POST resume → 200 不报错。
+  C) resume（硬断言）：suspend wf → POST resume → 轮询到 succeeded。
   D) logs(SSE)：succeeded wf → GET logs → body 含 busybox 真输出。
 
 退出码：0 OK / 1 assert fail / 2 env unavailable。
@@ -155,8 +155,8 @@ def main():
     assert status_b in {"cancelled", "succeeded"}, f"B) cancel 后状态异常: {status_b}"
     print(f"WORKFLOW-B OK —— wf={wf_b} cancel→{status_b}")
 
-    # ---- C) resume（软断言）----
-    print("== C) submit suspend wf → resume（软断言）==")
+    # ---- C) resume（硬断言：经 argo-server 真解除 suspend）----
+    print("== C) submit suspend wf → resume ==")
     spec_c = {
         "serviceAccountName": "argo-exec",
         "entrypoint": "main",
@@ -183,26 +183,11 @@ def main():
     poll(wf_c, {"running", "succeeded"}, timeout=60)
     st, raw = http("POST", f"{APISIX_URL}/v1/jobs/{wf_c}/resume", headers={"X-API-Key": DEMO_KEY})
     print(f"  POST /v1/jobs/{wf_c}/resume -> HTTP {st} {raw[:120]!r}")
-    c_warning = ""
-    if st != 200:
-        # 软断言（brief：放宽可改 warning）—— resume 走 argo_client.py，当前对 Argo v3.0.x
-        # 打的是 CRD 子资源 POST .../workflows/{name}/resume，而 v3.0.3 的 CRD 不注册该
-        # 子资源（subresources={}）→ 404/502。真 resume 须经 argo-server API。属 Task 1
-        # argo_client 缺陷，不在此 smoke 修复范围；记 warning，不阻断 A/B/D。
-        c_warning = (
-            f"C) resume HTTP {st}（软断言 warning）：argo_client.resume 打 CRD 子资源，"
-            f"Argo v3.0.x 无 resume 子资源，须改走 argo-server —— 视为 Task 1 follow-up"
-        )
-        print(f"WORKFLOW-C WARNING —— wf={wf_c} {c_warning}")
-    else:
-        status_c, _, _ = poll(wf_c, {"succeeded", "failed"})
-        print(f"  resume final status={status_c}")
-        # 软断言：resume 200 + wf 走向 succeeded（suspend 解除后 echo2 跑完）
-        if status_c != "succeeded":
-            c_warning = f"C) resume 后未 succeeded（软断言 warning）: {status_c}"
-            print(f"WORKFLOW-C WARNING —— wf={wf_c} {c_warning}")
-        else:
-            print(f"WORKFLOW-C OK —— wf={wf_c} resume→{status_c}")
+    assert st == 200, f"C) resume HTTP {st}: {raw}"
+    status_c, _, _ = poll(wf_c, {"succeeded", "failed"})
+    print(f"  resume final status={status_c}")
+    assert status_c == "succeeded", f"C) resume 后未 succeeded: {status_c}"
+    print(f"WORKFLOW-C OK —— wf={wf_c} resume→{status_c}")
 
     # ---- D) logs(SSE) ----
     print("== D) GET logs for succeeded wf A ==")
@@ -214,10 +199,7 @@ def main():
     assert b"hi from argo" in raw, f"D) logs 不含 busybox 真输出: {raw!r}"
     print("WORKFLOW-D OK —— logs 含 'hi from argo'")
 
-    if c_warning:
-        print(f"ALL OK (with warning) —— A/B/D real Argo green; {c_warning}")
-    else:
-        print("ALL OK —— real Argo e2e green")
+    print("ALL OK —— real Argo e2e green (resume via argo-server)")
     sys.exit(0)
 
 

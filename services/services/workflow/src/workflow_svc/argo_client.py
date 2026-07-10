@@ -309,9 +309,10 @@ class K8sArgoClient(ArgoClient):
 
     async def resume(self, *, namespace: str, argo_name: str) -> None:
         # Argo CRD 不注册 resume 子资源 → 经 argo-server REST。
+        # resume 是 PUT（Argo grpc-gateway 只注册 PUT；POST → 501 UNIMPLEMENTED）。
         # server mode 下 argo-server 用自己 SA 执行；token 适配 client mode（D2）。
         try:
-            resp = await self._server_client.post(
+            resp = await self._server_client.put(
                 f"/api/v1/workflows/{namespace}/{argo_name}/resume", json={}
             )
         except httpx.RequestError as e:
