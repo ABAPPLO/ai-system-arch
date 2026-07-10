@@ -254,10 +254,11 @@ class TestStreamLogs:
 class TestResumeViaArgoServer:
     """resume 经 argo-server REST（D1）+ 始终发 SA token（D2）。"""
 
-    async def test_resume_posts_to_argo_server_with_token(self):
+    async def test_resume_puts_to_argo_server_with_token(self):
         seen: dict = {}
 
         def server_handler(request: httpx.Request) -> httpx.Response:
+            seen["method"] = request.method
             seen["url"] = str(request.url)
             seen["auth"] = request.headers.get("authorization")
             seen["body"] = request.content
@@ -269,6 +270,9 @@ class TestResumeViaArgoServer:
         c = _make_client(crd_handler, server_handler)
         try:
             await c.resume(namespace="apihub-workflow", argo_name="wf-x")
+            # method 钉死 PUT：Argo grpc-gateway resume 只注册 PUT，POST→501 UNIMPLEMENTED
+            # （Task 2 live smoke 踩过；此断言防 post→put 回归）。
+            assert seen["method"] == "PUT"
             assert "/api/v1/workflows/apihub-workflow/wf-x/resume" in seen["url"]
             assert seen["auth"] == "Bearer fake-token"
             assert seen["body"] == b"{}"
