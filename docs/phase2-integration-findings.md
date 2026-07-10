@@ -238,19 +238,23 @@
 | admin dashboard 聚合 K8s 验证（原 P1） | `k8s-links.py` L4：dashboard 200、3 租户（同 namespace `apihub-system`） |
 
 **P1（当前事实上的 P0）**：
-- ~~workflow-svc 端到端联调~~ → **已验证（stub）**：`argo_mode=stub` 经 APISIX→dispatcher `/v1/jobs`→workflow-svc 端到端跑通（`k8s-workflow.py`：POST 201 + GET 200 running+steps），并修了 3 处潜伏 bug（`workflow_instance` 建表 `04-phase3.sql` / jsonb 双重编码 / `api_id`·`app_id`·`tenant_id` int→text）。真 Argo CRD 装集群验 `K8sArgoClient` 拆下轮。
+- ~~workflow-svc 端到端联调~~ → **已验证（stub + 真 Argo CRD e2e）**：stub 链路 `argo_mode=stub` 经 APISIX→dispatcher `/v1/jobs`→workflow-svc 端到端跑通（`k8s-workflow.py`：POST 201 + GET 200 running+steps），并修了 3 处潜伏 bug（`workflow_instance` 建表 `04-phase3.sql` / jsonb 双重编码 / `api_id`·`app_id`·`tenant_id` int→text）；真 Argo CRD e2e 已于 PR #11/#12 落地（v3.5.15/emissary，`K8sArgoClient` 全验证 + MinIO 产物 + resume via argo-server）。
 - ~~dispatcher → executor → backend 的 traceparent 贯通**显式**验证~~ → **已验证**：`k8s-traceparent.py` 经 Jaeger API 断言同一条 trace 含 dispatcher SERVER span + executor `kafka.consume task-requests` span（trace `da5f3f94…`）；补 `_call_backend` 转发 W3C traceparent + executor OTel 初始化（原本 NoOp tracer 未导出 span）。
 - ~~admin dashboard **跨 namespace** DNS~~ → **已验证（当前布局）**：数据层走 host compose（外部 `__HOST_IP__`），业务服务全在 `apihub-system`，服务间无跨 ns 数据调用；唯一真实跨 ns = APISIX(`apihub-ingress`)→dispatcher(`apihub-system`)，`k8s-links.py` L5 显式断言已绿。**待数据服务（PG/Redis/Kafka/CH/MinIO）迁入 `apihub-data` in-cluster 后需重验。**
 
-**P2（短链路容错）**：
-- CH 测试数据 INSERT 改成 `INSERT ... SELECT` 形式（CI 跑通就能加）
-- `PG_SSL` 默认值从 `disable` 改成 `prefer`（dev 友好，prod 要求时再升）
-- ClickHouse Kafka source 表的列默认值由生产端 JSON 带（避免依赖 MV COALESCE）—— 注：生产端 `ts` 已改发 CH 格式（`dispatcher/event.py:_now_ch_ts`），其余列仍建议显式带
-- apihub-cli 加 `--dry-run` 模式（输出 diff 不入库，便于评审前预览）
+**P2（短链路容错）—— 截至 2026-07-11 核对代码**：
+- ✅ CH 测试数据 INSERT 改 `INSERT ... SELECT` 形式 —— **已做**（`scripts/init-clickhouse/01-schema.sql:114-123`）
+- ✅ `apihub-cli --dry-run` —— **已做**（`tools/apihub-cli/.../main.py:70-72`）
+- ✅ ClickHouse Kafka source 列默认值由生产端 JSON 带 —— **已满足**（`dispatcher/event.py::build_call_event` 全列显式带；`_now_ch_ts` 已 CH 格式）
+- ✅ `PG_SSL` 默认 `disable→prefer` —— **本 spec 解决**（Task 1）
+- ✅ retry `executor_port` 挪进 settings —— **本 spec 解决**（Task 1）
+- ✅ kind overlay 脚踩坑根治 —— **本 spec 解决**（Task 3/4：`apply.sh` + `check-overlay.sh`）
 
-**残留小项（非阻断，可并入 Phase 2 生产化收尾）**：
-- retry `main.py` 硬编码 `executor_port=8003`（因 `EXECUTOR_SERVICE_TEMPLATE` 无 `{port}` 占位已无效，建议把端口也挪进 settings）
-- `apihub-core` `test_kafka.py` 4 个预存失败（bytes-vs-str header，独立 tech debt，非本 PR 引入）
+**残留小项**：无（原 retry `executor_port` 硬编码 / `test_kafka` 4 失败均已清，前者本 spec Task 1，后者 PR #8 已修）。
+
+**Deferred（明确不在 Phase 2 生产化收尾）**：
+- **prod argo-server 加固**（server auth-mode → client mode + 真 CA + mTLS）：dev 无法验证，属生产部署（roadmap Phase 0/B 段）。代码侧 `Settings.argo_server_insecure` 已预留（`config.py:50-51`），prod 部署时设 False + argo-server 切 client mode。
+- **Argo v3.6+ 升级评估**：v3.5.15 当前稳定，v3.6 待观察后单独评估。
 
 ---
 
