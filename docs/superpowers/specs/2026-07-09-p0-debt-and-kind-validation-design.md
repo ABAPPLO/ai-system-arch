@@ -9,7 +9,7 @@
 
 ## 1. 背景与目标
 
-APIHub 项目 Phase 2 端到端联调已收尾（tasks #95-#108 完成），但 `phase2-integration-findings.md` 末尾的 Phase 3 P0 清单仍是上线阻塞：
+APIHub 项目 Phase 2 端到端联调已收尾（tasks #95-#108 完成），但 `phase2-integration-findings.md` 末尾的 Phase 2 生产化收尾 P0 清单仍是上线阻塞：
 
 1. trace-svc SQL 用旧 schema 列名，查 ClickHouse 直接报错（已知 tech debt #17）。
 2. 关键依赖（OTel / asyncpg / clickhouse-connect / aiokafka）未锁定版本，曾因 OTel 0.40 API 漂移咬过一次。

@@ -3,7 +3,7 @@
 时间：2026-07-07 ~ 07-08
 范围：dev 栈全量起 + auth-svc 联调，发现并修复的 12 个集成层问题。
 
-每条都按"症状 / 根因 / 修复 / 验证"记录，给 Phase 3 提供同类坑的查找线索。
+每条都按"症状 / 根因 / 修复 / 验证"记录，给 Phase 2 生产化收尾提供同类坑的查找线索。
 
 ---
 
@@ -118,7 +118,7 @@
 
 - **症状**：`/v1/trace/calls` → CH 报 `Unknown expression identifier 'api_uuid'`，`tenant_id = 0`。
 - **根因**：trace-svc 的 repository SQL 还在用 `api_uuid / app_uuid / api_path / api_method / app_name / caller_ip / http_status / is_timeout / error_type`，但 `01-schema.sql` 里的 `api_call_log` 表用的是 `api_id / app_id / path / method / status_code / is_success / error_code / error_msg`。同时 tenant_id 被强转 int。
-- **修复**：不在本会话内修，列入 Phase 3 P1。
+- **修复**：不在本会话内修，列入 Phase 2 生产化收尾 P1。
 
 ### 18. api_version 缺 method/path 列（INSERT NotNullViolation）
 
@@ -222,9 +222,9 @@
 
 ---
 
-## Phase 3 优先级建议
+## Phase 2 生产化收尾 优先级建议
 
-> 截至 2026-07-10：Phase 2 端到端联调收尾，且「P0 技术债清偿 + kind 全量验证」（PR #8 / `031f588`）已顺手清掉原 Phase 3 **全部 P0**，外加 P1 的两项 K8s 联调。下面是进入 Phase 3（生产准备 + 灰度上线）的**剩余**待办，按上线风险排序。
+> 截至 2026-07-10：Phase 2 端到端联调收尾，且「P0 技术债清偿 + kind 全量验证」（PR #8 / `031f588`）已顺手清掉原 Phase 2 生产化收尾 **全部 P0**，外加 P1 的两项 K8s 联调。下面是 Phase 2 生产化收尾（生产准备 + 灰度上线）的**剩余**待办，按上线风险排序。
 
 **✅ 已清偿（PR #8 / `031f588` —— 原 P0 全部 + P1 两项）**：
 
@@ -248,7 +248,7 @@
 - ClickHouse Kafka source 表的列默认值由生产端 JSON 带（避免依赖 MV COALESCE）—— 注：生产端 `ts` 已改发 CH 格式（`dispatcher/event.py:_now_ch_ts`），其余列仍建议显式带
 - apihub-cli 加 `--dry-run` 模式（输出 diff 不入库，便于评审前预览）
 
-**残留小项（非阻断，可并入 Phase 3 收尾）**：
+**残留小项（非阻断，可并入 Phase 2 生产化收尾）**：
 - retry `main.py` 硬编码 `executor_port=8003`（因 `EXECUTOR_SERVICE_TEMPLATE` 无 `{port}` 占位已无效，建议把端口也挪进 settings）
 - `apihub-core` `test_kafka.py` 4 个预存失败（bytes-vs-str header，独立 tech debt，非本 PR 引入）
 
@@ -279,7 +279,7 @@
 - **APISIX 进数据面**（commit `92e15e9`）— helm 装 APISIX+etcd（NodePort 30080），consumer + key-auth（`X-API-Key`）+ route `/dispatch/*`→dispatcher。`curl -H 'X-API-Key: ak_test_a_demo001' http://127.0.0.1:30080/dispatch/smoke-sync/echo` → **200**（key-auth→dispatcher→mock-backend）；无 key / 错 key → 401。
 - **trace 查 CH**（commit `d9a7350`）— trace-svc `/v1/trace/calls` 在真实 CH schema 上跑通，返回 7 行、列名正确（`api_id`/`http_status`/...），**无 `Unknown column` 报错** → Stage 0 的 trace-svc SQL 修复端到端验证通过。
 
-### 联调暴露的 bug（Phase 3 prep 价值最大）
+### 联调暴露的 bug（Phase 2 生产化收尾 prep 价值最大）
 
 **已修复（本分支）**：
 1. **Dockerfile builder-stage bug（全部 11 服务）** — builder 以 root 跑 `pip install --user` → 落 `/root/.local`，runtime 却 COPY `/home/apihub/.local`（不存在）。修：builder 加 `useradd -m -u 1000 apihub` + `USER apihub`（commit `a5a4000`）。
@@ -287,7 +287,7 @@
 3. **workflow namespace 拼写** — `apihub-workflows` → `apihub-workflow`（Role/RoleBinding，commit `e5d7643`）。
 4. **PG 连接风暴** — 单节点 kind 上 11 服务 × pool 50 打爆 PG。kind overlay 缩 `PG_POOL_MIN/MAX=2/10` + bootstrap `max_connections=500`（commit `e5d7643`+`26c5747`）。
 5. **bootstrap Redis 端口同步 off-by-one** — 发布端口与写进 overlay 的 REDIS_PORT 不一致。修：bootstrap 用 `docker port` 回读实际发布端口再写 overlay（commit `ecd689a`）。
-6. **retry→executor 走错端口** — retry worker 默认调 `executor:8003`，但 Service 只暴露 80 → 每次重试 30s timeout。修：kind overlay（`ecd689a`）**及 base retry configmap**（终审修复）均设 `EXECUTOR_SERVICE_TEMPLATE=http://executor.apihub-system/v1/internal/retry`（无 `{port}` → `.format` no-op → 走 Service:80）。⚠️ `main.py` 仍硬编码 `executor_port=8003`，因模板无 `{port}` 占位故已无效；Phase 3 建议把端口也挪进 settings 彻底干净。
+6. **retry→executor 走错端口** — retry worker 默认调 `executor:8003`，但 Service 只暴露 80 → 每次重试 30s timeout。修：kind overlay（`ecd689a`）**及 base retry configmap**（终审修复）均设 `EXECUTOR_SERVICE_TEMPLATE=http://executor.apihub-system/v1/internal/retry`（无 `{port}` → `.format` no-op → 走 Service:80）。⚠️ `main.py` 仍硬编码 `executor_port=8003`，因模板无 `{port}` 占位故已无效；Phase 2 生产化收尾建议把端口也挪进 settings 彻底干净。
 
 **已识别、未修（列入后续）**：
 - **CH Kafka-engine 摄取 —— 已修**（`dispatcher/event.py` `_now_ch_ts`）：根因不是 MV 列映射，而是生产者 `ts` 用 ISO-8601（`2026-07-09T09:58:41.537733+00:00`），CH `DateTime64` JSONEachRow 解析不了 → 整行被判解析错误、所有列落 default（epoch ts + 空字符串）。修：生产者改发 CH 格式 `YYYY-MM-DD HH:MM:SS.mmm`。**已验证**：直接往 Kafka 投 CH 格式 ts 的消息能正确入库（真实列），ISO 格式的落 default。dispatcher 镜像 rebuild 后即全链路通（ingest 级已证）。

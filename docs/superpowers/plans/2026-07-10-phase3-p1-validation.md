@@ -1,8 +1,10 @@
 # Phase 3 P1 验证补齐 Implementation Plan
 
+> ℹ️ **术语注**：标题与文件名中的「Phase 3」指 **Phase 2 生产化收尾**（生产准备 + 灰度上线），非 roadmap（`docs/10-roadmap.md`）的 Phase 3（产品开放：门户 / SDK / 计费）。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在现有 kind 集群补齐并端到端验证 Phase 3 三项「事实 P0」：traceparent 贯通（dispatcher→Kafka→executor）、cross-ns DNS 显式断言、workflow stub e2e（dispatcher→workflow-svc 经 APISIX）。
+**Goal:** 在现有 kind 集群补齐并端到端验证 Phase 2 生产化收尾三项「事实 P0」：traceparent 贯通（dispatcher→Kafka→executor）、cross-ns DNS 显式断言、workflow stub e2e（dispatcher→workflow-svc 经 APISIX）。
 
 **Architecture:** 复用在线 kind 集群 + host compose 数据层，不重建。三项顺序 A→B→C，每项独立 commit。Task A 实为「补 `_call_backend` 的 W3C traceparent header + 用 Jaeger smoke 首次验证已接通的链」（探查发现 `executor/consumer.py:73` 已包 `consume_with_trace`，故 consumer 侧无需改）。Task C 会顺带修 workflow-svc 的 `api_id/app_id` int-vs-text 潜伏 bug。
 
@@ -300,7 +302,7 @@ dispatcher→Kafka→executor 为同一条连通 trace。"
 
 **Files:**
 - Modify: `scripts/smoke/k8s-links.py`（末尾新增 cross-ns stage）
-- Modify: `docs/phase2-integration-findings.md`（Phase 3 P1 该项）
+- Modify: `docs/phase2-integration-findings.md`（Phase 2 生产化收尾 P1 该项）
 
 **Interfaces:**
 - Consumes: 既有 `k8s-links.py` 的 `http()`/`sh()` helper 与 L1 APISIX→dispatcher 已绿路径。
@@ -339,7 +341,7 @@ python3 scripts/smoke/k8s-links.py
 ```
 Expected: 末尾出现 `[L5 cross-ns] OK`，整体退出 0。
 
-- [ ] **Step 3: 更新 `docs/phase2-integration-findings.md` Phase 3 P1 该项**
+- [ ] **Step 3: 更新 `docs/phase2-integration-findings.md` Phase 2 生产化收尾 P1 该项**
 
 把 P1 第三条（admin dashboard 跨 namespace DNS）改为：
 

@@ -1,10 +1,12 @@
 # Phase 3 P1 验证补齐 —— traceparent 贯通 / cross-ns / workflow stub e2e
 
+> ℹ️ **术语注**：标题与文件名中的「Phase 3」指 **Phase 2 生产化收尾**（生产准备 + 灰度上线），非 roadmap（`docs/10-roadmap.md`）的 Phase 3（产品开放：门户 / SDK / 计费）。
+
 > 设计文档（brainstorming 产物）。实现计划由 writing-plans 接续生成。
 
 ## Goal
 
-把 Phase 3 的三项「事实 P0」在现有 kind 集群上补齐并端到端验证：
+把 Phase 2 生产化收尾的三项「事实 P0」在现有 kind 集群上补齐并端到端验证：
 1. **traceparent 贯通** —— dispatcher → Kafka → executor 的 W3C trace 上下文真连通（**勘误**：实际断点是 executor 未接 OTel + `_call_backend` 未注入 W3C，消费侧早已通——见下「背景」）。
 2. **cross-ns DNS** —— 显式断言并记录跨 namespace 解析现状。
 3. **workflow stub e2e** —— 按文档 §4 接通 dispatcher → workflow-svc（stub 模式），经 APISIX 端到端跑通「提交 + 轮询」。
@@ -79,7 +81,7 @@ Python 3.11 / FastAPI / asyncpg / aiokafka / OpenTelemetry（1.40.0 + instrument
 
 ### B.2 文档
 
-- **`docs/phase2-integration-findings.md`** Phase 3 P1 该项：从待办改为「已验证（当前布局）」，注明：数据层外部（host compose）→ 服务间无跨 ns 数据调用；唯一跨 ns（ingress→system）已验；**待数据服务（PG/Redis/Kafka/CH/MinIO）迁入 `apihub-data` in-cluster 后需重验**。
+- **`docs/phase2-integration-findings.md`** Phase 2 生产化收尾 P1 该项：从待办改为「已验证（当前布局）」，注明：数据层外部（host compose）→ 服务间无跨 ns 数据调用；唯一跨 ns（ingress→system）已验；**待数据服务（PG/Redis/Kafka/CH/MinIO）迁入 `apihub-data` in-cluster 后需重验**。
 
 ### B.3 验收
 
