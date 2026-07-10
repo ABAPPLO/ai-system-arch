@@ -1,57 +1,40 @@
-# Handoff — 真 Argo CRD e2e（下一轮）
+# Handoff — 真 Argo CRD e2e（完成 + 下轮种子）
 
-> 跨会话交接。新会话第一句：「读 `docs/superpowers/handoff-2026-07-10-argo-crd-e2e.md`，按 superpowers brainstorming 开『真 Argo CRD e2e』这轮」。
+> 跨会话交接。本轮已完成（分支 `feat/argo-crd-e2e`，待合并）。新会话若继续，从「## 下轮种子」挑一项，按 superpowers brainstorming 开。
 
-## 项目
-APIHub —— 企业 API 网关/中台。Python 3.11 + FastAPI 微服务，**asyncpg 直连（非 SQLAlchemy）**，PostgreSQL **RLS 多租户**，ClickHouse/Kafka/Redis/APISIX，部署 Alibaba ACK。详见 `CLAUDE.md`（⚠️ 父目录有个无关的 Yorozuya CLAUDE.md，**不适用**本 repo）。工作目录 `/home/applo/project/ai-system-arch`。
+## 本轮成果
 
-## 当前状态
-- `main` = `9a88979`（干净，与 origin 同步；只剩 `main` 分支）。
-- 已合并：PR #9（Phase 3 P1：traceparent/cross-ns/workflow **stub** e2e）、PR #8（P0 技术债 + kind 全量验证 = `031f588`）、**PR #10（`9a88979`，清 PR #9 遗留 F2/F3/F5）**：
-  - F2 CI `test.yml`：SQL 加载顺序改 `00→01→02→03→04→99`（99 跑最后）+ 补 load 03/04，修了原「99 跑在 02 前」的顺序 bug。
-  - F3 spec Task A **勘误已落地**：你读 spec 会看到修正版——`consumer.py:73` 早已包 `consume_with_trace`，真断点是 executor 未接 OTel + `_call_backend` 未注入 W3C。**本轮 Argo e2e 不受影响**。
-  - F5 dispatcher `/v1/jobs` 改 Pydantic → 422。
-- **本轮目标**（上轮 spec/plan 的「Out of Scope / 下轮」）：在 kind 装真 Argo Workflow，把 workflow-svc 从 `argo_mode=stub` 切到 k8s，**端到端验证 `K8sArgoClient`**（提交真 CRD → Argo controller 起 Pod 跑 step → 轮询到 Succeeded → `get_status`/`get_steps` 拿到真实 Argo 数据）。
+- **分支**：`feat/argo-crd-e2e`，`2ca50e6`(main) `..6477d84`(HEAD)，12 commit（spec/plan + 7 task + T6 两轮 fix + final-review pin）。
+- **Final whole-branch review（opus）**：Ready to merge = **Yes**；6/6 spec 成功标准全 met；集成连贯；RLS 不变式保持；无 Critical。
+- **计划/账本**：`docs/superpowers/plans/2026-07-10-argo-crd-e2e.md`、spec `docs/superpowers/specs/2026-07-10-argo-crd-e2e-design.md`、SDD 账本 `.superpowers/sdd/progress.md`。
 
-## 已有实现（别重做）
-- **workflow-svc**：`services/services/workflow/src/workflow_svc/argo_client.py` —— `K8sArgoClient`（打 Argo CRD `/apis/argoproj.io/v1alpha1/namespaces/{ns}/workflows`，读 in-cluster SA token `/var/run/secrets/.../token`，`verify=ca.crt`）+ `StubArgoClient`（内存状态机，恒 running）。路由 `POST/GET /v1/workflows[/{id}]`、cancel/resume/steps/logs(SSE)。
-- **dispatcher `/v1/jobs`**（PR #9）：代理 workflow-svc `POST /v1/workflows` + `GET /v1/workflows/{id}`。APISIX 路由 `/v1/jobs` + `/dispatch/`。
-- **`workflow_instance` 表**：`scripts/init-db/04-phase3.sql`（PR #9，含 RLS）。
-- 文档：`docs/05-core-flows.md` §4（workflow 时序：`POST /v1/jobs` mode:workflow → dispatcher → workflow-svc → Argo → MinIO）。
+### 交付了什么
+- kind 装真 **Argo Workflows v3.0.3**（manifest install.yaml，pns 执行器，argoexec 预载）；`argo_mode` 由 kind overlay 切 **k8s**（base 仍 stub）。
+- **K8sArgoClient 端到端验证全绿**：submit/get_status/get_steps/cancel/logs(SSE) 真 Argo；MinIO 产物往返（Argo 原生 artifactRepository→`argo-artifacts` bucket）。
+- dispatcher 补 cancel/resume/logs(SSE) 薄代理（`POST/GET /v1/jobs/{id}/{cancel|resume|logs}`），e2e 全走网关。
+- **修了 4 个 e2e 暴露的真 bug**（均有 CI 单测钉死）：`_node_to_step` inputs/outputs list→dict、`get_status` stop-strategy→CANCELLED、`stream_logs` CRD /log→核心 pods/log、`stream_logs` step_name 子串→node-name 注解精确匹配。
+- 新增 `scripts/kind/argo-setup.sh`（装 Argo + 镜像预拉 + artifactRepository，Argo 版本 pin `v3.0.3`）、`deploy/k8s/base/argo/argo-exec-rbac.yaml`、kind overlay `workflow-argo-mode.yaml`、bootstrap 起 MinIO、smoke `k8s-workflow-argo.py` + `k8s-workflow-minio.py`、单测 `test_argo_mapping.py` + `test_k8s_argo_client.py`（workflow 测试 40→含 K8sArgoClient get_status/stream_logs）。
 
-## 本轮核心任务
-1. **装 Argo Workflow**：kind 装 CRD + controller（helm 或 manifest；仿 `scripts/kind/apisix-setup.sh` 的 helm 装 APISIX+etcd 模式）。
-2. **workflow-svc SA + RBAC**：`deploy/k8s/services/workflow/deployment.yaml` 加 ServiceAccount；Role（create/get/list/patch `workflows.argoproj.io` + pods/pods/log）+ RoleBinding，绑到 `apihub-workflow` ns。`K8sArgoClient` 靠 in-cluster SA token。
-3. **argo_mode 切 k8s**：kind overlay 把 workflow-svc 的 `ARGO_MODE`（**先确认 setting 名**，看 `workflow_svc/main.py` + `apihub_core/config.py`）从 stub 改 k8s。
-4. **可跑镜像**：workflow spec 用的镜像（busybox 等）kind 里要拉得到（公开镜像 OK）。
-5. **e2e smoke** `scripts/smoke/k8s-workflow-argo.py`（仿 `k8s-workflow.py`）：经 APISIX `POST /v1/jobs` 真 Argo spec（busybox echo）→ 轮询 `GET /v1/jobs/{id}` 到 `succeeded` → 断言 steps 真跑过（**区别于 stub**：验真 Argo phase 转换 + steps 来自 Argo nodes）。
-6. 验 `K8sArgoClient.get_status`（Argo phase→WorkflowStatus 映射）、`get_steps`（nodes→steps）、`cancel`（`spec.shutdown: Stop`）真生效。
+## 下轮种子（follow-up，按价值排序）
 
-## 同轮可做（或拆下下轮）
-- MinIO 产物上传/下载 e2e（Argo step 产物 → MinIO）。
-- cancel/resume/logs(SSE) e2e。
+1. **resume 走 argo-server**（最重要）：`K8sArgoClient.resume`（argo_client.py:295）打 CRD 子资源 `/resume`，但 Argo v3.0.3 CRD `subresources={}` 不注册 → 502。本轮按 spec §5.1 降为 smoke warning。真修须改走 argo-server REST `POST /api/v1/workflows/{ns}/{name}/resume`（`--auth-mode server`，带 SA token）。
+2. **Argo re-pin v3.5.x**：可去掉 MinIO smoke 的 `sleep 2`（PNS 捕获竞争）、启用默认 emissary 执行器、**且 v3.5+ 可能注册 resume 子资源**（顺带闭合 #1）。评估时连带回归 smoke + artifact。
+3. **httpx `verify=<str>` DeprecationWarning**：`K8sArgoClient.__init__`（argo_client.py:210）`verify=ca_cert_path` → 改 `ssl.create_default_context(cafile=...)`，消 8 个测试 warning + 修 prod deprecation。一行。
+4. **smoke A 相断言 node-name 特征**：现用 step count 区分真/stub（5 vs 2），spec §5.1 原望断言 node 名带 Argo 特征；running 转换+log 内容已更强，优先级低。
 
-## 关键约束 / gotchas（上轮踩过）
-- **账号**：业务 `apihub_app`/`apihub_app_dev_pwd`（NOSUPERUSER，走 RLS）；superuser `apihub`/`apihub_dev_pwd`。compose 里 superuser 硬编码 `apihub`（不能从 env 读，否则 RLS 失效）。
-- **ID 类型**：`api_id/app_id/tenant_id` 是 **str**（text）；`workflow_instance.id` 是 **int**（bigserial）。
-- **namespace = `apihub-workflow`（单数）**；Argo Workflow 跑这个 ns。
-- **dispatcher 透传 X-API-Key 给 workflow-svc**（同 tenant 鉴权，已实测 OK）。
-- **APISIX**：route 用 `uris:["/v1/jobs","/v1/jobs/*"]`（单 `/v1/jobs/*` 对 `POST /v1/jobs` 会 404）。NodePort 30080，key-auth `X-API-Key`，admin key 见 `scripts/kind/apisix-setup.sh`（从 APISIX cm 读，兜底 `edd1c9f0...`）。
-- **镜像 build**：tag `registry.apihub.internal/apihub/<svc>:0.1.0-dev`（**确认 deployment 用的实际 tag**）；build context 是**仓库根**，不是 service 目录。
-- **ruff 0.6.9**（CI `ruff==0.6.*`；本地 `uvx --with ruff==0.6.9 ruff ...`，**format 也要跑** `ruff format --check`，CI 两个都查）；**OTel 1.40.0 + instrumentation 0.61b0**（配对，别漂移）。
-- **jsonb**：asyncpg 池注册了 jsonb codec → dict 直传，**别** `json.dumps`+`::text`+`json.loads`（双重编码 bug，findings #19/#21）。
-- **CI gap**：`.github/workflows/test.yml` 只 load init-db 00/01/99/02，**不** load 03/04 phase SQL（pre-existing；workflow 测试 stub repo 故未受影响）。本轮加 05+ 同理，记得评估是否补 CI。
-- **kind 复用**：`scripts/kind/bootstrap.sh`（探测 host 网桥 IP、起 compose 数据层、建 kind、load 镜像、apply overlay）。数据层 = host docker-compose（PG `apihub-pg`、Jaeger `apihub-jaeger` :16686、Kafka `apihub-kafka`、CH、MinIO、OTel）。
-- **网络/代理坑**（2026-07-10 实踩，可能仍相关）：shell 设了 `https_proxy=http://127.0.0.1:12348`。本会话该代理转发外网**全挂**（`curl api.github.com` 超时；`uvx`/`gh`/`pip` 全 connection reset），但 **git over SSH 正常**、**直连 443 正常**（`curl --noproxy '*' https://api.github.com` → 200）。绕法：命令前加 `env -u HTTPS_PROXY -u HTTP_PROXY -u https_proxy -u http_proxy -u ALL_PROXY -u all_proxy`（curl 用 `--noproxy '*'`）。**开 PR / 查 CI / `uvx ruff` 都得这么绕**。先试代理，挂了再绕。
+## 关键约束 / gotchas（本轮实踩，承接上轮）
+
+- **账号**：业务 `apihub_app`/`apihub_app_dev_pwd`（NOSUPERUSER，走 RLS）；superuser `apihub`/`apihub_dev_pwd`。compose superuser 硬编码 `apihub`。
+- **ID 类型**：`workflow_instance.id` 是 **int**；`api_id/app_id/tenant_id` 是 **str**。
+- **namespace**：`apihub-workflow`（**单数**）。
+- **Argo v3.0.3 特定**（re-pin 前适用）：① pns 执行器（containerd/kind 无 docker.sock）；② minio-go 不接受 endpoint 带 scheme（须裸 host:port + `insecure:true`）；③ CRD 无 /resume、/log 子资源（resume 走 argo-server，logs 走核心 pods/log）；④ install.yaml 无 Namespace（argo-setup 显式 create + `-n argo`）；⑤ controller 用两段式 `--configmap NAME`、`--executor-image IMG`（脚本 dual-form 检测）；⑥ argo-minio-secret 须在 `argo` **和** `apihub-workflow` 两 ns（executor 在后者挂载）。
+- **MinIO**：host 端口 **29000**（9000/19000 被占）；`apihub`/`apihub_dev_pwd`；bucket `argo-artifacts`（+ call-bodies/sdk-packages/audit-archive/tfstate）。
+- **代理坑**：`https_proxy=http://127.0.0.1:12348` 转发外网全挂；外网命令加 `env -u ..._PROXY` + `curl --noproxy '*'`；`uvx ruff==0.6.9` 装不了时用 `.venv-t1/bin/ruff`（CI 以 0.6.9 为准）。git over SSH 正常。
+- **镜像**：kind 节点继承 host 代理、容器内拉不到 → host `docker pull` 后 `kind load`；build context 是**仓库根**。**改了 workflow/dispatcher 源码必须 rebuild+load+rollout restart**（否则跑旧镜像）。
+- **不要 raw 重 apply overlay**：`shared-infra.yaml` 有 `__HOST_IP__`/端口占位符，bootstrap 运行时替换；raw `kustomize build|kubectl apply` 会用未替换值覆盖 live ConfigMap → 打断全集群 PG/Redis 连接。单文件 apply（如 `kubectl apply -f deploy/k8s/services/workflow/deployment.yaml`）OK。
+- **kind 复用**：`scripts/kind/bootstrap.sh` 现含 MinIO 起带 + argo-setup 调用 + workflow k8s 重建（一键起真 Argo 栈）。host compose 数据层 = PG `apihub-pg`、Redis `apihub-redis`、Kafka `apihub-kafka`、CH、Jaeger `:16686`、OTel、MinIO `apihub-minio:29000`。
 
 ## 环境（新会话先验证还活着）
-- kind 集群 `kind-apihub`（上轮 12 pods Running，但已过数小时）：`kubectl --context kind-apihub get nodes`；没了就 `bash scripts/kind/bootstrap.sh` 重建。
-- host compose：`docker compose -f docker-compose.dev.yml ps`。
-- **本地 venv**（省网/省时）：`.venv-t1/`（仓库根，未跟踪）已 editable 装 apihub-core + 各 service（含 dispatcher），自带 ruff 0.15.20 / pytest 9.1.1 / mypy 2.2.0。代理挂、`uvx ruff==0.6.9` 装不了时，可用它近似验证（`pytest`/`ruff`/`mypy`，**CI 以 0.6.9 为准**）。workflow-svc 是否已装先 `import` 验一下，缺则 `pip install -e services/services/workflow`（需网）。
-
-## 流程（按这个走）
-1. `superpowers:brainstorming` → 探查现状（Argo 是否已装、workflow-svc SA/RBAC 现状、argo_mode setting 名、可跑镜像）→ 设计 → spec `docs/superpowers/specs/2026-07-1x-argo-crd-e2e-design.md`。
-2. `superpowers:writing-plans` → `docs/superpowers/plans/2026-07-1x-argo-crd-e2e.md`。
-3. `superpowers:subagent-driven-development` 执行（fresh subagent/任务 + review；进度账本 `.superpowers/sdd/progress.md`）。
-4. 新分支 `feat/argo-crd-e2e` off main。
-- 参考上轮：spec `docs/superpowers/specs/2026-07-10-phase3-p1-validation-design.md`、plan `docs/superpowers/plans/2026-07-10-phase3-p1-validation.md`、findings `docs/phase2-integration-findings.md`（carry-forward）。
+- kind `kind-apihub`：现跑真 Argo（pns）+ 12 apihub pods + MinIO。`kubectl --context kind-apihub get nodes`；没了 `bash scripts/kind/bootstrap.sh` 重建（会装 Argo）。
+- 本地 venv `.venv-t1/`（未跟踪）：editable 装 apihub-core + 各 service，ruff 0.15.20 / pytest 9.1.1 / mypy 2.2.0。CI 以 ruff 0.6.9 为准。
+- 真 Argo e2e smoke：`env -u ..._PROXY python3 scripts/smoke/k8s-workflow-argo.py`（A/B/D 绿，C resume warning）、`python3 scripts/smoke/k8s-workflow-minio.py`（全绿）。
