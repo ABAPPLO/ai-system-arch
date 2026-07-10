@@ -49,7 +49,9 @@ def seed_wf_api():
     """
     with open("/tmp/_wf_argo_seed.sql", "w") as f:
         f.write(sql)
-    sh("docker exec -i apihub-pg psql -U apihub -d apihub -v ON_ERROR_STOP=1 < /tmp/_wf_argo_seed.sql")
+    sh(
+        "docker exec -i apihub-pg psql -U apihub -d apihub -v ON_ERROR_STOP=1 < /tmp/_wf_argo_seed.sql"
+    )
 
 
 def submit(spec):
@@ -82,9 +84,7 @@ def poll(wf_id, want_statuses, timeout=POLL_TIMEOUT):
         if status in want_statuses:
             return status, seen, detail
         time.sleep(POLL_INTERVAL)
-    raise AssertionError(
-        f"poll timeout: wf={wf_id} want={want_statuses} seen={seen} last={detail}"
-    )
+    raise AssertionError(f"poll timeout: wf={wf_id} want={want_statuses} seen={seen} last={detail}")
 
 
 def main():
@@ -99,7 +99,10 @@ def main():
         "templates": [
             {
                 "name": "main",
-                "steps": [[{"name": "s1", "template": "echo"}], [{"name": "s2", "template": "echo"}]],
+                "steps": [
+                    [{"name": "s1", "template": "echo"}],
+                    [{"name": "s2", "template": "echo"}],
+                ],
             },
             {
                 "name": "echo",
@@ -158,7 +161,13 @@ def main():
         "serviceAccountName": "argo-exec",
         "entrypoint": "main",
         "templates": [
-            {"name": "main", "steps": [[{"name": "gate", "template": "hold"}], [{"name": "fin", "template": "echo2"}]]},
+            {
+                "name": "main",
+                "steps": [
+                    [{"name": "gate", "template": "hold"}],
+                    [{"name": "fin", "template": "echo2"}],
+                ],
+            },
             {"name": "hold", "suspend": {}},
             {
                 "name": "echo2",
@@ -197,7 +206,9 @@ def main():
 
     # ---- D) logs(SSE) ----
     print("== D) GET logs for succeeded wf A ==")
-    st, raw = http("GET", f"{APISIX_URL}/v1/jobs/{wf_a}/logs", headers={"X-API-Key": DEMO_KEY}, timeout=30)
+    st, raw = http(
+        "GET", f"{APISIX_URL}/v1/jobs/{wf_a}/logs", headers={"X-API-Key": DEMO_KEY}, timeout=30
+    )
     print(f"  GET /v1/jobs/{wf_a}/logs -> HTTP {st} {raw[:200]!r}")
     assert st == 200, f"D) logs HTTP {st}: {raw}"
     assert b"hi from argo" in raw, f"D) logs 不含 busybox 真输出: {raw!r}"
