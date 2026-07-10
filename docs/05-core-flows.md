@@ -243,6 +243,8 @@ spec:
 - 每一步的状态、日志、产物都持久化到 MinIO
 - 超时由 workflow-svc 控制，可按业务配置
 
+> **kind/dev 现跑真 Argo**：`argo_mode=k8s`（kind overlay patch），workflow-svc 经 in-cluster SA token 打 `argoproj.io/v1alpha1` Workflow CRD；step Pod 以 `argo-exec` SA（ns `apihub-workflow`）跑。产物经 Argo 原生 `artifactRepository` → MinIO（`argo-artifacts` bucket）。详见 `scripts/kind/argo-setup.sh`、`scripts/smoke/k8s-workflow-argo.py`。
+
 ## 4.5 AI 流式调用流程（[ADR-004 预留](00-decisions.md#adr-004-ai-网关扩展)，Phase 4 实现）
 
 ```

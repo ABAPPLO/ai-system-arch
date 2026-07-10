@@ -1,0 +1,8 @@
+# kind/dev：workflow-svc 切真 Argo（base configmap 仍 stub，staging/prod 不受影响）。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workflow-config
+  namespace: apihub-system
+data:
+  ARGO_MODE: k8s

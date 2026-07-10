@@ -13,8 +13,9 @@
 #   4) redis(6379)/postgres(5432) 的 host 端口被 host 系统服务占用 → 自动探测空闲
 #      高位端口并通过 compose override 重映射；overlay 的 REDIS_PORT/PG_PORT 同步改写，
 #      使 kind pod 仍能经 HOST_IP:port 连到对应数据服务。
-#   5) 只起 pod 依赖的数据服务（postgres redis kafka kafka-init clickhouse jaeger
-#      otel-collector）；minio/grafana/prometheus 与 pod 无关且端口被占，跳过。
+#   5) 起 pod 依赖的数据服务（postgres redis kafka kafka-init clickhouse jaeger
+#      otel-collector minio minio-init）；minio 经 pick_host_port 重映射到空闲端口，
+#      供 Argo artifactRepository 使用；grafana/prometheus 与 pod 无关且端口被占，跳过。
 # =============================================================================
 set -euo pipefail
 export PATH="$HOME/.local/bin:$PATH"
@@ -51,7 +52,8 @@ grep -q '^KAFKA_EXTERNAL_HOST=' .env.dev 2>/dev/null || echo "KAFKA_EXTERNAL_HOS
 # 1a) redis/pg host 端口冲突 → 自动重映射
 REDIS_HP=$(pick_host_port redis 6379)
 PG_HP=$(pick_host_port postgres 5432)
-echo "host ports: redis=$REDIS_HP (default 6379)  postgres=$PG_HP (default 5432)"
+MINIO_HP=$(pick_host_port minio 9000)
+echo "host ports: redis=$REDIS_HP (default 6379)  postgres=$PG_HP (default 5432)  minio=$MINIO_HP (default 9000)"
 
 # 1b) 生成 compose override（!override 替换而非追加 ports 列表）
 #     postgres command: 11 服务 × 4 uvicorn worker × pool(min 10) 轻松 > PG 默认
@@ -67,13 +69,17 @@ OVR=/tmp/kind-compose-override.yml
   echo "    command: [\"postgres\", \"-c\", \"max_connections=500\"]"
   echo "    ports: !override"
   echo "      - \"$PG_HP:5432\""
+  echo "  minio:"
+  echo "    ports: !override"
+  echo "      - \"$MINIO_HP:9000\""
 } > "$OVR"
 
-# 1c) 起 pod 依赖的数据服务（跳过 minio/grafana/prometheus —— 端口被占且 pod 不依赖）。
+# 1c) 起 pod 依赖的数据服务（minio 经 override 重映射，供 Argo artifactRepository；
+#     grafana/prometheus 端口被占且 pod 不依赖，跳过）。
 #     不用 --wait：clickhouse 的 Kafka-engine 物化视图不稳（间歇 connection refused），
 #     会拖垮整体 --wait；CH 仅 trace 服务依赖，单列探测、非致命。
 docker compose --env-file .env.dev -f docker-compose.dev.yml -f "$OVR" \
-  up -d postgres redis kafka kafka-init clickhouse jaeger otel-collector
+  up -d postgres redis kafka kafka-init clickhouse jaeger otel-collector minio minio-init
 
 # wait_ready NAME CMD... ：轮询直到 CMD 成功或超时（致命）
 wait_ready() { local name=$1; shift; for i in $(seq 1 40); do if "$@" >/dev/null 2>&1; then echo "$name OK"; return 0; fi; sleep 3; done; echo "FATAL: $name not ready"; exit 1; }
@@ -124,7 +130,9 @@ REDIS_HP=$(read_compose_host_port apihub-redis 6379)
 PG_HP=$(read_compose_host_port apihub-pg 5432)
 [ -n "$REDIS_HP" ] || { echo "FATAL: apihub-redis host port read-back empty" >&2; exit 1; }
 [ -n "$PG_HP" ]    || { echo "FATAL: apihub-pg host port read-back empty" >&2; exit 1; }
-echo "overlay-sync host ports (read back from compose): redis=$REDIS_HP pg=$PG_HP  (kafka fixed 9094)"
+MINIO_HP=$(read_compose_host_port apihub-minio 9000)
+[ -n "$MINIO_HP" ] || { echo "FATAL: apihub-minio host port read-back empty" >&2; exit 1; }
+echo "overlay-sync host ports (read back): redis=$REDIS_HP pg=$PG_HP minio=$MINIO_HP  (kafka fixed 9094)"
 sed -i "s/__HOST_IP__/$HOST_IP/g" deploy/k8s/overlays/kind/shared-infra.yaml
 sed -i "s/^\(\s*PG_PORT:\s*\"\)5432/\1$PG_HP/" deploy/k8s/overlays/kind/shared-infra.yaml
 sed -i "s/^\(\s*REDIS_PORT:\s*\"\)6379/\1$REDIS_HP/" deploy/k8s/overlays/kind/shared-infra.yaml
@@ -156,4 +164,13 @@ PFS=$!
 sleep 3
 curl -sf http://127.0.0.1:18000/health/ready && echo " <- api-registry ready"
 kill $PFS 2>/dev/null || true
-echo "DONE: kind stack up. host_ip=$HOST_IP redis=$REDIS_HP pg=$PG_HP"
+
+# 8) 装 Argo Workflow + 配 MinIO artifactRepository（真 Argo e2e）
+echo "=== argo-setup (real Argo) ==="
+bash scripts/kind/argo-setup.sh
+
+# workflow pod 须以 argo_mode=k8s 重建（overlay 已把 configmap 改 k8s）
+kubectl -n apihub-system rollout restart deploy/workflow
+kubectl -n apihub-system wait deploy/workflow --for=condition=Available --timeout=120s
+
+echo "DONE: kind stack up + real Argo. host_ip=$HOST_IP redis=$REDIS_HP pg=$PG_HP minio=$MINIO_HP"

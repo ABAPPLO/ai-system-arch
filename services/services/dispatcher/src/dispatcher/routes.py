@@ -10,7 +10,7 @@ from apihub_core.config import get_settings
 from apihub_core.errors import ApiError, ErrorCode
 from apihub_core.logging import get_logger
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 from opentelemetry import trace
 
 from dispatcher.forwarder import HttpForwarder
@@ -143,3 +143,78 @@ def register_routes(app: FastAPI) -> None:
                 http_status=502,
             )
         return resp.json()
+
+    @app.post("/v1/jobs/{job_id}/cancel")
+    async def cancel_job(job_id: int, request: Request):
+        """workflow cancel 代理：→ workflow-svc POST /v1/workflows/{id}/cancel。"""
+        settings = get_settings()
+        client = _wf_client(request)
+        resp = await client.post(
+            f"{settings.workflow_service_url}/v1/workflows/{job_id}/cancel",
+            headers={"X-API-Key": request.headers.get("X-API-Key", "")},
+        )
+        if resp.status_code == 404:
+            raise ApiError(
+                ErrorCode.NOT_FOUND,
+                f"job {job_id} not found",
+                http_status=404,
+            )
+        if resp.status_code >= 400:
+            raise ApiError(
+                ErrorCode.INTERNAL,
+                f"workflow-svc error: {resp.text[:300]}",
+                http_status=502,
+            )
+        return JSONResponse(status_code=200, content=resp.json())
+
+    @app.post("/v1/jobs/{job_id}/resume")
+    async def resume_job(job_id: int, request: Request):
+        """workflow resume 代理：→ workflow-svc POST /v1/workflows/{id}/resume。"""
+        settings = get_settings()
+        client = _wf_client(request)
+        resp = await client.post(
+            f"{settings.workflow_service_url}/v1/workflows/{job_id}/resume",
+            headers={"X-API-Key": request.headers.get("X-API-Key", "")},
+        )
+        if resp.status_code == 404:
+            raise ApiError(
+                ErrorCode.NOT_FOUND,
+                f"job {job_id} not found",
+                http_status=404,
+            )
+        if resp.status_code >= 400:
+            raise ApiError(
+                ErrorCode.INTERNAL,
+                f"workflow-svc error: {resp.text[:300]}",
+                http_status=502,
+            )
+        return JSONResponse(status_code=200, content=resp.json())
+
+    @app.get("/v1/jobs/{job_id}/logs")
+    async def stream_job_logs(job_id: int, request: Request, step_name: str | None = None):
+        """workflow logs(SSE) 代理：→ workflow-svc GET /v1/workflows/{id}/logs。
+
+        Arg 已完成 wf 的日志 Argo 一次性返回，故用缓冲式透传（非长连真流式）。
+        真 SSE 长流式见 spec §10（后续）。
+        """
+        settings = get_settings()
+        client = _wf_client(request)
+        params = {"step_name": step_name} if step_name else None
+        resp = await client.get(
+            f"{settings.workflow_service_url}/v1/workflows/{job_id}/logs",
+            headers={"X-API-Key": request.headers.get("X-API-Key", "")},
+            params=params,
+        )
+        if resp.status_code == 404:
+            raise ApiError(
+                ErrorCode.NOT_FOUND,
+                f"job {job_id} not found",
+                http_status=404,
+            )
+        if resp.status_code >= 400:
+            raise ApiError(
+                ErrorCode.INTERNAL,
+                f"workflow-svc error: {resp.text[:300]}",
+                http_status=502,
+            )
+        return Response(content=resp.content, media_type="text/event-stream")

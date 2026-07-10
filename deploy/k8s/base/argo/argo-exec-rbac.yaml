@@ -1,0 +1,35 @@
+# Argo Workflow executor SA —— Argo controller 在 apihub-workflow 起的 step Pod 以此 SA 跑。
+# 与 svc 的 `workflow` SA（apihub-system，打 CRD）职责分离：本 SA 只管 step Pod 的 pods 权限。
+# 凡跑真 Argo 的环境（kind + 未来 staging/prod）都需要。
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: argo-exec
+  namespace: apihub-workflow
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: argo-exec
+  namespace: apihub-workflow
+rules:
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["pods/log"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: argo-exec
+  namespace: apihub-workflow
+subjects:
+  - kind: ServiceAccount
+    name: argo-exec
+    namespace: apihub-workflow
+roleRef:
+  kind: Role
+  name: argo-exec
+  apiGroup: rbac.authorization.k8s.io

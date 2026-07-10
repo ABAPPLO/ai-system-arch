@@ -271,7 +271,13 @@ class K8sArgoClient(ArgoClient):
         data = resp.json()
         phase = data.get("status", {}).get("phase", "")
         msg = data.get("status", {}).get("message")
-        return _phase_to_status(phase), msg
+        status = _phase_to_status(phase)
+        # Argo v3.0.x 无原生 Cancelled/Stopped phase —— 手动 stop 的 wf 报
+        # phase=Failed + message="Stopped with strategy 'Stop'"。映射回 cancelled
+        # 以区别真失败（cancel 已先在 routes 层落库 cancelled，但 GET 会重派生覆盖）。
+        if status is WorkflowStatus.FAILED and msg and msg.startswith("Stopped with strategy"):
+            status = WorkflowStatus.CANCELLED
+        return status, msg
 
     async def cancel(self, *, namespace: str, argo_name: str) -> None:
         # PATCH spec.shutdown
@@ -313,22 +319,50 @@ class K8sArgoClient(ArgoClient):
     async def stream_logs(
         self, *, namespace: str, argo_name: str, step_name: str | None = None
     ) -> AsyncIterator[str]:
-        # Argo logs endpoint: GET /workflows/{name}/log?podName=...
-        # 真实环境用 SSE / chunked；这里简化为一次性拉取后逐行 yield。
-        # 后续可以接 httpx.stream 持续读。
-        url = f"/apis/argoproj.io/v1alpha1/namespaces/{namespace}" f"/workflows/{argo_name}/log"
-        params = {}
-        if step_name:
-            params["podName"] = step_name
+        # Argo v3.0.x 的 Workflow CRD 不注册 /log 子资源（CRD subresources={}），
+        # 故日志走核心 v1 pods/log：按 wf 标签列出 step pod，逐个拉 main 容器日志。
+        label_selector = f"workflows.argoproj.io/workflow={argo_name}"
         try:
-            async with self._client.stream("GET", url, params=params) as resp:
-                if resp.status_code != 200:
-                    text = await resp.aread()
-                    raise ArgoError(f"k8s logs returned {resp.status_code}: {text[:500]!r}")
-                async for line in resp.aiter_lines():
-                    yield line + "\n"
+            resp = await self._client.get(
+                f"/api/v1/namespaces/{namespace}/pods",
+                params={"labelSelector": label_selector},
+            )
         except httpx.RequestError as e:
-            raise ArgoError(f"k8s logs failed: {e}") from e
+            raise ArgoError(f"k8s list pods failed: {e}") from e
+        if resp.status_code != 200:
+            raise ArgoError(f"k8s list pods returned {resp.status_code}: {resp.text[:500]!r}")
+        items = resp.json().get("items", [])
+        if step_name:
+            # Argo 把 node 名（如 wf-x[0].s1）写在 pod annotation
+            # workflows.argoproj.io/node-name 上；pod 名形如 wf-x-<hash>，
+            # 与 node 名无子串关系，故必须按 annotation 过滤而非 pod 名包含匹配。
+            pods = [
+                p["metadata"]["name"]
+                for p in items
+                if p["metadata"].get("annotations", {}).get("workflows.argoproj.io/node-name")
+                == step_name
+            ]
+        else:
+            pods = [p["metadata"]["name"] for p in items]
+        if not pods:
+            raise ArgoError(
+                f"no pods found for workflow {argo_name}"
+                + (f" step={step_name}" if step_name else "")
+            )
+        for pod in sorted(pods):
+            try:
+                log_resp = await self._client.get(
+                    f"/api/v1/namespaces/{namespace}/pods/{pod}/log",
+                    params={"container": "main"},
+                )
+            except httpx.RequestError as e:
+                yield f"[{pod}] k8s pod-log request failed: {e}\n"
+                continue
+            if log_resp.status_code != 200:
+                yield f"[{pod}] k8s pod-log returned {log_resp.status_code}\n"
+                continue
+            for line in log_resp.text.splitlines():
+                yield line + "\n"
 
     async def close(self) -> None:
         await self._client.aclose()
@@ -346,6 +380,15 @@ def _phase_to_status(phase: str) -> WorkflowStatus:
         "Stopped": WorkflowStatus.CANCELLED,
     }
     return mapping.get(phase, WorkflowStatus.UNKNOWN)
+
+
+def _params_to_dict(params: list | None) -> dict[str, str]:
+    """Argo parameters [{name, value}, ...] → {name: value}。
+
+    WorkflowStep.inputs/outputs 类型是 dict[str,str]；直接塞 Argo 的 list
+    会触发 pydantic 校验错误（k8s 模式 get_steps 必经路径）。
+    """
+    return {p.get("name", ""): str(p.get("value", "")) for p in (params or [])}
 
 
 def _node_to_step(node: dict) -> WorkflowStep:
@@ -372,8 +415,8 @@ def _node_to_step(node: dict) -> WorkflowStep:
         started_at=_parse_argo_time(started),
         finished_at=_parse_argo_time(finished),
         message=msg,
-        inputs=node.get("inputs", {}).get("parameters", []),
-        outputs=node.get("outputs", {}).get("parameters", []),
+        inputs=_params_to_dict(node.get("inputs", {}).get("parameters")),
+        outputs=_params_to_dict(node.get("outputs", {}).get("parameters")),
     )
 
 

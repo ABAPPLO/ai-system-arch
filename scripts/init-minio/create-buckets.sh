@@ -13,7 +13,7 @@ PASSWORD="${MINIO_PASSWORD:-apihub_dev_pwd}"
 
 mc alias set local "$ENDPOINT" "$USER" "$PASSWORD" --api S3v4
 
-for bucket in call-bodies sdk-packages audit-archive tfstate; do
+for bucket in call-bodies sdk-packages audit-archive tfstate argo-artifacts; do
     echo "==> Creating bucket: $bucket"
     mc mb "local/$bucket" --ignore-existing
     # 私有 ACL（不公开）
