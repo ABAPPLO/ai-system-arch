@@ -32,6 +32,7 @@ resources:
   - ../../services/retry/deployment.yaml
   - ../../services/workflow/configmap.yaml
   - ../../services/workflow/deployment.yaml
+  - ../../base/argo/argo-exec-rbac.yaml
 
 patches:
   # kind/dev 放开 PodSecurity 到 privileged（strategic-merge patch on apihub-system Namespace）
@@ -58,6 +59,8 @@ patches:
     target: { kind: Deployment, name: retry }
   - path: patches/workflow-envfrom.yaml
     target: { kind: Deployment, name: workflow }
+  - path: patches/workflow-argo-mode.yaml
+    target: { kind: ConfigMap, name: workflow-config }
   # 副本统一压 1（kind 资源友好）
   - target: { kind: Deployment }
     patch: |-
