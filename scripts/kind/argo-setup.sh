@@ -32,7 +32,11 @@ if [ -z "${MINIO_HP:-}" ]; then
   exit 1
 fi
 MINIO_EP="http://${HOST_IP}:${MINIO_HP}"
-say "host_ip=$HOST_IP minio_endpoint=$MINIO_EP"
+# Argo v3.0.3 的 minio-go S3 client 不接受 endpoint 带_scheme_（http://…）——
+# 报 "too many colons in address"（把 http: 的冒号也算进去）。endpoint 必须是裸 host:port，
+# 由 insecure:true 决定走 HTTP。详见 argoexec wait 日志。
+MINIO_EP_NOSCHEME="${HOST_IP}:${MINIO_HP}"
+say "host_ip=$HOST_IP minio_endpoint=$MINIO_EP (s3-endpoint=$MINIO_EP_NOSCHEME)"
 
 # ---------- 1) 拉 install.yaml（绕代理）----------
 log "fetch argo-workflows install.yaml (stable)"
@@ -90,6 +94,12 @@ log "configure artifactRepository → MinIO ($ARGO_BUCKET)"
 kubectl -n "$ARGO_NS" create secret generic argo-minio-secret \
   --from-literal=accessKey="$MINIO_USER" --from-literal=secretKey="$MINIO_PASSWORD" \
   -o yaml --dry-run=client | kubectl apply -f -
+# 同名 secret 还须存在于 workflow 执行 ns（WF_NS）——argoexec(pns) 在 wf pod 内以
+# Volume 形式 mount 该 secret 取 S3 凭证；pod 跑在 WF_NS，只认本 ns 的 secret，否则
+# MountVolume.SetUp 报 "secret argo-minio-secret not found"，wf 卡 ContainerCreating。
+kubectl -n "$WF_NS" create secret generic argo-minio-secret \
+  --from-literal=accessKey="$MINIO_USER" --from-literal=secretKey="$MINIO_PASSWORD" \
+  -o yaml --dry-run=client | kubectl apply -f -
 
 # 探测 controller 实际读的 ConfigMap 名（版本间命名漂移：configmap vs config-map；
 # v3.0.x 用 "--configmap NAME" 两参形式，旧版用 --configmap=NAME，两者兼容）。
@@ -111,7 +121,7 @@ data:
     containerRuntimeExecutor: pns
     artifactRepository:
       s3:
-        endpoint: "${MINIO_EP}"
+        endpoint: "${MINIO_EP_NOSCHEME}"
         bucket: ${ARGO_BUCKET}
         insecure: true
         accessKeySecret:
