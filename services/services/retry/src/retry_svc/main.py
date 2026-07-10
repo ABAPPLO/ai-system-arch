@@ -25,7 +25,7 @@ async def worker_lifespan(app: FastAPI) -> AsyncIterator[None]:
     await consumer.start()
     app.state.consumer = consumer
 
-    worker = RetryWorker(executor_port=8003)
+    worker = RetryWorker(executor_port=settings.executor_port)
     await worker.start()
     app.state.worker = worker
 

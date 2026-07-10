@@ -22,8 +22,9 @@ class Settings(BaseSettings):
     pg_pool_min: int = 10
     pg_pool_max: int = 50
     # asyncpg ssl 值：disable / prefer / require / verify-ca / verify-full
-    # dev 默认 disable（容器内 PG 没装 SSL）；prod 必须 require 或 verify-full
-    pg_ssl: str = "disable"
+    # dev 默认 prefer（先试 SSL，PG 未装 SSL 则回落明文，与 disable 行为一致但面向未来）；
+    # prod 必须 require 或 verify-full（由 .env 显式覆盖）。
+    pg_ssl: str = "prefer"
 
     # Redis
     redis_host: str
@@ -68,6 +69,9 @@ class Settings(BaseSettings):
     executor_service_template: str = (
         "http://executor.apihub-system.svc.cluster.local:{port}/v1/internal/retry"
     )
+    # retry worker 调 executor 的端口（k8s 由 EXECUTOR_SERVICE_TEMPLATE 覆盖为无 {port} 时无效；
+    # dev 本地回退到带 {port} 的 template 时生效）。默认 8003 = executor 本地端口。
+    executor_port: int = 8003
     # workflow-svc（dispatcher /v1/jobs 代理目标，文档 §4）
     # K8s 默认走集群内 DNS；dev 在 .env.dev 覆盖到 localhost:8010
     workflow_service_url: str = "http://workflow.apihub-system"
