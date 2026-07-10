@@ -68,3 +68,19 @@ async def test_get_jobs_proxies_to_workflow(async_client):
     resp = await async_client.get("/v1/jobs/42", headers={"X-API-Key": "ak_test_a_demo001"})
     assert resp.status_code == 200, resp.text
     assert resp.json()["status"] == "running"
+
+
+async def test_post_jobs_missing_fields_returns_422(async_client):
+    """缺必填字段 → 422（Pydantic 校验），且不走 workflow-svc。"""
+
+    class _MustNotBeCalledWF:
+        async def post(self, *args, **kwargs):  # noqa: ANN003
+            raise AssertionError("workflow-svc must not be called on 422")
+
+    async_client.app.state.workflow_client = _MustNotBeCalledWF()
+    resp = await async_client.post(
+        "/v1/jobs",
+        headers={"X-API-Key": "ak_test_a_demo001"},
+        json={"app_id": "app_trading"},  # 缺 api_id + spec
+    )
+    assert resp.status_code == 422, resp.text

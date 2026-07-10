@@ -97,19 +97,25 @@ jobs:
           done
           echo "PG not ready"; exit 1
 
-      - name: Load roles + schema + grants + seed
-        # 顺序：00-roles（建 apihub_app NOSUPERUSER）→ 01-schema（表+RLS 策略+FORCE）→
-        # 99-grants（授权给 apihub_app）→ 02-seed。测试以 apihub_app 连（非 superuser），
-        # 否则 superuser 绕过 RLS，租户隔离测试全挂（同 phase2 findings #1）。
+      - name: Load roles + schema + seed + phase 补丁 + grants
+        # 顺序：00-roles（建 apihub_app NOSUPERUSER）→ 01-schema（表+RLS+FORCE）→
+        # 02-seed → 03-phase2（评审工单/重试表）→ 04-phase3（workflow_instance）→
+        # 99-grants（最后跑：把所有表/序列授权给 apihub_app。99 文件头注释明确设计就是放最后，
+        # 这样 03/04 的表也被授权——之前 99 跑在 02 之前是顺序 bug，靠现有测试只碰 01 表才没暴露）。
+        # 测试以 apihub_app 连（非 superuser），否则 superuser 绕过 RLS，租户隔离测试全挂（findings #1）。
         run: |
           PGPASSWORD=apihub_dev_pwd psql -h localhost -U apihub -d apihub -v ON_ERROR_STOP=1 \
             -f scripts/init-db/00-roles.sql
           PGPASSWORD=apihub_dev_pwd psql -h localhost -U apihub -d apihub -v ON_ERROR_STOP=1 \
             -f scripts/init-db/01-schema.sql
           PGPASSWORD=apihub_dev_pwd psql -h localhost -U apihub -d apihub -v ON_ERROR_STOP=1 \
-            -f scripts/init-db/99-grants.sql
-          PGPASSWORD=apihub_dev_pwd psql -h localhost -U apihub -d apihub -v ON_ERROR_STOP=1 \
             -f scripts/init-db/02-seed.sql
+          PGPASSWORD=apihub_dev_pwd psql -h localhost -U apihub -d apihub -v ON_ERROR_STOP=1 \
+            -f scripts/init-db/03-phase2.sql
+          PGPASSWORD=apihub_dev_pwd psql -h localhost -U apihub -d apihub -v ON_ERROR_STOP=1 \
+            -f scripts/init-db/04-phase3.sql
+          PGPASSWORD=apihub_dev_pwd psql -h localhost -U apihub -d apihub -v ON_ERROR_STOP=1 \
+            -f scripts/init-db/99-grants.sql
 
       - name: Run integration tests
         run: pytest services/libs/apihub-core/tests -v -m integration --tb=short
