@@ -238,9 +238,9 @@
 | admin dashboard 聚合 K8s 验证（原 P1） | `k8s-links.py` L4：dashboard 200、3 租户（同 namespace `apihub-system`） |
 
 **P1（当前事实上的 P0）**：
-- workflow-svc 端到端联调 —— 依赖 Argo Workflow CRD 装到 kind 集群（目前仅 `argo_mode=stub` 单测，K8s 实跑未做）
-- dispatcher → executor → backend 的 traceparent 贯通**显式**验证 —— `k8s-links.py` 跑通了链路但未断言 traceparent 真传递；task #100 当时只覆盖 admin/api-registry/auth
-- admin dashboard **跨 namespace** DNS —— 同 ns 已验（上表），显式跨 ns（服务在 `apihub-system`、数据源走 host compose）未单独测
+- ~~workflow-svc 端到端联调~~ → **已验证（stub）**：`argo_mode=stub` 经 APISIX→dispatcher `/v1/jobs`→workflow-svc 端到端跑通（`k8s-workflow.py`：POST 201 + GET 200 running+steps），并修了 3 处潜伏 bug（`workflow_instance` 建表 `04-phase3.sql` / jsonb 双重编码 / `api_id`·`app_id`·`tenant_id` int→text）。真 Argo CRD 装集群验 `K8sArgoClient` 拆下轮。
+- ~~dispatcher → executor → backend 的 traceparent 贯通**显式**验证~~ → **已验证**：`k8s-traceparent.py` 经 Jaeger API 断言同一条 trace 含 dispatcher SERVER span + executor `kafka.consume task-requests` span（trace `da5f3f94…`）；补 `_call_backend` 转发 W3C traceparent + executor OTel 初始化（原本 NoOp tracer 未导出 span）。
+- ~~admin dashboard **跨 namespace** DNS~~ → **已验证（当前布局）**：数据层走 host compose（外部 `__HOST_IP__`），业务服务全在 `apihub-system`，服务间无跨 ns 数据调用；唯一真实跨 ns = APISIX(`apihub-ingress`)→dispatcher(`apihub-system`)，`k8s-links.py` L5 显式断言已绿。**待数据服务（PG/Redis/Kafka/CH/MinIO）迁入 `apihub-data` in-cluster 后需重验。**
 
 **P2（短链路容错）**：
 - CH 测试数据 INSERT 改成 `INSERT ... SELECT` 形式（CI 跑通就能加）

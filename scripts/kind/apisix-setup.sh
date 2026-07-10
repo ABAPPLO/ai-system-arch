@@ -208,6 +208,14 @@ curl -s "${ADMIN}/routes/dispatcher" -H "X-API-KEY: ${ADMIN_KEY}" -X PUT \
   -d '{"uri":"/dispatch/*","upstream":{"type":"roundrobin","nodes":{"dispatcher.apihub-system:80":1}},"plugins":{"key-auth":{"header":"X-API-Key"}}}' \
   -o /dev/null -w "  route PUT -> %{http_code}\n"
 
+# 6c) route：/v1/jobs → dispatcher.apihub-system:80（workflow 入口，key-auth 同 /dispatch/*）
+# uris 数组同时覆盖 POST /v1/jobs（精确）与 GET /v1/jobs/{id}（通配），
+# 单写 /v1/jobs/* 不匹配无尾段的 POST /v1/jobs。
+say "upsert route 'jobs' (/v1/jobs, /v1/jobs/* -> dispatcher.apihub-system:80)"
+curl -s "${ADMIN}/routes/jobs" -H "X-API-KEY: ${ADMIN_KEY}" -X PUT \
+  -d '{"uris":["/v1/jobs","/v1/jobs/*"],"upstream":{"type":"roundrobin","nodes":{"dispatcher.apihub-system:80":1}},"plugins":{"key-auth":{"header":"X-API-Key"}}}' \
+  -o /dev/null -w "  route jobs PUT -> %{http_code}\n"
+
 # 关掉 admin port-forward（配置完成）
 kill "${PF_PID}" 2>/dev/null || true
 trap - EXIT

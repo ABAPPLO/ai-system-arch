@@ -13,8 +13,8 @@ class TestSubmitWorkflow:
         resp = await client.post(
             "/v1/workflows",
             json={
-                "api_id": 100,
-                "app_id": 200,
+                "api_id": "100",
+                "app_id": "200",
                 "trace_id": "tr_abc",
                 "spec": {
                     "entrypoint": "main",
@@ -26,8 +26,8 @@ class TestSubmitWorkflow:
         )
         assert resp.status_code == 201
         data = resp.json()
-        assert data["api_id"] == 100
-        assert data["app_id"] == 200
+        assert data["api_id"] == "100"
+        assert data["app_id"] == "200"
         assert data["trace_id"] == "tr_abc"
         assert data["status"] == "running"
         assert data["argo_name"].startswith("wf-")
@@ -49,8 +49,8 @@ class TestSubmitWorkflow:
         resp = await client.post(
             "/v1/workflows",
             json={
-                "api_id": 1,
-                "app_id": 1,
+                "api_id": "1",
+                "app_id": "1",
                 "trace_id": "tr",
                 "spec": {"entrypoint": "main"},
             },
@@ -68,8 +68,8 @@ class TestGetWorkflow:
         resp = await client.post(
             "/v1/workflows",
             json={
-                "api_id": 1,
-                "app_id": 1,
+                "api_id": "1",
+                "app_id": "1",
                 "trace_id": "tr_x",
                 "spec": {
                     "entrypoint": "main",
@@ -101,8 +101,8 @@ class TestCancel:
         resp = await client.post(
             "/v1/workflows",
             json={
-                "api_id": 1,
-                "app_id": 1,
+                "api_id": "1",
+                "app_id": "1",
                 "trace_id": "tr",
                 "spec": {"entrypoint": "main", "templates": [{"name": "main"}]},
             },
@@ -126,8 +126,8 @@ class TestResume:
         resp = await client.post(
             "/v1/workflows",
             json={
-                "api_id": 1,
-                "app_id": 1,
+                "api_id": "1",
+                "app_id": "1",
                 "trace_id": "tr",
                 "spec": {"entrypoint": "main", "templates": [{"name": "main"}]},
             },
@@ -149,8 +149,8 @@ class TestSteps:
         resp = await client.post(
             "/v1/workflows",
             json={
-                "api_id": 1,
-                "app_id": 1,
+                "api_id": "1",
+                "app_id": "1",
                 "trace_id": "tr",
                 "spec": {
                     "entrypoint": "main",
@@ -176,8 +176,8 @@ class TestLogs:
         resp = await client.post(
             "/v1/workflows",
             json={
-                "api_id": 1,
-                "app_id": 1,
+                "api_id": "1",
+                "app_id": "1",
                 "trace_id": "tr",
                 "spec": {"entrypoint": "main", "templates": [{"name": "main"}]},
             },
@@ -210,11 +210,11 @@ class TestListWorkflows:
         stub_repo["list_returns"] = [
             WorkflowListItem(
                 id=1,
-                tenant_id=42,
+                tenant_id="42",
                 workflow_uuid="u1",
                 argo_name="wf-1",
-                api_id=100,
-                app_id=200,
+                api_id="100",
+                app_id="200",
                 trace_id="tr1",
                 status=WorkflowStatus.RUNNING,
                 submitted_at=datetime.now(UTC),

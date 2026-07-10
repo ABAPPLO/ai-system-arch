@@ -219,3 +219,63 @@ class TestHeaders:
 
         _, kwargs = http_client.post.call_args
         assert kwargs["content"] == b'{"k":"v"}'
+
+
+async def test_call_backend_forwards_w3c_traceparent(monkeypatch):
+    """活跃 span 下，_call_backend 给 backend 的请求头必须含 W3C traceparent。"""
+    from opentelemetry import trace
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
+        InMemorySpanExporter,
+    )
+
+    # 装一个真 tracer provider，让 propagate.inject 能写出 traceparent
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    monkeypatch.setattr(trace, "get_tracer", lambda *a, **kw: provider.get_tracer(*a, **kw))
+
+    from executor import processor
+
+    # 构造真实 httpx client 前清掉宿主机代理 env（httpx 会读 ALL_PROXY 等；
+    # 本测试立刻 monkeypatch post，不走真实网络，无需代理）。
+    for _k in ("ALL_PROXY", "all_proxy", "HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy"):
+        monkeypatch.delenv(_k, raising=False)
+    await processor.init_http_client()
+
+    captured: dict = {}
+
+    class _FakeResp:
+        status_code = 200
+        text = '{"ok": true}'
+
+    async def _fake_post(url, content=None, headers=None, timeout=None):  # noqa: ASYNC109
+        captured["headers"] = headers or {}
+        return _FakeResp()
+
+    monkeypatch.setattr(processor._client, "post", _fake_post)
+
+    msg = TaskMessage(
+        task_id="task_t1xx",
+        api_id="a1",
+        api_version_id="v1",
+        backend_url="http://mock/echo",
+        payload="",
+        timeout_seconds=5.0,
+        tenant_id="tenant_a",
+        app_id="app_trading",
+        request_id="r1",
+        trace_id="abc",
+    )
+
+    tracer = provider.get_tracer("test")
+    with tracer.start_as_current_span("parent-span"):
+        result = await processor._call_backend(msg)
+
+    assert result.status == "succeeded"
+    assert "traceparent" in captured["headers"], captured["headers"]
+    # traceparent 格式：00-<32 hex trace>-<16 hex span>-<2 flags>
+    tp = captured["headers"]["traceparent"]
+    assert tp.startswith("00-") and len(tp.split("-")) == 4, tp
+    await processor.close_http_client()

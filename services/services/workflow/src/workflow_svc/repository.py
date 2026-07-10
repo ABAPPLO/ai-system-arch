@@ -1,15 +1,15 @@
 """workflow_instance 表的 PG 操作。
 
-表结构（在 schema 里加，本服务假设已建好）：
+表结构（scripts/init-db/04-phase3.sql 建表）：
 
     CREATE TABLE workflow_instance (
-        tenant_id       BIGINT NOT NULL,
-        id              BIGSERIAL PRIMARY KEY,
+        tenant_id       text NOT NULL,
+        id              bigserial PRIMARY KEY,
         workflow_uuid   VARCHAR(64) NOT NULL UNIQUE,
         argo_name       VARCHAR(128) NOT NULL,
         namespace       VARCHAR(64) NOT NULL DEFAULT 'apihub-workflows',
-        api_id          BIGINT,
-        app_id          BIGINT,
+        api_id          text,
+        app_id          text,
         trace_id        VARCHAR(64),
         spec            JSONB NOT NULL,
         status          VARCHAR(20) NOT NULL DEFAULT 'submitted',
@@ -19,19 +19,22 @@
         created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
-    CREATE INDEX idx_wf_tenant_status ON workflow_instance(tenant_id, status);
-    CREATE INDEX idx_wf_tenant_submitted ON workflow_instance(tenant_id, submitted_at DESC);
+
+    -- tenant_id / api_id / app_id 全部 text，与 Phase 1 约定一致（参见 03-phase2.sql）
+    -- id 是 bigserial（自增 int），PG 内部 bigint；返回 Python int。
 
 所有读操作走 db_session（自动 RLS）；写操作（submit/cancel/resume 的回调）
 也走 db_session 因为是 HTTP 上下文触发。
 """
 
-import json
 from datetime import datetime
 
 import asyncpg
 from apihub_core import db
 
+# apihub_core.db 已为 jsonb 注册 codec（encoder=json.dumps / decoder=json.loads），
+# 所以 jsonb 列在 Python 侧直接是 dict —— spec 写入直传 dict，读取直读列，
+# 既不要 json.dumps（双重编码），也不要 `::text` + json.loads。
 from workflow_svc.models import (
     ListWorkflowsQuery,
     WorkflowDetail,
@@ -44,12 +47,12 @@ from workflow_svc.models import (
 
 async def create_workflow(
     *,
-    tenant_id: int,
+    tenant_id: str,
     workflow_uuid: str,
     argo_name: str,
     namespace: str,
-    api_id: int,
-    app_id: int,
+    api_id: str,
+    app_id: str,
     trace_id: str,
     spec: dict,
     status: WorkflowStatus = WorkflowStatus.SUBMITTED,
@@ -76,7 +79,7 @@ async def create_workflow(
             api_id,
             app_id,
             trace_id,
-            json.dumps(spec),
+            spec,
             status.value,
         )
     return int(row["id"])
@@ -125,7 +128,7 @@ async def get_workflow(workflow_id: int) -> WorkflowDetail | None:
         row = await conn.fetchrow(
             """
             SELECT id, tenant_id, workflow_uuid, argo_name, namespace,
-                   api_id, app_id, trace_id, spec::text,
+                   api_id, app_id, trace_id, spec,
                    status, message, submitted_at, finished_at,
                    created_at, updated_at
             FROM workflow_instance
@@ -143,7 +146,7 @@ async def get_workflow_by_uuid(workflow_uuid: str) -> WorkflowDetail | None:
         row = await conn.fetchrow(
             """
             SELECT id, tenant_id, workflow_uuid, argo_name, namespace,
-                   api_id, app_id, trace_id, spec::text,
+                   api_id, app_id, trace_id, spec,
                    status, message, submitted_at, finished_at,
                    created_at, updated_at
             FROM workflow_instance
@@ -211,14 +214,14 @@ def _row_to_detail(row: asyncpg.Record) -> WorkflowDetail:
     spec_raw = row["spec"]
     return WorkflowDetail(
         id=int(row["id"]),
-        tenant_id=int(row["tenant_id"]),
+        tenant_id=row["tenant_id"],
         workflow_uuid=row["workflow_uuid"],
         argo_name=row["argo_name"],
         namespace=row["namespace"],
-        api_id=int(row["api_id"]) if row["api_id"] is not None else 0,
-        app_id=int(row["app_id"]) if row["app_id"] is not None else 0,
+        api_id=row["api_id"] or "",
+        app_id=row["app_id"] or "",
         trace_id=row["trace_id"] or "",
-        spec=json.loads(spec_raw) if spec_raw else {},
+        spec=spec_raw if isinstance(spec_raw, dict) else {},
         status=WorkflowStatus(row["status"]),
         submitted_at=row["submitted_at"],
         finished_at=row["finished_at"],
@@ -232,11 +235,11 @@ def _row_to_detail(row: asyncpg.Record) -> WorkflowDetail:
 def _row_to_list_item(row: asyncpg.Record) -> WorkflowListItem:
     return WorkflowListItem(
         id=int(row["id"]),
-        tenant_id=int(row["tenant_id"]),
+        tenant_id=row["tenant_id"],
         workflow_uuid=row["workflow_uuid"],
         argo_name=row["argo_name"],
-        api_id=int(row["api_id"]) if row["api_id"] is not None else 0,
-        app_id=int(row["app_id"]) if row["app_id"] is not None else 0,
+        api_id=row["api_id"] or "",
+        app_id=row["app_id"] or "",
         trace_id=row["trace_id"] or "",
         status=WorkflowStatus(row["status"]),
         submitted_at=row["submitted_at"],

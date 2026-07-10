@@ -34,10 +34,17 @@ def _build_routes(app: FastAPI) -> None:
                 http2=True,
             )
             set_forwarder(HttpForwarder(client))
+            # workflow 代理专用 client（与 forwarder 隔离，timeout 更短，
+            # 因为只是转发到 workflow-svc，不承担 AI SSE 长连接）
+            workflow_client = httpx.AsyncClient(
+                timeout=httpx.Timeout(connect=5.0, read=30.0, write=10.0, pool=10.0),
+            )
+            app.state.workflow_client = workflow_client
             log.info("dispatcher_ready")
             try:
                 yield
             finally:
+                await workflow_client.aclose()
                 await client.aclose()
 
     app.router.lifespan_context = lifespan_with_httpclient

@@ -55,23 +55,23 @@ class SubmitWorkflowRequest(BaseModel):
     workflow-svc 不解析 DAG 内部细节，只是把它包成 CRD 提交。
     """
 
-    api_id: int
-    app_id: int
+    api_id: str
+    app_id: str
     trace_id: str
     spec: dict = Field(..., description="Argo Workflow spec")
-    namespace: str = Field(default="apihub-workflows")
+    namespace: str = Field(default="apihub-workflow")
 
 
 class Workflow(BaseModel):
     """工作流实例 —— 列表 / 详情共用，详情带 steps。"""
 
     id: int
-    tenant_id: int
+    tenant_id: str
     workflow_uuid: str
     argo_name: str
     namespace: str
-    api_id: int
-    app_id: int
+    api_id: str
+    app_id: str
     trace_id: str
     spec: dict
     status: WorkflowStatus
@@ -92,11 +92,11 @@ class WorkflowListItem(BaseModel):
     """列表项（精简版，不带 spec / steps）。"""
 
     id: int
-    tenant_id: int
+    tenant_id: str
     workflow_uuid: str
     argo_name: str
-    api_id: int
-    app_id: int
+    api_id: str
+    app_id: str
     trace_id: str
     status: WorkflowStatus
     submitted_at: datetime
@@ -106,8 +106,8 @@ class WorkflowListItem(BaseModel):
 class ListWorkflowsQuery(BaseModel):
     """GET /v1/workflows 查询参数。"""
 
-    api_id: int | None = None
-    app_id: int | None = None
+    api_id: str | None = None
+    app_id: str | None = None
     trace_id: str | None = None
     status: WorkflowStatus | None = None
     since: datetime | None = None
