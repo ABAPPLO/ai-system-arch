@@ -99,14 +99,9 @@ def main():
                 "name": "produce",
                 "container": {
                     "image": "busybox:latest",
-                    # sleep 2：PNS executor 对亚秒容器有捕获竞态——main 退出后 executor 才
-                    # secure rootfs，stat /tmp/out.txt 会 no such file。让 main 活片刻，executor
-                    # 即可在 main 存活时 secure root（持有 fd），退出后仍能读到产物。
-                    "command": [
-                        "sh",
-                        "-c",
-                        "echo -n artifact-content-xyz > /tmp/out.txt && sleep 2",
-                    ],
+                    # emissary executor（v3.5 默认）无 PNS 捕获竞态——亚秒容器退出即捕获产物，
+                    # 不再需要 v3.0.3/pns 时代的 `sleep 2` 让 main 活片刻等 executor secure rootfs。
+                    "command": ["sh", "-c", "echo -n artifact-content-xyz > /tmp/out.txt"],
                     # kind 节点无 egress；:latest 默认 Always 拉会失败 → 必须 IfNotPresent（T6 教训）
                     "imagePullPolicy": "IfNotPresent",
                 },
