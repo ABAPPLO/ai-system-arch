@@ -6,8 +6,11 @@
 APIHub —— 企业 API 网关/中台。Python 3.11 + FastAPI 微服务，**asyncpg 直连（非 SQLAlchemy）**，PostgreSQL **RLS 多租户**，ClickHouse/Kafka/Redis/APISIX，部署 Alibaba ACK。详见 `CLAUDE.md`（⚠️ 父目录有个无关的 Yorozuya CLAUDE.md，**不适用**本 repo）。工作目录 `/home/applo/project/ai-system-arch`。
 
 ## 当前状态
-- `main` = `28cb009`（干净，与 origin 同步；只剩 `main` 分支）。
-- 已合并：PR #9（Phase 3 P1：traceparent/cross-ns/workflow **stub** e2e）、PR #8（P0 技术债 + kind 全量验证 = `031f588`）。
+- `main` = `9a88979`（干净，与 origin 同步；只剩 `main` 分支）。
+- 已合并：PR #9（Phase 3 P1：traceparent/cross-ns/workflow **stub** e2e）、PR #8（P0 技术债 + kind 全量验证 = `031f588`）、**PR #10（`9a88979`，清 PR #9 遗留 F2/F3/F5）**：
+  - F2 CI `test.yml`：SQL 加载顺序改 `00→01→02→03→04→99`（99 跑最后）+ 补 load 03/04，修了原「99 跑在 02 前」的顺序 bug。
+  - F3 spec Task A **勘误已落地**：你读 spec 会看到修正版——`consumer.py:73` 早已包 `consume_with_trace`，真断点是 executor 未接 OTel + `_call_backend` 未注入 W3C。**本轮 Argo e2e 不受影响**。
+  - F5 dispatcher `/v1/jobs` 改 Pydantic → 422。
 - **本轮目标**（上轮 spec/plan 的「Out of Scope / 下轮」）：在 kind 装真 Argo Workflow，把 workflow-svc 从 `argo_mode=stub` 切到 k8s，**端到端验证 `K8sArgoClient`**（提交真 CRD → Argo controller 起 Pod 跑 step → 轮询到 Succeeded → `get_status`/`get_steps` 拿到真实 Argo 数据）。
 
 ## 已有实现（别重做）
@@ -39,10 +42,12 @@ APIHub —— 企业 API 网关/中台。Python 3.11 + FastAPI 微服务，**asy
 - **jsonb**：asyncpg 池注册了 jsonb codec → dict 直传，**别** `json.dumps`+`::text`+`json.loads`（双重编码 bug，findings #19/#21）。
 - **CI gap**：`.github/workflows/test.yml` 只 load init-db 00/01/99/02，**不** load 03/04 phase SQL（pre-existing；workflow 测试 stub repo 故未受影响）。本轮加 05+ 同理，记得评估是否补 CI。
 - **kind 复用**：`scripts/kind/bootstrap.sh`（探测 host 网桥 IP、起 compose 数据层、建 kind、load 镜像、apply overlay）。数据层 = host docker-compose（PG `apihub-pg`、Jaeger `apihub-jaeger` :16686、Kafka `apihub-kafka`、CH、MinIO、OTel）。
+- **网络/代理坑**（2026-07-10 实踩，可能仍相关）：shell 设了 `https_proxy=http://127.0.0.1:12348`。本会话该代理转发外网**全挂**（`curl api.github.com` 超时；`uvx`/`gh`/`pip` 全 connection reset），但 **git over SSH 正常**、**直连 443 正常**（`curl --noproxy '*' https://api.github.com` → 200）。绕法：命令前加 `env -u HTTPS_PROXY -u HTTP_PROXY -u https_proxy -u http_proxy -u ALL_PROXY -u all_proxy`（curl 用 `--noproxy '*'`）。**开 PR / 查 CI / `uvx ruff` 都得这么绕**。先试代理，挂了再绕。
 
 ## 环境（新会话先验证还活着）
 - kind 集群 `kind-apihub`（上轮 12 pods Running，但已过数小时）：`kubectl --context kind-apihub get nodes`；没了就 `bash scripts/kind/bootstrap.sh` 重建。
 - host compose：`docker compose -f docker-compose.dev.yml ps`。
+- **本地 venv**（省网/省时）：`.venv-t1/`（仓库根，未跟踪）已 editable 装 apihub-core + 各 service（含 dispatcher），自带 ruff 0.15.20 / pytest 9.1.1 / mypy 2.2.0。代理挂、`uvx ruff==0.6.9` 装不了时，可用它近似验证（`pytest`/`ruff`/`mypy`，**CI 以 0.6.9 为准**）。workflow-svc 是否已装先 `import` 验一下，缺则 `pip install -e services/services/workflow`（需网）。
 
 ## 流程（按这个走）
 1. `superpowers:brainstorming` → 探查现状（Argo 是否已装、workflow-svc SA/RBAC 现状、argo_mode setting 名、可跑镜像）→ 设计 → spec `docs/superpowers/specs/2026-07-1x-argo-crd-e2e-design.md`。
