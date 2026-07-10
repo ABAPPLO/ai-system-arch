@@ -23,6 +23,8 @@ data:
   # Argo Workflow 模式：dev 用 stub，staging/prod 用 k8s
   ARGO_MODE: stub
   K8S_API_SERVER: https://kubernetes.default.svc
+  ARGO_SERVER_URL: https://argo-server.argo:2746
+  ARGO_SERVER_INSECURE: "false"   # prod 默认安全；dev 由 kind overlay 翻 true
 
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.apihub-monitoring:4317
   OTEL_SERVICE_NAME: workflow

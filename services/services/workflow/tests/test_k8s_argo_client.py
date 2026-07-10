@@ -34,13 +34,12 @@ def _no_proxy_env(monkeypatch):
     yield
 
 
-def _make_client(handler):
+def _make_client(handler, server_handler=None):
     """构造一个 K8sArgoClient，绕过 in-cluster token 读取 + 真 TLS。
 
-    - 显式传 token 跳过 _read_sa_token（集群外会炸）。
-    - 传一个真实存在的 ca_cert_path（certifi bundle），让 __init__ 里那个随即
-      被丢弃的 AsyncClient 能成功构造（httpx 0.28 构造时即校验 cafile 存在）。
-    - 再用 MockTransport 替换 _client，base_url 指向假 server，永不真正握手。
+    - 显式传 token 跳过 _read_sa_token。
+    - 传真实 ca_cert_path（certifi）让 __init__ 的 CRD client 能构造。
+    - MockTransport 替换 _client（CRD）+ 可选 _server_client（argo-server）。
     """
     import certifi
 
@@ -48,11 +47,14 @@ def _make_client(handler):
     c._client = httpx.AsyncClient(
         transport=httpx.MockTransport(handler),
         base_url="https://k8s.test",
-        headers={
-            "Authorization": "Bearer fake-token",
-            "Accept": "application/json",
-        },
+        headers={"Authorization": "Bearer fake-token", "Accept": "application/json"},
     )
+    if server_handler is not None:
+        c._server_client = httpx.AsyncClient(
+            transport=httpx.MockTransport(server_handler),
+            base_url="https://argo-server.argo:2746",
+            headers={"Authorization": "Bearer fake-token", "Accept": "application/json"},
+        )
     return c
 
 
@@ -244,3 +246,66 @@ class TestStreamLogs:
                     pass
         finally:
             await c.close()
+
+
+# ============ resume（via argo-server） ============
+
+
+class TestResumeViaArgoServer:
+    """resume 经 argo-server REST（D1）+ 始终发 SA token（D2）。"""
+
+    async def test_resume_posts_to_argo_server_with_token(self):
+        seen: dict = {}
+
+        def server_handler(request: httpx.Request) -> httpx.Response:
+            seen["url"] = str(request.url)
+            seen["auth"] = request.headers.get("authorization")
+            seen["body"] = request.content
+            return httpx.Response(200, json={"metadata": {"name": "wf-x"}})
+
+        def crd_handler(request: httpx.Request) -> httpx.Response:  # resume 不该触达 CRD
+            return httpx.Response(404)
+
+        c = _make_client(crd_handler, server_handler)
+        try:
+            await c.resume(namespace="apihub-workflow", argo_name="wf-x")
+            assert "/api/v1/workflows/apihub-workflow/wf-x/resume" in seen["url"]
+            assert seen["auth"] == "Bearer fake-token"
+            assert seen["body"] == b"{}"
+        finally:
+            await c.close()
+
+    async def test_resume_202_accepted(self):
+        def server_handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(202, json={})
+
+        c = _make_client(lambda r: httpx.Response(404), server_handler)
+        try:
+            await c.resume(namespace="ns", argo_name="wf-x")  # 不抛即过
+        finally:
+            await c.close()
+
+    async def test_resume_500_raises_argo_error(self):
+        from workflow_svc.argo_client import ArgoError
+
+        def server_handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(500, text="boom")
+
+        c = _make_client(lambda r: httpx.Response(404), server_handler)
+        try:
+            with pytest.raises(ArgoError, match="argo-server resume returned 500"):
+                await c.resume(namespace="ns", argo_name="wf-x")
+        finally:
+            await c.close()
+
+
+async def test_init_no_verify_deprecation_warning():
+    """verify=<str> 已改 ssl context —— 构造不再触发 httpx DeprecationWarning。"""
+    import warnings
+
+    import certifi
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", DeprecationWarning)
+        c = K8sArgoClient(token="t", ca_cert_path=certifi.where())  # noqa: S106
+    await c.close()

@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     # stub：dev / test 内存模拟；k8s：in-cluster 走 K8s API
     argo_mode: str = "stub"
     k8s_api_server: str = "https://kubernetes.default.svc"
+    argo_server_url: str = "https://argo-server.argo:2746"
+    argo_server_insecure: bool = True  # dev：argo-server 自签证书；prod 改 False + 真 CA
 
     # OTel
     otel_exporter_otlp_endpoint: str | None = None

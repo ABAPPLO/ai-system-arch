@@ -6,3 +6,4 @@ metadata:
   namespace: apihub-system
 data:
   ARGO_MODE: k8s
+  ARGO_SERVER_INSECURE: "true"   # kind dev：argo-server 自签证书

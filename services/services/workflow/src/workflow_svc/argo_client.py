@@ -11,6 +11,7 @@ K8s 模式下用 httpx + Bearer token（pod serviceaccount 自动挂载），
 """
 
 import random
+import ssl
 import string
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
@@ -197,17 +198,31 @@ class K8sArgoClient(ArgoClient):
         token: str | None = None,
         ca_cert_path: str = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt",
         timeout: float = 30.0,
+        argo_server_url: str = "https://argo-server.argo:2746",
+        argo_server_insecure: bool = True,
     ):
         self._api_server = api_server
         self._token = token or self._read_sa_token()
         self._timeout = timeout
+        # CRD client（submit/get_status/get_steps/cancel/stream_logs）—— 走 K8s API server。
         self._client = httpx.AsyncClient(
             base_url=api_server,
             headers={
                 "Authorization": f"Bearer {self._token}",
                 "Accept": "application/json",
             },
-            verify=ca_cert_path,
+            verify=ssl.create_default_context(cafile=ca_cert_path),
+            timeout=httpx.Timeout(connect=5.0, read=timeout, write=5.0, pool=5.0),
+        )
+        # argo-server client（resume）—— Argo CRD 不注册 resume 子资源，经 argo-server REST。
+        # 始终发 SA token（D2）：server mode 下 argo-server 忽略调用方身份；client mode 下作身份。
+        self._server_client = httpx.AsyncClient(
+            base_url=argo_server_url,
+            headers={
+                "Authorization": f"Bearer {self._token}",
+                "Accept": "application/json",
+            },
+            verify=not argo_server_insecure,
             timeout=httpx.Timeout(connect=5.0, read=timeout, write=5.0, pool=5.0),
         )
 
@@ -293,15 +308,16 @@ class K8sArgoClient(ArgoClient):
             raise ArgoError(f"k8s cancel returned {resp.status_code}: {resp.text[:500]}")
 
     async def resume(self, *, namespace: str, argo_name: str) -> None:
-        # Argo resume 走子资源：POST /workflows/{name}/resume
+        # Argo CRD 不注册 resume 子资源 → 经 argo-server REST。
+        # server mode 下 argo-server 用自己 SA 执行；token 适配 client mode（D2）。
         try:
-            resp = await self._client.post(
-                f"/apis/argoproj.io/v1alpha1/namespaces/{namespace}/workflows/{argo_name}/resume",
+            resp = await self._server_client.post(
+                f"/api/v1/workflows/{namespace}/{argo_name}/resume", json={}
             )
         except httpx.RequestError as e:
-            raise ArgoError(f"k8s resume failed: {e}") from e
+            raise ArgoError(f"argo-server resume failed: {e}") from e
         if resp.status_code not in (200, 202):
-            raise ArgoError(f"k8s resume returned {resp.status_code}: {resp.text[:500]}")
+            raise ArgoError(f"argo-server resume returned {resp.status_code}: {resp.text[:500]}")
 
     async def get_steps(self, *, namespace: str, argo_name: str) -> list[WorkflowStep]:
         try:
@@ -365,6 +381,7 @@ class K8sArgoClient(ArgoClient):
                 yield line + "\n"
 
     async def close(self) -> None:
+        await self._server_client.aclose()
         await self._client.aclose()
 
 
