@@ -53,6 +53,24 @@ for img in "${IMAGES[@]}"; do
   docker image inspect "$img" >/dev/null 2>&1 || docker pull "$img"
   kind load docker-image "$img" --name "$CLUSTER_NAME"
 done
+# argoexec 镜像经 controller 的 --executor-image 标志传入（NOT install.yaml 的 image: 字段），
+# 故上面 image: 抓取漏掉它 → 不预载会 ImagePullBackOff。两种 flag 形态都覆盖：
+#   两参（v3.0.x，独立 YAML 列表项）：`- --executor-image` 下一行 `- IMG`
+#   等号：`--executor-image=IMG`
+mapfile -t EXEC_IMGS < <(
+  {
+    grep -A1 '^[[:space:]]*- --executor-image[[:space:]]*$' "$INSTALL" \
+      | grep -oE '^[[:space:]]*- ("[^"]+"|[^[:space:]]+)' \
+      | sed -E 's/^[[:space:]]*- //; s/^"//; s/"$//'
+    grep -oE 'executor-image=("[^"]+"|[^[:space:]]+)' "$INSTALL" \
+      | sed -E 's/executor-image=//; s/^"//; s/"$//'
+  } | grep -vE '^--' | sort -u
+)
+for img in "${EXEC_IMGS[@]}"; do
+  say "pull+load executor $img"
+  docker image inspect "$img" >/dev/null 2>&1 || docker pull "$img"
+  kind load docker-image "$img" --name "$CLUSTER_NAME"
+done
 # smoke step 镜像
 say "pull+load busybox:latest"
 docker image inspect busybox:latest >/dev/null 2>&1 || docker pull busybox:latest
@@ -90,6 +108,7 @@ metadata:
   namespace: ${ARGO_NS}
 data:
   config: |
+    containerRuntimeExecutor: pns
     artifactRepository:
       s3:
         endpoint: "${MINIO_EP}"

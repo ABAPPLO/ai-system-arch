@@ -120,6 +120,15 @@ rules:
   - apiGroups: ["argoproj.io"]
     resources: ["workflows/log"]
     verbs: ["get"]
+  # workflows/resume,stop,retry,suspend: 匹配 live patch 与未来 Argo 版本
+  # （v3.0.3 CRD 未注册这些 subresource，但 RBAC 无害且对注册了的版本正确）
+  - apiGroups: ["argoproj.io"]
+    resources: ["workflows/resume", "workflows/stop", "workflows/retry", "workflows/suspend"]
+    verbs: ["create", "get"]
+  # pods/pods/log: K8sArgoClient.stream_logs 读 core v1 pods/log（workflow SA 跑 K8sArgoClient）
+  - apiGroups: [""]
+    resources: ["pods", "pods/log"]
+    verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
