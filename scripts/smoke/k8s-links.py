@@ -377,8 +377,11 @@ def link5_crossns():
     print("\n== L5 cross-ns (apihub-ingress → apihub-system) ==")
     # 复用 L1 的 smoke-sync echo 路径（APISIX route /dispatch/* → dispatcher.apihub-system:80）
     path = f"/dispatch{SMOKE_BASE_PATH}{SMOKE_API_PATH}"
-    st, body = http("POST", f"{APISIX_URL}{path}",
-                    headers={"X-API-Key": DEMO_KEY, "Content-Type": "application/json"})
+    st, body = http(
+        "POST",
+        f"{APISIX_URL}{path}",
+        headers={"X-API-Key": DEMO_KEY, "Content-Type": "application/json"},
+    )
     assert st == 200, f"L5 HTTP {st}: {body}"
     # 断言响应确实来自 dispatcher 链路（mock-backend echo 的 ok 字段）
     assert isinstance(body, dict) and body.get("ok") is True, f"L5 unexpected body: {body}"
