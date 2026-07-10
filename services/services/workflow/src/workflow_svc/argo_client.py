@@ -271,7 +271,13 @@ class K8sArgoClient(ArgoClient):
         data = resp.json()
         phase = data.get("status", {}).get("phase", "")
         msg = data.get("status", {}).get("message")
-        return _phase_to_status(phase), msg
+        status = _phase_to_status(phase)
+        # Argo v3.0.x 无原生 Cancelled/Stopped phase —— 手动 stop 的 wf 报
+        # phase=Failed + message="Stopped with strategy 'Stop'"。映射回 cancelled
+        # 以区别真失败（cancel 已先在 routes 层落库 cancelled，但 GET 会重派生覆盖）。
+        if status is WorkflowStatus.FAILED and msg and "Stopped with strategy" in msg:
+            status = WorkflowStatus.CANCELLED
+        return status, msg
 
     async def cancel(self, *, namespace: str, argo_name: str) -> None:
         # PATCH spec.shutdown
@@ -313,22 +319,38 @@ class K8sArgoClient(ArgoClient):
     async def stream_logs(
         self, *, namespace: str, argo_name: str, step_name: str | None = None
     ) -> AsyncIterator[str]:
-        # Argo logs endpoint: GET /workflows/{name}/log?podName=...
-        # 真实环境用 SSE / chunked；这里简化为一次性拉取后逐行 yield。
-        # 后续可以接 httpx.stream 持续读。
-        url = f"/apis/argoproj.io/v1alpha1/namespaces/{namespace}" f"/workflows/{argo_name}/log"
-        params = {}
-        if step_name:
-            params["podName"] = step_name
+        # Argo v3.0.x 的 Workflow CRD 不注册 /log 子资源（CRD subresources={}），
+        # 故日志走核心 v1 pods/log：按 wf 标签列出 step pod，逐个拉 main 容器日志。
+        label_selector = f"workflows.argoproj.io/workflow={argo_name}"
         try:
-            async with self._client.stream("GET", url, params=params) as resp:
-                if resp.status_code != 200:
-                    text = await resp.aread()
-                    raise ArgoError(f"k8s logs returned {resp.status_code}: {text[:500]!r}")
-                async for line in resp.aiter_lines():
-                    yield line + "\n"
+            resp = await self._client.get(
+                f"/api/v1/namespaces/{namespace}/pods",
+                params={"labelSelector": label_selector},
+            )
         except httpx.RequestError as e:
-            raise ArgoError(f"k8s logs failed: {e}") from e
+            raise ArgoError(f"k8s list pods failed: {e}") from e
+        if resp.status_code != 200:
+            raise ArgoError(f"k8s list pods returned {resp.status_code}: {resp.text[:500]!r}")
+        pods = [p["metadata"]["name"] for p in resp.json().get("items", [])]
+        if step_name:
+            # Argo step pod 名形如 wf-xxx-<hash>；step_name 为 node 名时做包含过滤
+            pods = [p for p in pods if step_name in p]
+        if not pods:
+            raise ArgoError(f"no pods found for workflow {argo_name}")
+        for pod in sorted(pods):
+            try:
+                log_resp = await self._client.get(
+                    f"/api/v1/namespaces/{namespace}/pods/{pod}/log",
+                    params={"container": "main"},
+                )
+            except httpx.RequestError as e:
+                yield f"[{pod}] k8s pod-log request failed: {e}\n"
+                continue
+            if log_resp.status_code != 200:
+                yield f"[{pod}] k8s pod-log returned {log_resp.status_code}\n"
+                continue
+            for line in log_resp.text.splitlines():
+                yield line + "\n"
 
     async def close(self) -> None:
         await self._client.aclose()
