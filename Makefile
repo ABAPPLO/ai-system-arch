@@ -101,14 +101,21 @@ tf-destroy:  ## terraform destroy（仅 dev）
 		cd $(TF_DIR) && terraform destroy
 
 # ===== K8s =====
-k8s-apply-dev:  ## 同步 dev 环境（本地 kubectl）
-	kustomize build deploy/k8s/overlays/dev | kubectl apply -f -
+# 所有 apply 经 scripts/k8s/apply.sh（唯一入口；直接 kubectl apply -f base 会 revert overlay）。
+k8s-apply-kind:  ## 同步本地 kind 集群（注入 host IP + read-back 端口）
+	bash scripts/k8s/apply.sh kind
 
-k8s-apply-staging:
-	kustomize build deploy/k8s/overlays/staging | kubectl apply -f -
+k8s-apply-dev:  ## 同步 dev 环境（ACK）
+	bash scripts/k8s/apply.sh dev
 
-k8s-apply-prod:
-	kustomize build deploy/k8s/overlays/prod | kubectl apply -f -
+k8s-apply-staging:  ## 同步 staging 环境
+	bash scripts/k8s/apply.sh staging
+
+k8s-apply-prod:  ## 同步 prod 环境
+	bash scripts/k8s/apply.sh prod
+
+k8s-check-kind:  ## 自检 kind overlay 关键字段未被 revert
+	bash scripts/k8s/check-overlay.sh kind
 
 argocd-sync:  ## 让 ArgoCD 同步（需先有 argocd CLI）
 	argocd app sync apihub-$(ENV)
