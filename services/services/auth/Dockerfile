@@ -37,4 +37,7 @@ ENV PATH="/home/apihub/.local/bin:${PATH}" \
 EXPOSE 8002
 
 ENTRYPOINT ["/usr/bin/tini", "--"]
-CMD ["uvicorn", "auth.main:app", "--host", "0.0.0.0", "--port", "8002", "--workers", "2"]
+# 单 worker：auth 低 QPS（见 deployment.yaml resources 注释），多 worker 下 aiokafka
+# producer 在 fork 子进程里 bootstrap Kafka 偶发失败（host.docker.internal 抖动 + fork race）
+# → "Application startup failed" → CrashLoop（曾 RESTARTS 13）。HA 走 replicas，不走 worker 数。
+CMD ["uvicorn", "auth.main:app", "--host", "0.0.0.0", "--port", "8002", "--workers", "1"]
