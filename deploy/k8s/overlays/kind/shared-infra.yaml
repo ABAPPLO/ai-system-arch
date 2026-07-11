@@ -7,12 +7,24 @@
 # 不可解析（socket.gaierror）→ 由 scripts/k8s/patch-coredns-hosts.sh 在运行时往 kube-system
 # 的 CoreDNS Corefile 注入一个 hosts 块（host.docker.internal → docker-bridge IP）来集群范围解析。
 # CoreDNS 不在本 overlay 目录下 → 不被 ArgoCD Application（path=overlays/kind）管理 → selfHeal
-# 不会回滚该运行时注入。compose 端口固定（PG 5432 / Redis 6379 / Kafka 9094 / CH 8123 / OTel 4317）。
+# 不会回滚该运行时注入。
+#
+# 端口 = 运行时值（非 git 真相）：host 5432/6379/9000 被占时 compose 经 pick_host_port 重映射到
+# 高位端口（15433/16380/29000...），git 写死的 5432/6379 与运行时不一致 → ArgoCD selfHeal 会把
+# live CM 回滚成 git 端口、pod reload 连不上。解法：本 CM 标 Compare=false → ArgoCD 完全跳过其
+# compare/sync/prune（变成 apply.sh 托管）；apply.sh 在 apply 后 read-back compose 实际 publish
+# 端口并 patch 进 live CM。端口此处保留标准值（5432/6379/8123/4317/9094）作 apply.sh 模板。
+# host（host.docker.internal，稳定名称）+ CoreDNS（运行时解析）走「git 真相+运行时解析」；
+# port 走「运行时注入+Compare=false」—— 二者分离，闭环不回滚。
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: apihub-shared-infra
   namespace: apihub-system
+  annotations:
+    # ArgoCD 跳过本 CM 的 compare/sync/prune：端口由 apply.sh 运行时 patch（read-back compose
+    # 实际 publish 端口）。不标则 selfHeal 会把 live CM 的 PG_PORT/REDIS_PORT 回滚成 git 的 5432/6379。
+    argocd.argoproj.io/sync-options: Compare=false
 data:
   PG_HOST: "host.docker.internal"
   PG_PORT: "5432"
