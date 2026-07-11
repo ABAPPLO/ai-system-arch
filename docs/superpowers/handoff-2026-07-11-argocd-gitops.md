@@ -1,82 +1,42 @@
-# Handoff — ArgoCD GitOps（B 段第 1 子项）：host IP 修复 done，端口 deferred
+# Handoff — ArgoCD GitOps（B 段第 1 子项）：全闭环，待开 PR
 
-> 跨会话交接。B 段（生产部署）第 1 子项「ArgoCD GitOps」。本轮：Task 1（装 ArgoCD）done、Task 2（kind.yaml
-> Application）部分 done（host IP 冲突已修，**端口冲突 deferred**）、Task 3（B 闭环 smoke + auto-sync）未开始。
-> 分支 `feat/argocd-gitops`，已 push（off `main` `06e6c5b`）。
+> B 段（生产部署）第 1 子项 ArgoCD GitOps。**Task 1/2/3 全 done**（drift selfHeal + commit→auto-sync 验证 PASS）。
+> 分支 `feat/argocd-gitops` pushed。**待开 PR + 合并 main**。
 
-## 本轮成果
+## 本轮成果（commits on feat/argocd-gitops，off main 06e6c5b）
 
-- **Task 1**（`8280f2b..5c52d97`，review Approved）：`scripts/k8s/argocd-setup.sh` 在 kind 装 ArgoCD v2.13.2
-  （6 deploy + 1 sts Available + 3 CRD）。5 个 justified 修正（brief 误把 ArgoCD 当 Argo Workflows）：
-  install.yaml URL 是 raw manifests 非 release asset / grep Not Found→size threshold / imagePullPolicy
-  Always→IfNotPresent（kind air-gapped，否则 ImagePullBackOff）/ application-controller 是 StatefulSet 用
-  rollout status / crane per-image 重试。Makefile 加 `argocd-setup` target。
-- **Task 2**（`5c52d97..4443903` + fix `e17fd58`）：`deploy/argocd/kind.yaml` Application（path=overlays/kind，
-  selfHeal/prune，repoURL 改 **HTTPS** —— repo-server 无 SSH agent）。
-- **host IP 修复**（`e17fd58`，核心进展）：发现 `apply.sh` 的 `__HOST_IP__` 运行时注入与 GitOps「git 是真相」冲突
-  （ArgoCD 同步 git 原文把字面 `__HOST_IP__` 推 live → pod 重启崩）。正解：**分离 git 真相 / 运行时注入** ——
-  `shared-infra.yaml` 用 `host.docker.internal`（git 有效）+ 新 `scripts/k8s/patch-coredns-hosts.sh`（运行时
-  patch CoreDNS hosts 解析 `host.docker.internal→docker 网桥 IP`，CoreDNS 在 kube-system 不归 ArgoCD 管，
-  selfHeal 不碰）。`apply.sh`/`bootstrap.sh` 去 `__HOST_IP__` sed，改调 CoreDNS patcher。`argocd-setup.sh`
-  补 `argocd-cm` 的 `kustomize.buildOptions=--load-restrictor LoadRestrictionsNone`（否则 ArgoCD build
-  overlay 报 security 错）。实测：CoreDNS hosts 后 pod 解析 `host.docker.internal`→172.17.0.1；
-  ArgoCD-synced api-registry reload healthy；`make k8s-check-kind` GREEN；`k8s-links.py` L1-L5 GREEN。
+- **Task 1**（`5c52d97`，review Approved）：`scripts/k8s/argocd-setup.sh` 装 ArgoCD v2.13.2。5 justified 修正（brief 误把 ArgoCD 当 Argo Workflows）：install.yaml URL=raw manifests 非 release asset / grep Not Found→size threshold / `imagePullPolicy: Always→IfNotPresent`（kind air-gapped，否则 ImagePullBackOff）/ application-controller 是 StatefulSet 用 rollout status / crane per-image 重试。Makefile 加 `argocd-setup` target。
+- **Task 2**（`4443903` + `e17fd58`）：`deploy/argocd/kind.yaml` Application（path=overlays/kind，repoURL 改 **HTTPS** 因 repo-server 无 SSH agent，selfHeal/prune）+ host IP 修复（`shared-infra.yaml` 用 `host.docker.internal` + 新 `scripts/k8s/patch-coredns-hosts.sh` 运行时解析；CoreDNS 在 kube-system 不归 ArgoCD 管）+ `argocd-setup.sh` 补 `argocd-cm` buildOptions。
+- **端口闭环**（`e2398f3`，核心）：`shared-infra`（CM+Secret）**移出 `overlays/kind/kustomization.yaml`** resources + 去 live tracking label 防 prune + `apply.sh` standalone apply + read-back compose 实际端口（15433/16380）patch live CM。实测：ArgoCD sync 后 selfHeal 未 revert/prune，`pg_port=15433`，check-overlay GREEN。
+- **config.py 真 bug 修复**（`d62514c`）：PR #13 的 `executor_port: int` 撞 k8s service discovery 自动注入的 `EXECUTOR_PORT=tcp://<clusterIP>:80`（executor Service）→ 所有服务 Settings 崩。`validation_alias="EXECUTOR_APP_PORT"` 修复，field 名不变（非 breaking）。
+- **Task 3**（`de1f10c` + auto-sync 验证）：`scripts/smoke/k8s-argocd-gitops.py` drift smoke（scale mock-backend 3→30s selfHeal 回 1，PASS）+ B-c auto-sync（push feat→refresh→ArgoCD fetch rev→sync→live annotation，PASS）。
 
-## ⚠️ 下个会话首要 —— 端口冲突（deferred，同类于 host IP 但无稳定名）
+## 核心 lesson（高价值）
 
-**根因**：host 上 5432/6379/9000 被占 → compose remap（PG→15433 / Redis→16380 / MinIO→29000）。这些端口在
-ArgoCD 管的 `shared-infra` CM 里（`5432`/`6379` 等标准值）→ ArgoCD selfHeal 会把运行时实际端口（15433/16380）
-revert 回标准值 → 真服务（api-registry 等连 PG 的）重启读 5432 连不上 host:15433 → 崩。
+1. **GitOps「git 是真相」vs 运行时值**：host IP（`host.docker.internal` + CoreDNS 运行时解析）+ 动态端口（shared-infra 移出 ArgoCD + apply.sh read-back patch）必须分离到 ArgoCD 管理范围**外**。host.docker.internal 在 kind pod 不解析（pod 不继承 node /etc/hosts）→ CoreDNS hosts patch 解析。
+2. **k8s service discovery env 冲突**：k8s 自动注入 `<SVC>_PORT=tcp://...` / `<SVC>_SERVICE_HOST`，pydantic-settings 字段名 `<svc>_port` 会撞 → 用 `validation_alias` 显式 env 名避开。
+3. **ArgoCD ServerSideApply 下 `Compare=false` 无效**：controller 经 SSA owns CM fields，照样 revert（实测 6s 内 revert）。要真正脱离 ArgoCD 必须移出 kustomization resources + 去 tracking-id 防 prune。
+4. **host proxy 坑**：ArgoCD 镜像 quay.io 经 crane 预载；github fetch 经 HTTPS_PROXY；repo-server 要 HTTPS_PROXY=host.docker.internal:12348 才能 fetch github（host proxy-only）。
 
-**占用进程**（已探测，均 localhost 绑定但足以让 compose `0.0.0.0:port` 冲突 remap）：
-- `5432` = localhost **postgresql**（`127.0.0.1:5432`）
-- `6379` = **redis-server**（system redis，`127.0.0.1:6379` + `[::1]:6379`）
-- `9000` = 被占（ss 未抓到 pid，`sudo lsof -i:9000` 排查，疑 lobe-network）
+## 已知 issue（deferred，下个会话）
 
-**用户已决策：释放 host 标准端口**（停占用服务，让 compose 用标准映射 → shared-infra 原文即有效 → ArgoCD 不再 revert）。
+1. **auth startup fragility**：deployment 无 `startupProbe` + CoreDNS 启动时序 → rollout restart 时新 pod 偶发 startup 崩（socket.gaierror 连 PG/CH），多次 CrashLoopBackOff 后才 ready。修复：给所有服务 deployment 加 startupProbe（允许 startup ~120s 窗口）。
+2. **k8s-links 3/5**（L1/L5 fail）：dispatcher 经 APISIX 调 auth verify 报 "Auth service unreachable"，但 dispatcher 直连 auth `/health/ready:200` —— verify 路径（/v1/apikey/verify）或 APISIX rebuild 后附带；L5 Connection reset（APISIX→dispatcher）。L2/L3/L4 过。
+3. **argocd-setup.sh 缺 repo-server HTTPS_PROXY + reconciliation 默认**：fix subagent live patch 了 repo-server HTTPS_PROXY（host proxy-only）+ argocd-cm `timeout.reconciliation=30s`（加速 selfHeal 验证）—— 二者未 commit 进 argocd-setup.sh，fresh install 会缺。
+4. **CH 容器 unhealthy**（apihub-clickhouse，但 auth 连 CH 成功 `clickhouse_initialized`，非阻断）。
 
-### 释放后重验步骤（用户释放端口后执行）
-```bash
-# 1) 用户先停占用（用户的环境操作，不代停）：
-#    sudo systemctl stop postgresql   # 或 docker stop <pg容器>
-#    sudo systemctl stop redis         # 或 redis-cli shutdown
-#    sudo lsof -i:9000 → 停掉
-# 2) compose 重建用标准端口
-make dev-down && make dev-up          # 或 docker compose -f docker-compose.dev.yml down/up
-docker port apihub-pg 5432            # 应显示 0.0.0.0:5432（不再 15433）
-# 3) 重 apply + 触发 ArgoCD sync
-bash scripts/k8s/apply.sh kind        # shared-infra 标准端口 + CoreDNS patch
-kubectl --context kind-apihub -n apihub-system rollout restart deploy/api-registry  # 真服务重启 = crash test
-kubectl --context kind-apihub -n apihub-system rollout status deploy/api-registry --timeout=120s
-# 4) 验证闭环
-make k8s-check-kind                   # GREEN（无 __HOST_IP__，端口标准）
-kubectl --context kind-apihub -n apihub-system port-forward svc/api-registry 18000:80 &
-curl -sf http://127.0.0.1:18000/health/ready   # 200
-# 5) 端口闭环达成 → 进 Task 3
-```
-> shared-infra.yaml 在 `e17fd58` 已是标准端口原文（5432/6379/8123/9000），无需再改代码，只需 host 释放 + compose 标准映射。
+## 续点（下个会话，按序）
 
-## Task 3 续点（plan 已就绪，端口闭环后执行）
-
-`docs/superpowers/plans/2026-07-11-argocd-gitops.md` Task 3：
-- **Step 1-2**：`scripts/smoke/k8s-argocd-gitops.py`（sync 状态 + drift selfHeal 自动化：scale mock-backend 3→等 selfHeal→回 1）。
-- **Step 3**：commit smoke。
-- **Step 4-6**：B-c auto-sync 手动验证（mock-backend 加 annotation + 临时 kind.yaml `targetRevision: feat/argocd-gitops` + push + 等 ArgoCD poll→sync→live 有 annotation → 清理：删 annotation + targetRevision 改回 main）。
-- **Step 7**：`k8s-links.py` 回归。
-> Task 3 全用 mock-backend（不连 PG），**不受端口冲突影响**——理论上端口未解决也能跑 Task 3，但为闭环完整性建议先端口闭环。
-
-## 关键约束 / gotchas（承接）
-
-- **分支**：`feat/argocd-gitops`（已 push）。spec `3e75d56` / plan `8280f2b`。
-- **host proxy 坑**：镜像经 crane（`/tmp/crane`，`HTTPS_PROXY=http://127.0.0.1:12348`）；不重启 docker。详见 memory [[host-proxy-docker-pulls]]。
-- **ArgoCD GitOps 在 kind 的根本限制**：host IP + 动态端口是运行时值，必须有 ArgoCD 管理范围外的注入点（CoreDNS patch / 释放标准端口）。host IP 已用 host.docker.internal + CoreDNS 解决；端口待释放标准端口。
-- **kind.yaml repoURL = HTTPS**（非 SSH，repo-server 无 SSH agent）。
-- **argocd-setup.sh 设了 argocd-cm buildOptions**（durable，fresh install 可用）。
-- **不碰** `deploy/argocd/{dev,staging,prod}.yaml`（云专用）。
+1. **开 PR** `feat/argocd-gitops` → main（Task 1/2/3 + config.py fix d62514c + 端口闭环 e2398f3；squash-merge）。⚠️ merge 前别 re-apply main 的 kind.yaml（main 仍把 shared-infra 放 kustomization → 会重新接管/revert；merge 后 ArgoCD poll main 一致）。
+2. 修 auth startupProbe（+ 所有服务 base deployment）。
+3. debug k8s-links L1/L5（dispatcher→auth verify / APISIX）。
+4. argocd-setup.sh 补 repo-server HTTPS_PROXY + reconciliation 默认值。
+5. **B 段后续子项**：告警 rules / Argo Rollouts 灰度 / overlays/prod 补全 / Terraform staging+prod envs。
 
 ## 环境（新会话先验证还活着）
 
-- kind `kind-apihub`（活，12 pods + Argo v3.5.15 + ArgoCD v2.13.2 in `argocd` ns）。
-- Application `apihub-kind` Synced/Healthy（foreground sync 工作；后台 git ls-refs 偶超时因 host proxy 从 pod 不可达，foreground/selfHeal 恢复）。
-- host compose 数据层跑（PG/Redis/Kafka/CH/MinIO/Jaeger/OTel），端口 remap 中（15433/16380/29000）。
-- 工作树：feat/argocd-gitops pushed；`.venv-t1/` untracked（本地 venv）。
+- kind `kind-apihub`（活）：12 pods + Argo v3.5.15（argo ns）+ ArgoCD v2.13.2（argocd ns，6 deploy + 1 sts Available）。
+- Application `apihub-kind` Synced/Healthy（**live targetRevision=feat/argocd-gitops**；kind.yaml committed=main —— merge 后一致）。
+- shared-infra live：`host.docker.internal` + 实际端口（PG 15433 / Redis 16380，apply.sh patch，ArgoCD 不管）。
+- 11 服务 + mock-backend healthy（auth 偶发 startup restart 后 ready）。
+- host compose 数据层跑（PG/Redis/Kafka/CH/MinIO/Jaeger/OTel），端口 remap（15433/16380/29000）。
