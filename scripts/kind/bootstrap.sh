@@ -6,7 +6,8 @@
 # 相对 task brief 的修正/补强：
 #   1) kustomize build 使用 --load-restrictor LoadRestrictionsNone（overlay 引用
 #      ../../base、../../services，在自身目录之外）。
-#   2) apply 后 git checkout 还原 shared-infra.yaml 的 __HOST_IP__ 占位符（提交文件保持干净）。
+#   2) shared-infra.yaml 用 host.docker.internal（git 真相，无需 sed 注入 / git checkout 还原）；
+#      apply 后调 patch-coredns-hosts.sh 注入集群范围 DNS 解析（host.docker.internal → bridge IP）。
 #   3) Kafka 显式健康探测（docker exec kafka-broker-api-versions.sh）。
 #
 # 本机环境补强（brief 假设干净 host；本机为共享机，多端口被占）：
@@ -112,31 +113,28 @@ kind delete cluster --name apihub 2>/dev/null || true
 kind create cluster --name apihub --config /tmp/kind-config.yaml
 kubectl config use-context kind-apihub
 
-# 3) 注入 host IP + 重映射端口到 overlay；apply 后还原占位符
+# 3) compose 实际 publish 端口 read-back（仅诊断 echo，不再写 overlay）
 #
-#    端口同步不变式：overlay 写入的 REDIS_PORT/PG_PORT 必须 == compose 实际 publish
-#    的 host 端口。Task 8 smoke 踩过 off-by-one（redis publish 在 16381 而 ConfigMap
-#    写的是 16380 → pod 连不上 Redis），根因是「pick 的端口」「override publish 的端口」
-#    「overlay 写入的端口」三处独立写入、可人为/笔误错位。此处统一改为以 `docker port`
-#    read-back 的【实际 publish 端口】作为唯一真源写入 overlay：override 用 pick 值发布，
-#    compose up 之后读回真实 host 端口，再用它写 overlay —— 从结构上保证 publish==overlay，
-#    即使 pick 与实际偶发错位（端口被抢占/override 未生效/旧容器残留）也能自我纠正。
-#    Kafka 固定 9094（host 未占用、且 advertize 指向 host:9094，不重映射）compose 与 overlay
-#    两处均为 9094，天然一致，无需 read-back。
+#    shared-infra.yaml 已用 host.docker.internal（git 真相，不再 sed 注入 __HOST_IP__）；
+#    compose 端口固定（PG 5432 / Redis 6379 / Kafka 9094 / CH 8123 / OTel 4317），overlay
+#    端口 == compose 声明端口，无需同步写入。host.docker.internal → bridge IP 的解析由
+#    第 5 步 apply 后调 patch-coredns-hosts.sh 注入 CoreDNS（运行时层，不受 GitOps 管）。
+#
+#    此处保留 read-back 仅为 echo 诊断（看 compose 是否因端口冲突走了 pick_host_port 重映射）：
+#    若 redis/pg read-back ≠ 默认值（6379/5432），说明 host 端口被占、compose 重映射了，
+#    而 git-truth ConfigMap 仍是默认端口 → pod 会连不上 → 需单独的运行时端口注入方案
+#    （见 .superpowers/sdd/task-2-fix-report.md 的 concern）。Kafka 固定 9094 不重映射。
 read_compose_host_port() {  # NAME CONTAINER_PORT -> 实际 publish 的 host 端口
   docker port "$1" "$2" 2>/dev/null | awk -F: '/^0\.0\.0\.0:/ {print $NF; exit}'
 }
 REDIS_HP=$(read_compose_host_port apihub-redis 6379)
 PG_HP=$(read_compose_host_port apihub-pg 5432)
-[ -n "$REDIS_HP" ] || { echo "FATAL: apihub-redis host port read-back empty" >&2; exit 1; }
-[ -n "$PG_HP" ]    || { echo "FATAL: apihub-pg host port read-back empty" >&2; exit 1; }
 MINIO_HP=$(read_compose_host_port apihub-minio 9000)
-[ -n "$MINIO_HP" ] || { echo "FATAL: apihub-minio host port read-back empty" >&2; exit 1; }
-echo "overlay-sync host ports (read back): redis=$REDIS_HP pg=$PG_HP minio=$MINIO_HP  (kafka fixed 9094)"
-sed -i "s/__HOST_IP__/$HOST_IP/g" deploy/k8s/overlays/kind/shared-infra.yaml
-sed -i "s/^\(\s*PG_PORT:\s*\"\)5432/\1$PG_HP/" deploy/k8s/overlays/kind/shared-infra.yaml
-sed -i "s/^\(\s*REDIS_PORT:\s*\"\)6379/\1$REDIS_HP/" deploy/k8s/overlays/kind/shared-infra.yaml
-trap 'git checkout deploy/k8s/overlays/kind/shared-infra.yaml 2>/dev/null || true' EXIT
+echo "compose publish host ports (read back, diagnostic): redis=$REDIS_HP pg=$PG_HP minio=$MINIO_HP  (kafka fixed 9094)"
+if [ "${REDIS_HP:-}" != "6379" ] || [ "${PG_HP:-}" != "5432" ]; then
+  echo "WARN: compose 重映射了 redis/pg 端口（host 被占），但 git-truth ConfigMap 用默认端口 →" >&2
+  echo "      pod 经 host.docker.internal 连 PG/Redis 会失败。需运行时端口注入（见 task-2-fix-report）。" >&2
+fi
 
 # 4) 构建 11 镜像 + load 进 kind
 SVC=(api-registry dispatcher auth executor quota tenant admin docs trace retry workflow)
@@ -153,6 +151,11 @@ kind load docker-image python:3.11-slim --name apihub
 
 # 5) apply（--load-restrictor：overlay 引用上级目录资源）
 kustomize build --load-restrictor LoadRestrictionsNone deploy/k8s/overlays/kind | kubectl apply -f -
+
+# 5b) 注入 host.docker.internal → docker-bridge IP 的集群范围 DNS 解析（CoreDNS 运行时层）。
+#     kind-on-Linux pod 不继承 node /etc/hosts → host.docker.internal 默认不可解析；
+#     CoreDNS 在 kube-system（不在 overlay 目录），ArgoCD GitOps 管不到 → 注入不会被 selfHeal 回滚。
+bash scripts/k8s/patch-coredns-hosts.sh
 
 # 6) 等 ready（PSA restricted 下可能因 seccompProfile/securityContext 缺失而被拒，
 #    届时 kubectl wait 会超时——参见日志中 ReplicaSet FailedCreate 事件）

@@ -1,10 +1,20 @@
+# apihub-shared-infra：kind overlay 的数据层连接配置（GitOps 友好版）。
+#
+# host 字段用 host.docker.internal（一个稳定、git 可表达的名称），而非 __HOST_IP__ 占位符——
+# 后者需要 apply.sh 在 apply 时 sed 注入真实 docker-bridge IP，但 ArgoCD selfHeal 会把 git
+# 原文（含占位符）原样同步进 live ConfigMap，任何 pod reload 都连不上 host compose 的 PG/Redis。
+# kind-on-Linux 的 pod 并不继承 node 的 /etc/hosts，host.docker.internal 在 kind pod 里默认
+# 不可解析（socket.gaierror）→ 由 scripts/k8s/patch-coredns-hosts.sh 在运行时往 kube-system
+# 的 CoreDNS Corefile 注入一个 hosts 块（host.docker.internal → docker-bridge IP）来集群范围解析。
+# CoreDNS 不在本 overlay 目录下 → 不被 ArgoCD Application（path=overlays/kind）管理 → selfHeal
+# 不会回滚该运行时注入。compose 端口固定（PG 5432 / Redis 6379 / Kafka 9094 / CH 8123 / OTel 4317）。
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: apihub-shared-infra
   namespace: apihub-system
 data:
-  PG_HOST: "__HOST_IP__"
+  PG_HOST: "host.docker.internal"
   PG_PORT: "5432"
   PG_USER: "apihub_app"
   PG_DATABASE: "apihub"
@@ -13,13 +23,13 @@ data:
   # → ConnectionRefused 风暴。dev/kind 缩小连接池（envFrom 顺序在后，覆盖各服务 configmap 的 10/50）。
   PG_POOL_MIN: "2"
   PG_POOL_MAX: "10"
-  REDIS_HOST: "__HOST_IP__"
+  REDIS_HOST: "host.docker.internal"
   REDIS_PORT: "6379"
-  KAFKA_BROKERS: "__HOST_IP__:9094"
-  CH_HOST: "__HOST_IP__"
+  KAFKA_BROKERS: "host.docker.internal:9094"
+  CH_HOST: "host.docker.internal"
   CH_PORT: "8123"
   CH_USERNAME: "apihub"
-  OTEL_EXPORTER_OTLP_ENDPOINT: "http://__HOST_IP__:4317"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://host.docker.internal:4317"
   # retry→executor 内部重试跳：executor Service 只暴露 80（targetPort http/8000），
   # 而 retry worker 默认模板带 {port}=8003 → ClusterIP:8003 无 DNAT、SYN 被 drop →
   # 每次 attempt 耗满 30s executor_timeout（Task 8 smoke 的 L3 concern）。

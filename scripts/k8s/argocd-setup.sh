@@ -79,6 +79,19 @@ kubectl create namespace "$ARGOCD_NS" --dry-run=client -o yaml | kubectl apply -
 sed -i 's/imagePullPolicy: Always/imagePullPolicy: IfNotPresent/g' "$INSTALL"
 log "kubectl apply argocd install.yaml (imagePullPolicy: Always → IfNotPresent)"
 kubectl apply -n "$ARGOCD_NS" -f "$INSTALL"
+
+# argocd-cm: 设 kustomize.buildOptions=--load-restrictor LoadRestrictionsNone。
+# 所有 overlay（kind/dev/staging/prod）都引用 ../../base、../../services（在自身目录之外），
+# kustomize v5 默认 LoadRestrictionsRootOnly 会拒载父目录 → ArgoCD sync 会卡在
+# "Error: ... security; file is not in or below '.../overlays/kind'"。
+# 本仓库 scripts/k8s/apply.sh 对所有 env 都强制该 flag；此处让 ArgoCD repo-server 的 kustomize
+# 也带上（无 per-Application 的 load-restrictor override，只能全局设 buildOptions）。
+# 幂等：patch 是 merge，重复设同值无副作用；rollout restart 让 repo-server 重新加载。
+log "patch argocd-cm: kustomize.buildOptions (LoadRestrictionsNone) + restart server/repo-server"
+kubectl -n "$ARGOCD_NS" patch cm argocd-cm --type merge \
+  -p '{"data":{"kustomize.buildOptions":"--load-restrictor LoadRestrictionsNone"}}'
+kubectl -n "$ARGOCD_NS" rollout restart deploy/argocd-server deploy/argocd-repo-server
+
 log "wait argocd-server / application-controller Available"
 kubectl -n "$ARGOCD_NS" wait deploy/argocd-server --for=condition=Available --timeout=300s
 # application-controller 是 StatefulSet，且部分 k8s 版本下 sts 的 status.conditions 不填 Available
