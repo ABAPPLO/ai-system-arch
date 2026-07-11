@@ -1,10 +1,34 @@
+# apihub-shared-infra：kind overlay 的数据层连接配置。
+#
+# ★ 不在 ArgoCD 管理范围内（已从 overlays/kind/kustomization.yaml 的 resources 移除）。
+#   本文件由 scripts/k8s/apply.sh 以「独立 kubectl apply -f」（非 kustomize）方式下发，
+#   且 standalone apply 不会打上 app.kubernetes.io/instance 标签 → ArgoCD 既不在其 manifest 里
+#   有它、也跟踪不到它 → selfHeal/prune 都不碰它。之前的 Compare=false 注解在 ServerSideApply
+#   下完全无效（SSA 由 field-manager owns fields，Compare=false 只影响 compare 阶段），已删除。
+#
+# host 字段用 host.docker.internal（一个稳定、git 可表达的名称），而非 __HOST_IP__ 占位符——
+# 后者需要 apply.sh 在 apply 时 sed 注入真实 docker-bridge IP，但 ArgoCD selfHeal 会把 git
+# 原文（含占位符）原样同步进 live ConfigMap，任何 pod reload 都连不上 host compose 的 PG/Redis。
+# kind-on-Linux 的 pod 并不继承 node 的 /etc/hosts，host.docker.internal 在 kind pod 里默认
+# 不可解析（socket.gaierror）→ 由 scripts/k8s/patch-coredns-hosts.sh 在运行时往 kube-system
+# 的 CoreDNS Corefile 注入一个 hosts 块（host.docker.internal → docker-bridge IP）来集群范围解析。
+# CoreDNS 不在本 overlay 目录下 → 不被 ArgoCD Application（path=overlays/kind）管理 → selfHeal
+# 不会回滚该运行时注入。
+#
+# 端口 = 运行时值（非 git 真相）：host 5432/6379/9000 被占时 compose 经 pick_host_port 重映射到
+# 高位端口（15433/16380/29000...），git 写死的 5432/6379 与运行时不一致。因为本 CM 不再受
+# ArgoCD 管理，apply.sh 在 standalone apply 之后 read-back compose 实际 publish 端口并 patch 进
+# live CM 即可，永不被 selfHeal 回滚。端口此处保留标准值（5432/6379/8123/4317/9094）作 apply.sh
+# 模板与回退默认。
+# host（host.docker.internal，稳定名称）+ CoreDNS（运行时解析）走「git 真相+运行时解析」；
+# port 走「CM 移出 ArgoCD + 运行时 patch」—— 二者分离，闭环不回滚。
 apiVersion: v1
 kind: ConfigMap
 metadata:
   name: apihub-shared-infra
   namespace: apihub-system
 data:
-  PG_HOST: "__HOST_IP__"
+  PG_HOST: "host.docker.internal"
   PG_PORT: "5432"
   PG_USER: "apihub_app"
   PG_DATABASE: "apihub"
@@ -13,13 +37,13 @@ data:
   # → ConnectionRefused 风暴。dev/kind 缩小连接池（envFrom 顺序在后，覆盖各服务 configmap 的 10/50）。
   PG_POOL_MIN: "2"
   PG_POOL_MAX: "10"
-  REDIS_HOST: "__HOST_IP__"
+  REDIS_HOST: "host.docker.internal"
   REDIS_PORT: "6379"
-  KAFKA_BROKERS: "__HOST_IP__:9094"
-  CH_HOST: "__HOST_IP__"
+  KAFKA_BROKERS: "host.docker.internal:9094"
+  CH_HOST: "host.docker.internal"
   CH_PORT: "8123"
   CH_USERNAME: "apihub"
-  OTEL_EXPORTER_OTLP_ENDPOINT: "http://__HOST_IP__:4317"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://host.docker.internal:4317"
   # retry→executor 内部重试跳：executor Service 只暴露 80（targetPort http/8000），
   # 而 retry worker 默认模板带 {port}=8003 → ClusterIP:8003 无 DNAT、SYN 被 drop →
   # 每次 attempt 耗满 30s executor_timeout（Task 8 smoke 的 L3 concern）。

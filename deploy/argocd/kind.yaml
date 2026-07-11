@@ -1,0 +1,25 @@
+# ArgoCD Application：本地 kind 集群的 GitOps 入口。
+# 与 dev/staging/prod.yaml 的关键区别：path 用 overlays/kind（host compose 数据层需 host IP 注入），
+# 非 overlays/dev（云语义）。仓库 public → HTTPS 匿名 read（kind 内 repo-server 无 SSH agent，
+# SSH clone 会因 SSH_AUTH_SOCK 缺失失败；HTTPS 免 credential 即可拉 public repo）。selfHeal/prune 开（dev 友好）。
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: apihub-kind
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: https://github.com/ABAPPLO/ai-system-arch.git
+    targetRevision: main
+    path: deploy/k8s/overlays/kind
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: apihub-system
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true

@@ -62,6 +62,10 @@ dashboard:
   enabled: true
 etcd:
   replicaCount: 1
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/etcd
+    tag: "3.5.9"   # pin 3.5：apisix 3.17 与 etcd 3.6 不兼容（config_etcd 报 "no healthy endpoint"）；3.5 为 Phase 2 实证可用版本
 EOF
 
 # 容忍首次安装可能因镜像拉取超时失败（资源仍会创建）

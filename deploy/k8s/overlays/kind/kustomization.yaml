@@ -8,7 +8,6 @@ kind: Kustomization
 
 resources:
   - ../../base/namespaces/namespaces.yaml
-  - shared-infra.yaml
   - mock-backend.yaml
   - ../../services/api-registry/configmap.yaml
   - ../../services/api-registry/deployment.yaml

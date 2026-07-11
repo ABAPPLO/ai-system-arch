@@ -71,7 +71,9 @@ class Settings(BaseSettings):
     )
     # retry worker 调 executor 的端口（k8s 由 EXECUTOR_SERVICE_TEMPLATE 覆盖为无 {port} 时无效；
     # dev 本地回退到带 {port} 的 template 时生效）。默认 8003 = executor 本地端口。
-    executor_port: int = 8003
+    # validation_alias 避开 k8s service discovery 自动注入的 EXECUTOR_PORT=tcp://<clusterIP>:80
+    #（命中该非 int 值会让 Settings 校验崩 → 所有服务启动失败）。改读 EXECUTOR_APP_PORT。
+    executor_port: int = Field(default=8003, validation_alias="EXECUTOR_APP_PORT")
     # workflow-svc（dispatcher /v1/jobs 代理目标，文档 §4）
     # K8s 默认走集群内 DNS；dev 在 .env.dev 覆盖到 localhost:8010
     workflow_service_url: str = "http://workflow.apihub-system"
