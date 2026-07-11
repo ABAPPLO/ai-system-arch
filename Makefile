@@ -117,6 +117,9 @@ k8s-apply-prod:  ## 同步 prod 环境
 k8s-check-kind:  ## 自检 kind overlay 关键字段未被 revert
 	bash scripts/k8s/check-overlay.sh kind
 
+argocd-setup:  ## 在 kind 装 ArgoCD（GitOps 控制面）
+	bash scripts/k8s/argocd-setup.sh
+
 argocd-sync:  ## 让 ArgoCD 同步（需先有 argocd CLI）
 	argocd app sync apihub-$(ENV)
 
