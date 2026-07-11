@@ -87,9 +87,27 @@ kubectl apply -n "$ARGOCD_NS" -f "$INSTALL"
 # 本仓库 scripts/k8s/apply.sh 对所有 env 都强制该 flag；此处让 ArgoCD repo-server 的 kustomize
 # 也带上（无 per-Application 的 load-restrictor override，只能全局设 buildOptions）。
 # 幂等：patch 是 merge，重复设同值无副作用；rollout restart 让 repo-server 重新加载。
-log "patch argocd-cm: kustomize.buildOptions (LoadRestrictionsNone) + restart server/repo-server"
+log "patch argocd-cm: kustomize.buildOptions + reconciliation + repo-server proxy; restart server/repo-server"
 kubectl -n "$ARGOCD_NS" patch cm argocd-cm --type merge \
   -p '{"data":{"kustomize.buildOptions":"--load-restrictor LoadRestrictionsNone"}}'
+# timeout.reconciliation=30s：默认 180s 太慢，selfHeal/drift smoke 验证等不起。
+# 幂等 merge；与 buildOptions 同 cm，一并重启生效。
+kubectl -n "$ARGOCD_NS" patch cm argocd-cm --type merge \
+  -p '{"data":{"timeout.reconciliation":"30s"}}'
+# repo-server HTTPS_PROXY：kind 节点继承宿主机 localhost 代理 → 不可达 docker.io/github。
+# repo-server fetch git 仓库（如本仓库）必须走 host proxy（host.docker.internal:12348，
+# 经 scripts/k8s/patch-coredns-hosts.sh 的 CoreDNS hosts 解析）。战略 merge 按 env.name
+# 合并，幂等。NO_PROXY 放开集群内 + host.docker.internal 自身避免回环。
+kubectl -n "$ARGOCD_NS" patch deploy argocd-repo-server --type=strategic -p '{
+  "spec":{"template":{"spec":{"containers":[{
+    "name":"argocd-repo-server",
+    "env":[
+      {"name":"HTTPS_PROXY","value":"http://host.docker.internal:12348"},
+      {"name":"HTTP_PROXY","value":"http://host.docker.internal:12348"},
+      {"name":"NO_PROXY","value":"localhost,127.0.0.1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,.cluster.local,.svc,host.docker.internal"}
+    ]
+  }]}}
+}' || say "WARN: argocd-repo-server proxy patch failed (repo-server 可能 fetch 不了 github)"
 kubectl -n "$ARGOCD_NS" rollout restart deploy/argocd-server deploy/argocd-repo-server
 
 log "wait argocd-server / application-controller Available"

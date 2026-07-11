@@ -30,7 +30,9 @@ async def authenticate_request(
 
     # 缓存查询（生产环境强烈推荐）：`ak:{sha256(api_key)}` -> json
     # 这里直接调 auth 服务
-    async with httpx.AsyncClient(timeout=2.0) as client:
+    # timeout 5s：auth verify 可能回源 PG（cache-miss），2s 在依赖冷启动/抖动时偏紧，
+    # 曾稳定触发 503 "Auth service unreachable"（见 db.init_pool 的 pool 预热注释）。
+    async with httpx.AsyncClient(timeout=5.0) as client:
         try:
             resp = await client.post(
                 settings.auth_service_url,
@@ -40,7 +42,8 @@ async def authenticate_request(
         except httpx.RequestError as e:
             raise ApiError(
                 ErrorCode.INTERNAL,
-                f"Auth service unreachable: {e}",
+                # 带异常类型 + repr：httpx 超时类异常 str 常为空串，否则日志里只剩 "unreachable: " 无法定位。
+                f"Auth service unreachable: {type(e).__name__}: {e!r}",
                 http_status=503,
             ) from e
 

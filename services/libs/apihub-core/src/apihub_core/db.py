@@ -60,6 +60,17 @@ async def init_pool(settings: Settings) -> None:
         init=_init_jsonb_codec,
     )
 
+    # 预热：asyncpg create_pool 惰性建连，连接到首次 acquire 才真正建立。
+    # 进程刚起（如 ArgoCD resync 重启后）首个 auth verify 若是 cache-miss，
+    # 会付冷建连费 —— kind/host-compose 下实测 3-15s，直接撞调用方 httpx timeout
+    # → 503 "Auth service unreachable"。并发持有 min_size 条再释放，强制启动期建好，
+    # 让首个请求即走热连接（配合各服务 startupProbe 的 120s 窗口吸收建连耗时）。
+    held = []
+    for _ in range(settings.pg_pool_min):
+        held.append(await _pool.acquire())
+    for conn in held:
+        await _pool.release(conn)
+
 
 async def close_pool() -> None:
     global _pool

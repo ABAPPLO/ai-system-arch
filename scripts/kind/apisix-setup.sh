@@ -66,6 +66,9 @@ etcd:
     registry: docker.io
     repository: bitnamilegacy/etcd
     tag: "3.5.9"   # pin 3.5：apisix 3.17 与 etcd 3.6 不兼容（config_etcd 报 "no healthy endpoint"）；3.5 为 Phase 2 实证可用版本
+  # ⚠️ chart v12（面向 etcd 3.6）默认 liveness 探针走 /livez，但镜像 pin 在 3.5.9 ——
+  # etcd 3.5 无 /livez（返 404）→ liveness 必败 → CrashLoop（实测 restarts=31）。
+  # 不能在 helm values 改 probe path（bitnami etcd subchart 未暴露该取值入口），用下方 §4b patch 修。
 EOF
 
 # 容忍首次安装可能因镜像拉取超时失败（资源仍会创建）
@@ -134,6 +137,25 @@ else
 fi
 say "apisix-gateway service:"
 kubectl -n "${NS}" get svc apisix-gateway
+
+# ---------------------------------------------------------------------------
+# 4b) etcd liveness 探针路径修正（根因修复）：bitnami etcd chart v12 面向 etcd 3.6，
+#     默认 liveness httpGet /livez；但 image pin 在 3.5.9（apisix 兼容）—— etcd 3.5
+#     没有 /livez 端点（实测返 404），/health 才是 3.5 的健康端点（返 200）。
+#     后果：liveness 永远 404 失败 → kubelet 杀 → CrashLoop（实测 restarts=31）
+#     → APISIX 读不到配置 "no healthy etcd endpoint" → reset 所有连接（L5 必挂）。
+#     chart 未暴露 probe path 取值，只能 post-install strategic patch 改 path。
+#     幂等；改 pod template 触发 etcd 滚动重启 → 下方 §5 wait 接管。
+# ---------------------------------------------------------------------------
+log "fix etcd liveness probe path: /livez -> /health (image 3.5.9 无 /livez 端点)"
+if kubectl -n "${NS}" get sts apisix-etcd >/dev/null 2>&1; then
+  kubectl -n "${NS}" patch sts apisix-etcd --type=strategic \
+    -p '{"spec":{"template":{"spec":{"containers":[{"name":"etcd","livenessProbe":{"httpGet":{"path":"/health"}}}]}}}}' \
+    >/dev/null 2>&1 && say "etcd liveness path -> /health (根因修复；etcd 3.5 只有 /health)" \
+    || say "WARN: etcd liveness path patch failed（不改则 etcd 必 CrashLoop）"
+else
+  say "(apisix-etcd sts not found yet; skip probe patch)"
+fi
 
 # ---------------------------------------------------------------------------
 # 5) 等 APISIX / etcd pod 全部 Ready

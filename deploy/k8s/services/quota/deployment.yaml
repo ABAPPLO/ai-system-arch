@@ -63,6 +63,12 @@ spec:
             allowPrivilegeEscalation: false
             capabilities:
               drop: [ALL]
+          startupProbe:
+            httpGet:
+              path: /health/ready
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24   # 120s 窗口：startup 建 PG/Redis/Kafka/CH pool 偶遇 CoreDNS 解析时序，避免 liveness 过早 kill
           readinessProbe:
             httpGet:
               path: /v1/quota/health
