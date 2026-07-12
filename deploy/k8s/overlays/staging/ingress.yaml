@@ -1,0 +1,39 @@
+# staging 入口：Ingress（staging 占位域名）→ apisix-gateway；cert-manager ACME 自动 TLS（复用 letsencrypt-prod ClusterIssuer）。
+---
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+spec:
+  acme:
+    server: https://acme-v02.api.letsencrypt.org/directory
+    email: REPLACE_ME@example.com
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+    solvers:
+      - http01:
+          ingress:
+            class: nginx
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: apihub-ingress
+  namespace: apihub-ingress
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+spec:
+  tls:
+    - hosts: ["staging-apihub.example.com"]
+      secretName: apihub-staging-tls
+  rules:
+    - host: "staging-apihub.example.com"
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: apisix-gateway
+                port:
+                  number: 80
