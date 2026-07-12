@@ -1,0 +1,36 @@
+# prod 数据层连接配置 + secrets（占位）。
+# 与 kind 区别：prod 用真 cloud endpoints（确定性，提交 git，ArgoCD 管），不需 host.docker.internal + CoreDNS 运行时注入。
+# endpoints 对齐 terraform envs/prod outputs（apply 时 terraform output 替换占位）。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apihub-shared-infra-prod
+  namespace: apihub-system
+data:
+  PG_HOST: "apihub-rds.internal"             # ← terraform output rds_endpoint
+  PG_PORT: "5432"
+  PG_USER: "apihub_app"
+  PG_DATABASE: "apihub"
+  PG_SSL: "verify-full"                       # prod 强制 SSL（kind=disable）
+  PG_POOL_MIN: "10"
+  PG_POOL_MAX: "50"
+  REDIS_HOST: "apihub-redis.internal"         # ← terraform output redis_host
+  REDIS_PORT: "6379"
+  KAFKA_BROKERS: "apihub-kafka.internal:9092" # ← terraform output kafka_brokers
+  CH_HOST: "apihub-clickhouse.internal"
+  CH_PORT: "8123"
+  CH_USERNAME: "apihub"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.apihub-monitoring:4317"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apihub-shared-secret-prod
+  namespace: apihub-system
+type: Opaque
+# stringData：apply 时填真值（占位）。真 apply 前建议换 ExternalSecrets+KMS（non-goal）。
+stringData:
+  PG_PASSWORD: "REPLACE_ME"
+  JWT_SECRET: "REPLACE_ME"
+  REDIS_PASSWORD: "REPLACE_ME"
+  CH_PASSWORD: "REPLACE_ME"
