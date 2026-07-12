@@ -7,7 +7,7 @@ dependencies = [
   "fastapi>=0.110",
   "uvicorn[standard]>=0.27",
   "asyncpg==0.30.0",
-  "redis>=5.0,<6.0",
+  "redis>=5.0,<9.0",
   "aiokafka==0.12.0",
   # cramjam：aiokafka 0.12 解析 lz4 codec 的底层库（kafka.py compression_type="lz4"）。
   # 不声明会导致任何初始化 Kafka producer 的服务启动崩溃。codec lib，不属 4 个关键 pin 家族，用 floor。
