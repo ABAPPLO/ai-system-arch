@@ -32,6 +32,10 @@ resources:
   - ../../services/retry/deployment.yaml
   - ../../services/workflow/configmap.yaml
   - ../../services/workflow/deployment.yaml
+  # Task 2/3：prod 数据层 CM/Secret + HPA + Ingress
+  - shared-infra-prod.yaml
+  - hpa.yaml
+  - ingress.yaml
 
 patches:
   - target:
@@ -184,5 +188,159 @@ patches:
       - op: replace
         path: /spec/template/spec/containers/0/resources/limits/memory
         value: 1Gi
+
+  # ── configMap ENV=prod + OTEL deployment.environment=prod（11 服务，op:add 对已存在 key = replace）──
+  - target: { kind: ConfigMap, name: api-registry-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod"
+  - target: { kind: ConfigMap, name: dispatcher-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod"
+  - target: { kind: ConfigMap, name: auth-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod"
+  - target: { kind: ConfigMap, name: executor-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod"
+  - target: { kind: ConfigMap, name: quota-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod"
+  - target: { kind: ConfigMap, name: tenant-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod"
+  - target: { kind: ConfigMap, name: admin-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod"
+  - target: { kind: ConfigMap, name: docs-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod"
+  - target: { kind: ConfigMap, name: trace-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod"
+  - target: { kind: ConfigMap, name: retry-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod"
+  - target: { kind: ConfigMap, name: workflow-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod"
+
+  # ── envFrom：每服务追加 apihub-shared-infra-prod(CM) + apihub-shared-secret-prod(Secret) ──
+  # 与 overlays/kind/patches/*-envfrom.yaml 同手法（op:add 追加到 envFrom 末尾）。
+  # envFrom 顺序在后 → 覆盖各服务 configmap 的 PG/REDIS/KAFKA 等连接配置。
+  # 注意 dispatcher 在 prod 是 Rollout（非 Deployment）。
+  - path: patches/api-registry-envfrom.yaml
+    target: { kind: Deployment, name: api-registry }
+  - path: patches/dispatcher-envfrom.yaml
+    target: { kind: Rollout, name: dispatcher }
+  - path: patches/auth-envfrom.yaml
+    target: { kind: Deployment, name: auth }
+  - path: patches/executor-envfrom.yaml
+    target: { kind: Deployment, name: executor }
+  - path: patches/quota-envfrom.yaml
+    target: { kind: Deployment, name: quota }
+  - path: patches/tenant-envfrom.yaml
+    target: { kind: Deployment, name: tenant }
+  - path: patches/admin-envfrom.yaml
+    target: { kind: Deployment, name: admin }
+  - path: patches/docs-envfrom.yaml
+    target: { kind: Deployment, name: docs }
+  - path: patches/trace-envfrom.yaml
+    target: { kind: Deployment, name: trace }
+  - path: patches/retry-envfrom.yaml
+    target: { kind: Deployment, name: retry }
+  - path: patches/workflow-envfrom.yaml
+    target: { kind: Deployment, name: workflow }
+
+# images transformer：11 服务镜像 → ACR（registry.cn-shanghai.aliyuncs.com/apihub/<svc>:prod-latest）
+# prod-latest 为 ACR 仓库浮动 tag（CI 推送）；ArgoCD ImageUpdater 可后续接入（non-goal）。
+images:
+  - name: registry.apihub.internal/apihub/api-registry
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/api-registry
+    newTag: prod-latest
+  - name: registry.apihub.internal/apihub/dispatcher
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/dispatcher
+    newTag: prod-latest
+  - name: registry.apihub.internal/apihub/auth
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/auth
+    newTag: prod-latest
+  - name: registry.apihub.internal/apihub/executor
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/executor
+    newTag: prod-latest
+  - name: registry.apihub.internal/apihub/quota
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/quota
+    newTag: prod-latest
+  - name: registry.apihub.internal/apihub/tenant
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/tenant
+    newTag: prod-latest
+  - name: registry.apihub.internal/apihub/admin
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/admin
+    newTag: prod-latest
+  - name: registry.apihub.internal/apihub/docs
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/docs
+    newTag: prod-latest
+  - name: registry.apihub.internal/apihub/trace
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/trace
+    newTag: prod-latest
+  - name: registry.apihub.internal/apihub/retry
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/retry
+    newTag: prod-latest
+  - name: registry.apihub.internal/apihub/workflow
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/workflow
+    newTag: prod-latest
 
 # prod 走 Rollout（Argo Rollouts canary），见 docs/09-deployment.md §6.3
