@@ -1,0 +1,11 @@
+- op: add
+  path: /spec/template/spec/containers/0/envFrom/-
+  value:
+    configMapRef:
+      name: apihub-shared-infra-staging
+- op: add
+  path: /spec/template/spec/containers/0/envFrom/-
+  value:
+    secretRef:
+      name: apihub-shared-secret-staging
+
