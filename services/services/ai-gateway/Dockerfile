@@ -9,7 +9,7 @@ COPY --chown=apihub:apihub services/services/ai-gateway /tmp/ai-gateway
 RUN pip install --user /tmp/ai-gateway
 FROM python:3.14-slim
 WORKDIR /app
-COPY --from=builder /root/.local /root/.local
+COPY --from=builder /home/apihub/.local /root/.local
 ENV PATH=/root/.local/bin:$PATH
 EXPOSE 8013
 CMD ["uvicorn", "ai_gateway.main:app", "--host", "0.0.0.0", "--port", "8013", "--workers", "1"]
