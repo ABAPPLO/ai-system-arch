@@ -4,8 +4,21 @@
 """
 
 import secrets
+from typing import Any
 
+import httpx
 from apihub_core import db
+from apihub_core.config import get_settings
+from apihub_core.errors import ApiError, ErrorCode
+
+from portal.models import (
+    PortalApiDetail,
+    PortalApiItem,
+    PortalApiListResponse,
+    PortalVersionItem,
+    TryRequest,
+    TryResponse,
+)
 
 
 async def create_app_for_user(*, tenant_id: str, name: str, app_type: str) -> dict:
@@ -43,7 +56,6 @@ async def list_apps_for_user(*, tenant_id: str) -> list[dict]:
 async def create_api_key_for_app(
     *, tenant_id: str, app_id: str, name: str
 ) -> dict:
-    from apihub_core.errors import ApiError, ErrorCode
     from auth.apikey import generate_api_key  # 复用 auth 的 key 生成纯函数
 
     plaintext, key_hash, display_prefix = generate_api_key()
@@ -77,3 +89,224 @@ async def create_api_key_for_app(
         "key_prefix": display_prefix,
         "api_key": plaintext,
     }
+
+
+async def list_portal_apis(
+    search: str = "",
+    category: str = "",
+    tag: str = "",
+    limit: int = 50,
+    offset: int = 0,
+) -> PortalApiListResponse:
+    """API 目录列表 + 搜索/过滤/分页。
+
+    通过 db_session (RLS) 自动按 caller 租户过滤可见 API。
+    """
+    search_clause = ""
+    params: list[Any] = []
+    idx = 1
+
+    if search:
+        search_clause = f" AND (a.name ILIKE ${idx} OR a.description ILIKE ${idx})"
+        params.append(f"%{search}%")
+        idx += 1
+    if category:
+        search_clause += f" AND a.category = ${idx}"
+        params.append(category)
+        idx += 1
+    if tag:
+        search_clause += f" AND ${idx} = ANY(a.tags)"
+        params.append(tag)
+        idx += 1
+
+    async with db.db_session() as conn:
+        total = await conn.fetchval(
+            f"SELECT COUNT(*) FROM api a WHERE a.status = 'published'{search_clause}",
+            *params,
+        )
+
+        list_sql = f"""
+            SELECT a.id, a.name, a.description, a.category, a.tags,
+                   a.base_path, a.visibility, v.backend_type, v.version, a.updated_at
+            FROM api a
+            LEFT JOIN LATERAL (
+                SELECT version, backend_type FROM api_version
+                WHERE api_id = a.id AND status = 'published'
+                ORDER BY created_at DESC LIMIT 1
+            ) v ON true
+            WHERE a.status = 'published'{search_clause}
+            ORDER BY a.updated_at DESC
+            LIMIT ${idx} OFFSET ${idx + 1}
+        """
+        params.append(limit)
+        params.append(offset)
+        rows = await conn.fetch(list_sql, *params)
+
+    items: list[PortalApiItem] = []
+    all_categories: set[str] = set()
+    all_tags: set[str] = set()
+    for r in rows:
+        tags_list: list[str] = r["tags"] if isinstance(r["tags"], (list, tuple)) else []
+        items.append(PortalApiItem(
+            api_id=str(r["id"]),
+            name=r["name"],
+            description=r["description"],
+            category=r["category"] or "",
+            tags=tags_list,
+            base_path=str(r["base_path"]),
+            visibility=str(r["visibility"]),
+            backend_type=str(r["backend_type"]) if r["backend_type"] else "http",
+            version=str(r["version"]) if r["version"] else "",
+            updated_at=r["updated_at"].isoformat() if r["updated_at"] else "",
+        ))
+        if r["category"]:
+            all_categories.add(str(r["category"]))
+        for t in tags_list:
+            all_tags.add(str(t))
+
+    return PortalApiListResponse(
+        items=items,
+        total=total,
+        limit=limit,
+        offset=offset,
+        categories=sorted(all_categories),
+        tags=sorted(all_tags),
+    )
+
+
+async def get_api_detail(api_id: str) -> PortalApiDetail:
+    """取 API 详情（含全部版本列表）。"""
+    async with db.db_session() as conn:
+        api_row = await conn.fetchrow(
+            "SELECT id, name, description, category, tags, base_path, visibility, status "
+            "FROM api WHERE id = $1 AND status = 'published'",
+            api_id,
+        )
+        if not api_row:
+            raise ApiError(ErrorCode.NOT_FOUND, f"API {api_id} not found")
+
+        ver_rows = await conn.fetch(
+            """
+            SELECT id, version, method, path, backend_type, status,
+                   request_schema, response_schema, masking, ai_model, ai_streaming
+            FROM api_version
+            WHERE api_id = $1
+            ORDER BY created_at DESC
+            """,
+            api_id,
+        )
+
+    tags_list: list[str] = api_row["tags"] if isinstance(api_row["tags"], (list, tuple)) else []
+    versions: list[PortalVersionItem] = []
+    for vr in ver_rows:
+        versions.append(PortalVersionItem(
+            version_id=str(vr["id"]),
+            version=str(vr["version"]),
+            method=str(vr["method"]),
+            path=str(vr["path"]),
+            backend_type=str(vr["backend_type"]),
+            status=str(vr["status"]),
+            request_schema=vr["request_schema"],
+            response_schema=vr["response_schema"],
+            masking=vr["masking"],
+            ai_model=vr["ai_model"],
+            ai_streaming=bool(vr["ai_streaming"]),
+        ))
+
+    return PortalApiDetail(
+        api_id=str(api_row["id"]),
+        name=api_row["name"],
+        description=api_row["description"],
+        category=api_row["category"] or "",
+        tags=tags_list,
+        base_path=str(api_row["base_path"]),
+        visibility=str(api_row["visibility"]),
+        api_status=str(api_row["status"]),
+        versions=versions,
+    )
+
+
+async def try_api(payload: TryRequest) -> TryResponse:
+    """在线调试：用 API Key 调通后端真实 URL，返回响应 + 延迟。
+
+    backend_url 从 PG 直接读取（不经过 PortalVersionItem，避免暴露给前端）。
+    """
+    import time
+
+    # 1. 查 API + version 元数据（含 backend_url）
+    async with db.db_session() as conn:
+        api_row = await conn.fetchrow(
+            "SELECT id, base_path FROM api WHERE id = $1 AND status = 'published'",
+            payload.api_id,
+        )
+        if not api_row:
+            return TryResponse(status=404, error=f"API {payload.api_id} not found")
+
+        if payload.version_id:
+            ver_row = await conn.fetchrow(
+                """SELECT backend_type, backend_url, method
+                   FROM api_version WHERE id = $1""",
+                payload.version_id,
+            )
+        else:
+            ver_row = await conn.fetchrow(
+                """SELECT backend_type, backend_url, method
+                   FROM api_version WHERE api_id = $1 AND status = 'published'
+                   ORDER BY created_at DESC LIMIT 1""",
+                payload.api_id,
+            )
+        if not ver_row:
+            return TryResponse(status=404, error="No published version found")
+
+    # 2. 验证 API Key → 调 auth-svc
+    settings = get_settings()
+    async with httpx.AsyncClient(timeout=5.0) as c:
+        r = await c.post(
+            settings.auth_service_url,
+            json={"api_key": payload.api_key},
+        )
+    if r.status_code != 200:
+        return TryResponse(status=401, error="API Key 无效")
+
+    # 3. 拼 backend_url，替换路径参数
+    backend_url = ver_row["backend_url"]
+    for k, v in payload.path_params.items():
+        backend_url = backend_url.replace(f"{{{k}}}", v)
+
+    # 4. 构造请求
+    headers = {"X-API-Key": payload.api_key, "Content-Type": "application/json"}
+    headers.update(payload.headers)
+
+    # 5. 执行请求
+    start = time.perf_counter()
+    try:
+        async with httpx.AsyncClient(timeout=payload.timeout_ms / 1000) as c:
+            resp = await c.request(
+                method=payload.method,
+                url=backend_url,
+                headers=headers,
+                params=payload.query_params,
+                json=payload.body if payload.body is not None else None,
+            )
+    except httpx.TimeoutException:
+        elapsed = int((time.perf_counter() - start) * 1000)
+        return TryResponse(status=504, error="后端响应超时", latency_ms=elapsed)
+    except httpx.RequestError as e:
+        elapsed = int((time.perf_counter() - start) * 1000)
+        return TryResponse(status=502, error=f"后端不可达: {e}", latency_ms=elapsed)
+
+    elapsed = int((time.perf_counter() - start) * 1000)
+
+    # 6. 解析响应体
+    ct = resp.headers.get("content-type", "")
+    try:
+        resp_body: Any = resp.json() if "json" in ct else resp.text[:4096]
+    except Exception:
+        resp_body = resp.text[:4096]
+
+    return TryResponse(
+        status=resp.status_code,
+        headers={"content-type": ct},
+        body=resp_body,
+        latency_ms=elapsed,
+    )
