@@ -157,6 +157,9 @@ run-retry:  ## 本地启动 retry-svc（失败重试，需要 Kafka + PG + Redis
 run-workflow:  ## 本地启动 workflow-svc（Argo Workflow 封装，dev 默认 stub 模式）
 	uvicorn workflow_svc.main:app --reload --port 8010
 
+run-notification:  ## 本地启动 notification-svc（Webhook 推送，需要 PG + Kafka）
+	uvicorn notification.main:app --reload --port 8012
+
 run-portal:  ## 本地启动 portal-bff（外部开发者门户聚合，需要 PG + auth）
 	uvicorn portal.main:app --reload --port 8011
 
