@@ -22,7 +22,7 @@ jobs:
     name: Unit tests (no infra)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v6
         with:
@@ -73,7 +73,7 @@ jobs:
       TEST_PG_DSN: postgresql://apihub_app:apihub_app_dev_pwd@localhost:5432/apihub
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: actions/setup-python@v6
         with:
