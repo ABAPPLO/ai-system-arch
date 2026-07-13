@@ -46,7 +46,7 @@ func main() {
 		defer kw.Close()
 	}
 
-	l := limiter.New(rdb)
+	l := limiter.New(rdb, os.Getenv("HOME_REGION"), 0)
 	h := handler.New(repo, l, kw)
 	mux := http.NewServeMux()
 	h.Register(mux)
