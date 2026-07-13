@@ -1,6 +1,6 @@
 .PHONY: help install dev fmt lint test docker-build tf-init tf-plan tf-apply \
         k8s-apply-dev k8s-apply-staging k8s-apply-prod argocd-sync \
-        run-registry run-dispatcher run-auth run-executor run-quota run-tenant run-admin run-docs run-trace run-retry run-workflow run-portal \
+        run-registry run-dispatcher run-auth run-executor run-quota run-tenant run-admin run-docs run-trace run-retry run-workflow run-notification run-portal run-ai-gateway \
         run-admin-frontend admin-frontend-install admin-frontend-typecheck admin-frontend-build portal-frontend-install portal-frontend-typecheck portal-frontend-build run-portal-frontend \
         dev-up dev-down dev-logs dev-ps dev-reset dev-psql dev-redis-cli \
         cli-install cli-validate cli-apply-dev cli-apply-staging cli-apply-prod \
@@ -159,6 +159,9 @@ run-workflow:  ## 本地启动 workflow-svc（Argo Workflow 封装，dev 默认 
 
 run-notification:  ## 本地启动 notification-svc（Webhook 推送，需要 PG + Kafka）
 	uvicorn notification.main:app --reload --port 8012
+
+run-ai-gateway:  ## 本地启动 ai-gateway（LLM 推理路由，需要 PG）
+	uvicorn ai_gateway.main:app --reload --port 8013
 
 run-portal:  ## 本地启动 portal-bff（外部开发者门户聚合，需要 PG + auth）
 	uvicorn portal.main:app --reload --port 8011
