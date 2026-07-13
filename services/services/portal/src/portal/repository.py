@@ -275,6 +275,12 @@ async def try_api(payload: TryRequest) -> TryResponse:
     for k, v in payload.path_params.items():
         backend_url = backend_url.replace(f"{{{k}}}", v)
 
+    # 沙箱模式：路由到 mock-backend
+    if payload.environment == "sandbox":
+        from urllib.parse import urlparse
+        parsed = urlparse(backend_url)
+        backend_url = f"http://mock-backend.apihub-system{parsed.path}"
+
     # 4. 构造请求
     headers = {"X-API-Key": payload.api_key, "Content-Type": "application/json"}
     headers.update(payload.headers)

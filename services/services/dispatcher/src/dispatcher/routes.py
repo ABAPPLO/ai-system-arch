@@ -97,6 +97,13 @@ def register_routes(app: FastAPI) -> None:
             )
 
         # http / ai_model
+        # 沙箱模式：X-Environment: sandbox → 路由到 mock-backend
+        if request.headers.get("X-Environment", "").lower() == "sandbox":
+            from dataclasses import replace
+            snap = replace(
+                snap,
+                backend_url=f"http://mock-backend.apihub-system/dispatch{rest}",
+            )
         return await get_forwarder().forward(snap, request)
 
     @app.get("/v1/dispatcher/health")
