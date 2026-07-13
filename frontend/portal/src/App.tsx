@@ -6,6 +6,8 @@ import { ApiCatalog } from './pages/ApiCatalog';
 import { ApiDetail } from './pages/ApiDetail';
 import { Usage } from './pages/Usage';
 import { Webhooks } from './pages/Webhooks';
+import { Plans } from './pages/Plans';
+import { Invoices } from './pages/Invoices';
 import { useStore } from './store';
 
 export default function App() {
@@ -20,6 +22,8 @@ export default function App() {
         <Route path="/apis/:id" element={auth ? <ApiDetail /> : <Navigate to="/login" />} />
         <Route path="/usage" element={auth ? <Usage /> : <Navigate to="/login" />} />
         <Route path="/webhooks" element={auth ? <Webhooks /> : <Navigate to="/login" />} />
+        <Route path="/plans" element={auth ? <Plans /> : <Navigate to="/login" />} />
+        <Route path="/invoices" element={auth ? <Invoices /> : <Navigate to="/login" />} />
         <Route path="*" element={<Navigate to={auth ? '/apis' : '/login'} />} />
       </Routes>
     </BrowserRouter>

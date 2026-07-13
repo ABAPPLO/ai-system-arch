@@ -365,3 +365,40 @@ async def get_subscription(tenant_id: str) -> SubscriptionInfo | None:
         period_end=row["period_end"].isoformat(),
         status=row["status"], auto_renew=row["auto_renew"],
     )
+
+
+async def subscribe_plan(tenant_id: str, plan_code: str) -> dict:
+    async with db.admin_db_session() as conn:
+        await conn.execute(
+            "UPDATE subscription SET plan_code=$1 WHERE tenant_id=$2",
+            plan_code, tenant_id,
+        )
+    return {"ok": True, "plan_code": plan_code}
+
+
+async def get_invoices(tenant_id: str, limit: int = 12, offset: int = 0) -> dict:
+    async with db.db_session() as conn:
+        total = await conn.fetchval(
+            "SELECT COUNT(*) FROM billing_record WHERE tenant_id=$1",
+            tenant_id,
+        )
+        rows = await conn.fetch(
+            """SELECT id, period, plan_name, total_calls, total_tokens,
+                      base_cents, overage_cents, status, created_at
+               FROM billing_record WHERE tenant_id=$1
+               ORDER BY created_at DESC LIMIT $2 OFFSET $3""",
+            tenant_id, limit, offset,
+        )
+    items = [{
+        "id": str(r["id"]),
+        "period": r.get("period", ""),
+        "plan_name": r.get("plan_name", ""),
+        "total_calls": r.get("total_calls", 0),
+        "total_tokens": r.get("total_tokens", 0),
+        "base_cents": r.get("base_cents", 0),
+        "overage_cents": r.get("overage_cents", 0),
+        "total_cents": (r.get("base_cents", 0) or 0) + (r.get("overage_cents", 0) or 0),
+        "status": r.get("status", ""),
+        "created_at": r["created_at"].isoformat() if r.get("created_at") else "",
+    } for r in rows]
+    return {"items": items, "total": total}
