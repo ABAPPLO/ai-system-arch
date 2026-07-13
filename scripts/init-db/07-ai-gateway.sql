@@ -46,6 +46,8 @@ DROP TRIGGER IF EXISTS set_updated_at ON ai_model_route;
 CREATE TRIGGER set_updated_at BEFORE UPDATE ON ai_model_route
     FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at();
 
+COMMENT ON COLUMN ai_model_route.model_pattern IS 'PostgreSQL ILIKE pattern (use % as wildcard, e.g. "gpt-4o%", "claude-%")';
+
 GRANT SELECT, INSERT, UPDATE, DELETE ON ai_provider TO apihub_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ai_provider_key TO apihub_app;
 GRANT SELECT, INSERT, UPDATE, DELETE ON ai_model_route TO apihub_app;
