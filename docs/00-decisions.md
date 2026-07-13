@@ -15,7 +15,8 @@
 | [ADR-005](#adr-005-审批流强度) | 审批流：分级审批 | ✅ Accepted |
 | [ADR-006](#adr-006-api-key-轮换) | Key 轮换：推荐但不强制 | ✅ Accepted |
 | [ADR-007](#adr-007-im-集成) | 审批 / 通知 IM：钉钉 | ✅ Accepted |
-| [ADR-008](#adr-008-多-region-策略) | 多 Region：单 Region 长期 | ✅ Accepted |
+| [ADR-008](#adr-008-多-region-策略) | 多 Region：单 Region 长期 | 🔄 Superseded by ADR-013 |
+| [ADR-013](#adr-013-多-region-全双活) | 多 Region：租户亲和全双活 | ✅ Accepted |
 | [ADR-009](#adr-009-多租户策略) | 多租户：平台多租户 | ✅ Accepted |
 | [ADR-010](#adr-010-数据合规) | 合规：等保 2.0 三级 | ✅ Accepted |
 | [ADR-011](#adr-011-实名认证) | 实名：邮箱 + 手机号 | ✅ Accepted |
@@ -214,7 +215,9 @@
 
 ## ADR-008 多 Region 策略
 
-**Status**: Accepted · **Date**: 2026-07-02
+**Status**: 🔄 Superseded by [ADR-013](#adr-013-多-region-全双活) · **Date**: 2026-07-02 · **Superseded**: 2026-07-14
+
+> ⚠️ 本决策已被 ADR-013 取代。APIHub 现采用租户亲和全双活架构（cn-shanghai + cn-beijing），而非单 Region 长期策略。
 
 ### 决策
 **单 Region 长期**：
@@ -349,12 +352,48 @@
 | A | MVP 试点业务（哪 2-3 个业务线先接入） | ⏳ 待用户提供 |
 | B | 年度预算批准 | ⏳ 流程性 |
 
+---
+
+## ADR-013 多 Region 全双活
+
+**Status**: Accepted · **Date**: 2026-07-14 · **supersedes**: ADR-008
+
+### 上下文
+APIHub 业务增长，单 Region 无法满足 P0 级可用性要求。需要在不引入 CRDT/TiDB 的前提下，实现跨 Region 高可用。
+
+### 决策
+**租户亲和 + 写分区 + 读双活**：
+- Region：cn-shanghai + cn-beijing，通过阿里云云解析 GSLB 就近接入
+- 写分区：每个租户固定 `home_region`（`sh`/`bj`），写请求 302 跳转到 home_region
+- 读双活：任一 Region 均可处理读请求
+- PG 同步：双向逻辑订阅，`origin = none` 防循环，按 tenant 拆 publication
+- Redis：双 Region 独立 Cluster，配额按 `QUOTA_REGION_SPLIT_RATIO` 比例分配
+- Kafka：MirrorMaker 2 双向复制
+- ClickHouse：双 Region 独立集群，跨 Region 查询通过 `PEER_REGION_CH_HOST` 配置
+- 监控：双 Region Prometheus remote_write → Thanos Receiver 统一视图
+- 切换：人工确认 + 半自动 runbook
+- 演练：每季度一次故障切换演练
+
+### 备选方案
+| 方案 | 优势 | 劣势 |
+|------|------|------|
+| ✅ 租户亲和 + 写分区 | 实现简单，无数据冲突 | 故障时需迁移租户 home_region |
+| ❌ CRDT 多主写入 | 无冲突 | 需 TiDB/CockroachDB，改造成本高 |
+| ❌ 只读副本 | 实现简单 | 写故障不解决 |
+
+### 影响
+- 04-data-model.md：tenant 表加 `home_region` 字段
+- 09-deployment.md：新增 prod-bj 环境
+- 跨 Region 新增 VPC Peering / 逻辑复制 / MirrorMaker / CH 配置
+- 新增 cost：~¥58,300/月（详见设计文档）
+
+---
+
 ## 延后决策项
 
 | # | 决策 | 触发时机 |
 |---|------|---------|
 | C | 是否 Go 重写热点服务（如 quota） | Phase 4 性能瓶颈出现时 |
-| D | 是否升级到跨 Region 多活 | 业务可用性需求增长时 |
 | E | 是否引入商业多租户（卖给外部 SaaS） | 业务方向变化时 |
 
 ---
