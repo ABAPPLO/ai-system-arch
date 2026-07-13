@@ -35,8 +35,8 @@ def get_provider(provider_type: str) -> BaseProvider:
 
 
 # Register built-in providers
-from ai_gateway.providers.openai_compat import OpenAICompatibleProvider
-from ai_gateway.providers.anthropic import AnthropicProvider
+from ai_gateway.providers.openai_compat import OpenAICompatibleProvider  # noqa: E402
+from ai_gateway.providers.anthropic import AnthropicProvider  # noqa: E402
 
 register_provider("openai_compatible", OpenAICompatibleProvider)
 register_provider("anthropic", AnthropicProvider)
