@@ -138,6 +138,7 @@ export function ApiDetail() {
   const [bodyText, setBodyText] = useState('');
   const [tryResp, setTryResp] = useState<TryResponse | null>(null);
   const [tryLoading, setTryLoading] = useState(false);
+  const [sandbox, setSandbox] = useState(false);
 
   useEffect(() => {
     if (!id) return;
@@ -192,6 +193,7 @@ export function ApiDetail() {
         ),
         body: bodyText ? JSON.parse(bodyText) : null,
         api_key: selectedKey,
+        environment: sandbox ? 'sandbox' : 'production',
       });
       setTryResp(resp);
     } catch (err) {
@@ -412,6 +414,17 @@ export function ApiDetail() {
             >
               + Add
             </button>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <label className="text-sm font-semibold">沙箱环境</label>
+            <button
+              className={`relative w-10 h-5 rounded-full transition-colors ${sandbox ? 'bg-blue-500' : 'bg-gray-300'}`}
+              onClick={() => setSandbox(!sandbox)}
+            >
+              <span className={`block w-4 h-4 bg-white rounded-full transition-transform ${sandbox ? 'translate-x-5' : 'translate-x-0.5'}`} />
+            </button>
+            {sandbox && <span className="text-xs text-orange-600">模拟后端</span>}
           </div>
 
           <div>

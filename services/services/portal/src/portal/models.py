@@ -93,6 +93,7 @@ class TryRequest(BaseModel):
     headers: dict[str, str] = {}
     body: Any = None  # JSON body
     api_key: str  # 调用者的 API Key
+    environment: str = "production"  # production / sandbox
     timeout_ms: int = 30000
 
 
