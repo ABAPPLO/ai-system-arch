@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: portal-config
+  namespace: apihub-system
+  labels:
+    app.kubernetes.io/name: portal
+    app.kubernetes.io/part-of: apihub
+data:
+  APP_NAME: portal
+  ENV: dev
+  LOG_LEVEL: INFO
+
+  PG_HOST: apihub-rds.internal
+  PG_PORT: "5432"
+  PG_DATABASE: apihub
+  PG_POOL_MIN: "5"
+  PG_POOL_MAX: "20"
+
+  REDIS_HOST: apihub-redis.internal
+  REDIS_PORT: "6379"
+
+  KAFKA_BROKERS: apihub-kafka-1:9092,apihub-kafka-2:9092,apihub-kafka-3:9092
+
+  # portal-bff 转发 auth 服务
+  AUTH_SVC_BASE_URL: http://auth.apihub-system.svc.cluster.local
+
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.apihub-monitoring:4317
+  OTEL_SERVICE_NAME: portal
+  OTEL_RESOURCE_ATTRIBUTES: deployment.environment=dev
