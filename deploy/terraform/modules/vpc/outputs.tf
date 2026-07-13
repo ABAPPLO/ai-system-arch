@@ -30,3 +30,7 @@ output "security_group_ids" {
     mgmt = alicloud_security_group.mgmt.id
   }
 }
+
+output "peering_id" {
+  value = var.enable_peering ? alicloud_vpc_peer_connection.this[0].id : null
+}
