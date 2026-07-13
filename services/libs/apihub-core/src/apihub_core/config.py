@@ -70,6 +70,9 @@ class Settings(BaseSettings):
     jwt_ttl_seconds: int = 7200  # access token 2h
     jwt_refresh_ttl_seconds: int = 604800  # refresh token 7天
 
+    # AI Gateway（ai-gateway 微服务用）
+    ai_gateway_encryption_key: str = ""
+
     # 下游服务 URL（BFF 聚合用）
     # K8s 默认走集群内 DNS；dev 在 .env.dev 覆盖到 localhost
     tenant_service_url: str = "http://tenant.apihub-system/v1/tenant"
