@@ -82,3 +82,28 @@ CREATE POLICY tenant_isolation_modify ON billing_record FOR ALL USING (rls_is_pl
 
 GRANT SELECT, INSERT, UPDATE ON plan, subscription, billing_record TO apihub_app;
 GRANT USAGE ON ALL SEQUENCES IN SCHEMA public TO apihub_app;
+
+-- ===== Phase 4 API 市场化增强 =====
+
+ALTER TABLE plan ADD COLUMN IF NOT EXISTS overage_unit_price jsonb;
+COMMENT ON COLUMN plan.overage_unit_price IS
+  '超额单价，如 {"calls_per_1000": 5, "tokens_per_100000": 10}，单位 cents';
+
+ALTER TABLE billing_record ADD COLUMN IF NOT EXISTS details jsonb;
+ALTER TABLE billing_record ADD COLUMN IF NOT EXISTS period TEXT;
+CREATE INDEX IF NOT EXISTS idx_billing_record_period ON billing_record(period);
+
+CREATE TABLE IF NOT EXISTS billing_job_log (
+    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    period          TEXT NOT NULL,
+    tenant_count    INT NOT NULL DEFAULT 0,
+    total_base      BIGINT NOT NULL DEFAULT 0,
+    total_overage   BIGINT NOT NULL DEFAULT 0,
+    status          TEXT NOT NULL DEFAULT 'running'
+                    CHECK (status IN ('running', 'done', 'failed')),
+    error_msg       TEXT,
+    started_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    finished_at     TIMESTAMPTZ
+);
+
+GRANT SELECT, INSERT, UPDATE ON billing_job_log TO apihub_app;
