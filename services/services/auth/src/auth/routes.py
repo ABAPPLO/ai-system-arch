@@ -30,6 +30,7 @@ from auth.models import (
 )
 from auth.repository import (
     create_api_key,
+    get_tenant_home_region,
     list_api_keys_for_app,
     revoke_api_key,
     verify_api_key_record,
@@ -76,6 +77,23 @@ def register_routes(app: FastAPI) -> None:
             tenant_id=record["tenant_id"],
         )
         return VerifyResponse(**record)
+
+    @app.post("/internal/auth/check")
+    async def auth_check(payload: VerifyRequest):
+        """APISIX 租户亲和检查 —— 返回 key 数据 + home_region。
+
+        APISIX tenant-affinity 插件在认证后调用此端点获取 consumer 的 home_region，
+        用于决定是否将写请求重定向到租户归属 Region。
+        """
+        if not is_valid_format(payload.api_key):
+            raise ApiError(ErrorCode.UNAUTHORIZED, "invalid api key format")
+
+        record = await verify_api_key_record(payload.api_key)
+        if not record:
+            raise ApiError(ErrorCode.UNAUTHORIZED, "invalid api key")
+
+        home_region = await get_tenant_home_region(record["tenant_id"])
+        return {**record, "home_region": home_region}
 
     # ========== 用户端点（走 dispatcher + 标准 APIKey middleware） ==========
 
