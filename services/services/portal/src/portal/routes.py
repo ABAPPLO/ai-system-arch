@@ -8,7 +8,7 @@ from apihub_core.tenant import require_tenant
 from fastapi import FastAPI
 
 from portal import repository
-from portal.models import ApiKeyCreate, ApiKeyResponse, AppCreate, AppResponse
+from portal.models import ApiKeyCreate, ApiKeyResponse, AppCreate, AppResponse, TryRequest
 
 log = get_logger(__name__)
 
@@ -57,6 +57,34 @@ def register_routes(app: FastAPI) -> None:
                 ErrorCode.UNAUTHORIZED, "invalid credentials", http_status=st
             )
         return body
+
+    # ========== API 目录（需 JWT）==========
+    @app.get("/v1/portal/apis")
+    async def list_portal_apis(
+        search: str = "",
+        category: str = "",
+        tag: str = "",
+        limit: int = 50,
+        offset: int = 0,
+    ):
+        """API 目录列表 + 搜索/过滤/分页。"""
+        ctx = require_tenant()
+        return await repository.list_portal_apis(
+            search=search, category=category, tag=tag,
+            limit=min(limit, 200), offset=offset,
+        )
+
+    @app.get("/v1/portal/apis/{api_id}")
+    async def get_api_detail(api_id: str):
+        """API 详情（含版本列表 + schema）。"""
+        require_tenant()
+        return await repository.get_api_detail(api_id)
+
+    @app.post("/v1/portal/try")
+    async def try_endpoint(payload: TryRequest):
+        """在线调试代理（用 API Key 调通后端）。"""
+        require_tenant()
+        return await repository.try_api(payload)
 
     # ========== app/key 自助（需 JWT → require_tenant）==========
     @app.post("/v1/portal/apps", response_model=AppResponse, status_code=201)
