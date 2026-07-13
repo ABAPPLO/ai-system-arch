@@ -14,6 +14,10 @@ app = create_app(
         "/metrics",
         "/v1/auth/health",
         "/v1/apikey/verify",  # 内部端点（K8s NetworkPolicy 限制来源）
+        # 外部开发者身份端点：注册/验证/登录发生在鉴权之前（无凭证），必须跳过 APIKey middleware
+        "/v1/auth/register",
+        "/v1/auth/verify-email",
+        "/v1/auth/login",
         "/docs",  # dev 用，prod 关掉
         "/openapi.json",
     ),

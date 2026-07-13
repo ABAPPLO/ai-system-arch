@@ -1,13 +1,11 @@
 [project]
-name = "auth"
+name = "portal"
 version = "0.1.0"
-description = "APIHub 鉴权服务 —— APIKey 生成 / 校验 / 吊销 + Redis 热点缓存"
+description = "APIHub Portal BFF —— 外部开发者门户聚合层（身份转发 + app/key 自助直写）"
 requires-python = ">=3.11"
 dependencies = [
   "apihub-core",
   "httpx>=0.27",
-  # EmailStr（RegisterRequest/LoginRequest）依赖 email-validator
-  "email-validator>=2.0",
 ]
 
 [build-system]

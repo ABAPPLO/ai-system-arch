@@ -21,6 +21,9 @@ from auth.models import (
     ApiKeyCreate,
     ApiKeyListItem,
     ApiKeyResponse,
+    AuthResponse,
+    LoginRequest,
+    RegisterRequest,
     VerifyRequest,
     VerifyResponse,
 )
@@ -134,6 +137,32 @@ def register_routes(app: FastAPI) -> None:
             tenant_id=ctx.tenant_id,
         )
         return {"id": key_id, "status": "revoked"}
+
+    # ========== 外部开发者身份端点（公开，skip APIKey middleware）==========
+
+    @app.post("/v1/auth/register", status_code=201)
+    async def register(payload: RegisterRequest):
+        """外部开发者注册：写 pending user + 发验证 token（dev stub 存 Redis）。"""
+        from auth import identity
+
+        return await identity.create_user(
+            email=payload.email, password=payload.password,
+            phone=payload.phone, name=payload.name,
+        )
+
+    @app.get("/v1/auth/verify-email")
+    async def verify_email_endpoint(token: str):
+        """邮箱验证：激活 user + 加入 external-public 租户。"""
+        from auth import identity
+
+        return await identity.verify_email(token)
+
+    @app.post("/v1/auth/login", response_model=AuthResponse)
+    async def login_endpoint(payload: LoginRequest):
+        """登录：bcrypt 校验 + status 检查 → 签 JWT。"""
+        from auth import identity
+
+        return await identity.login(email=payload.email, password=payload.password)
 
     @app.get("/v1/auth/health")
     async def health():

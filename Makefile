@@ -1,7 +1,7 @@
 .PHONY: help install dev fmt lint test docker-build tf-init tf-plan tf-apply \
         k8s-apply-dev k8s-apply-staging k8s-apply-prod argocd-sync \
-        run-registry run-dispatcher run-auth run-executor run-quota run-tenant run-admin run-docs run-trace run-retry run-workflow \
-        run-admin-frontend admin-frontend-install admin-frontend-typecheck admin-frontend-build \
+        run-registry run-dispatcher run-auth run-executor run-quota run-tenant run-admin run-docs run-trace run-retry run-workflow run-portal \
+        run-admin-frontend admin-frontend-install admin-frontend-typecheck admin-frontend-build portal-frontend-install portal-frontend-typecheck portal-frontend-build run-portal-frontend \
         dev-up dev-down dev-logs dev-ps dev-reset dev-psql dev-redis-cli \
         cli-install cli-validate cli-apply-dev cli-apply-staging cli-apply-prod \
         alerts-validate \
@@ -157,6 +157,9 @@ run-retry:  ## 本地启动 retry-svc（失败重试，需要 Kafka + PG + Redis
 run-workflow:  ## 本地启动 workflow-svc（Argo Workflow 封装，dev 默认 stub 模式）
 	uvicorn workflow_svc.main:app --reload --port 8010
 
+run-portal:  ## 本地启动 portal-bff（外部开发者门户聚合，需要 PG + auth）
+	uvicorn portal.main:app --reload --port 8011
+
 # ===== Admin Frontend (Vite + React) =====
 admin-frontend-install:  ## 安装 admin 前端依赖（首次或 lockfile 变更后）
 	cd frontend/admin && npm install
@@ -169,6 +172,19 @@ admin-frontend-build:  ## 生产构建到 frontend/admin/dist（nginx 部署用�
 
 run-admin-frontend:  ## 本地启动 admin 前端 dev server（端口 5173，代理到本地各服务）
 	cd frontend/admin && npm run dev -- --host
+
+# ===== Portal Frontend (Vite + React) =====
+portal-frontend-install:  ## 安装 portal 前端依赖（首次或 lockfile 变更后）
+	cd frontend/portal && npm install
+
+portal-frontend-typecheck:  ## 仅类型检查
+	cd frontend/portal && npm run typecheck
+
+portal-frontend-build:  ## 生产构建到 frontend/portal/dist
+	cd frontend/portal && npm run build
+
+run-portal-frontend:  ## 本地启动 portal 前端 dev server（端口 5174）
+	cd frontend/portal && npm run dev -- --host
 
 # ===== Dev Stack (docker compose) =====
 dev-up:  ## 启动开发栈（PG/Redis/Kafka/CH/MinIO/Jaeger/Grafana）

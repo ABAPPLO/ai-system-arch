@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field
 
 
 class ApiKeyCreate(BaseModel):
@@ -57,3 +57,29 @@ class VerifyResponse(BaseModel):
     is_platform_admin: bool = False
     scopes: list[str] = Field(default_factory=list)
     expires_at: datetime | None = None
+
+
+# ---------- 外部开发者身份（注册 / 登录）----------
+
+
+class RegisterRequest(BaseModel):
+    """外部开发者注册请求。"""
+
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    phone: str = Field(min_length=4, max_length=20)
+    name: str = Field(min_length=1, max_length=64)
+
+
+class LoginRequest(BaseModel):
+    """外部开发者登录请求。"""
+
+    email: EmailStr
+    password: str
+
+
+class AuthResponse(BaseModel):
+    """登录成功响应 —— access_token 为 JWT（人的凭证，与机器 API Key 分流）。"""
+
+    access_token: str
+    user: dict

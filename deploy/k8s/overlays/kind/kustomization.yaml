@@ -31,6 +31,8 @@ resources:
   - ../../services/retry/deployment.yaml
   - ../../services/workflow/configmap.yaml
   - ../../services/workflow/deployment.yaml
+  - ../../services/portal/configmap.yaml
+  - ../../services/portal/deployment.yaml
   - ../../base/argo/argo-exec-rbac.yaml
 
 patches:
@@ -60,6 +62,8 @@ patches:
     target: { kind: Deployment, name: workflow }
   - path: patches/workflow-argo-mode.yaml
     target: { kind: ConfigMap, name: workflow-config }
+  - path: patches/portal-envfrom.yaml
+    target: { kind: Deployment, name: portal }
   # 副本统一压 1（kind 资源友好）
   - target: { kind: Deployment }
     patch: |-

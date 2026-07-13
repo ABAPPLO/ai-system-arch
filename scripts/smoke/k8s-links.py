@@ -179,7 +179,7 @@ BEGIN;
 INSERT INTO api (id, tenant_id, name, description, category, base_path,
                  tags, status, visibility, metadata, created_at, updated_at)
 VALUES ('{SMOKE_API_ID}', '{TENANT_ID}', 'smoke-sync', 'smoke L1', 'smoke',
-        '{SMOKE_BASE_PATH}', ARRAY['smoke'], 'published', 'tenant',
+        '{SMOKE_BASE_PATH}', ARRAY['smoke'], 'published', 'public',
         '{{}}'::jsonb, NOW(), NOW())
 ON CONFLICT (id) DO UPDATE SET status='published', updated_at=NOW();
 

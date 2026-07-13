@@ -18,6 +18,7 @@ class ErrorCode(IntEnum):
     NOT_FOUND = 10004
     RATE_LIMITED = 10005
     CONFLICT = 10006  # 状态机非法转换 / 唯一约束冲突
+    INVALID_INPUT = 10007  # 语义级输入错误（如 token 失效/过期），区别于 INVALID_PARAMS（字段格式校验）
     INTERNAL = 10000
 
     # 租户 2xxxx
@@ -44,6 +45,7 @@ _HTTP_STATUS_MAP = {
     ErrorCode.FORBIDDEN: 403,
     ErrorCode.NOT_FOUND: 404,
     ErrorCode.CONFLICT: 409,
+    ErrorCode.INVALID_INPUT: 400,
     ErrorCode.RATE_LIMITED: 429,
     ErrorCode.TENANT_QUOTA_EXCEEDED: 429,
     ErrorCode.TENANT_NOT_FOUND: 404,

@@ -137,3 +137,29 @@ async def admin_db_session() -> AsyncIterator[asyncpg.Connection]:
         except Exception:
             await tr.rollback()
             raise
+
+
+@asynccontextmanager
+async def meta_db_session() -> AsyncIterator[asyncpg.Connection]:
+    """平台元数据查询会话 —— 绕过 RLS，可见所有租户元数据。
+
+    仅供平台网关职责（如 dispatcher 路由解析）跨租户查 published API/api_version
+    元数据，授权由应用层（dispatcher visibility 检查）做。不写审计（区别于
+    admin_db_session 的人工运维/审计场景）。业务代码禁用。
+
+    与 admin_db_session 的区别：admin_db_session 面向人工运维 + 审计聚合，
+    每次调用语义上对应一次可追溯的操作；meta_db_session 面向无租户偏好的平台
+    网关读路径（路由解析），是纯元数据查询，不构成需要审计的业务行为。
+    """
+    if _pool is None:
+        raise RuntimeError("DB pool not initialized. Call init_pool first.")
+    async with _pool.acquire() as conn:
+        tr = conn.transaction()
+        await tr.start()
+        try:
+            await conn.execute("SET LOCAL app.is_platform_admin = 'true'")
+            yield conn
+            await tr.commit()
+        except Exception:
+            await tr.rollback()
+            raise
