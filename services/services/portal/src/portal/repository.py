@@ -2,6 +2,7 @@
 
 不复用 auth /v1/apps 端点：那个走 X-API-Key middleware，而 Portal 是 JWT 人认证。
 """
+# ruff: noqa: S608
 
 import secrets
 from typing import Any
@@ -121,23 +122,22 @@ async def list_portal_apis(
 
     async with db.db_session() as conn:
         total = await conn.fetchval(
-            f"SELECT COUNT(*) FROM api a WHERE a.status = 'published'{search_clause}",
+            "SELECT COUNT(*) FROM api a WHERE a.status = 'published'" + search_clause,  # noqa: S608 — search_clause is built from fixed strings with $N parameterized placeholders only, no user data
             *params,
         )
 
-        list_sql = f"""
-            SELECT a.id, a.name, a.description, a.category, a.tags,
-                   a.base_path, a.visibility, v.backend_type, v.version, a.updated_at
-            FROM api a
-            LEFT JOIN LATERAL (
-                SELECT version, backend_type FROM api_version
-                WHERE api_id = a.id AND status = 'published'
-                ORDER BY created_at DESC LIMIT 1
-            ) v ON true
-            WHERE a.status = 'published'{search_clause}
-            ORDER BY a.updated_at DESC
-            LIMIT ${idx} OFFSET ${idx + 1}
-        """
+        _order = f" ORDER BY a.updated_at DESC LIMIT ${idx} OFFSET ${idx + 1}"
+        list_sql = (
+            "SELECT a.id, a.name, a.description, a.category, a.tags,"
+            "       a.base_path, a.visibility, v.backend_type, v.version, a.updated_at"
+            " FROM api a"
+            " LEFT JOIN LATERAL ("
+            "     SELECT version, backend_type FROM api_version"
+            "     WHERE api_id = a.id AND status = 'published'"
+            "     ORDER BY created_at DESC LIMIT 1"
+            " ) v ON true"
+            " WHERE a.status = 'published'" + search_clause + _order
+        )
         params.append(limit)
         params.append(offset)
         rows = await conn.fetch(list_sql, *params)
@@ -146,7 +146,8 @@ async def list_portal_apis(
     all_categories: set[str] = set()
     all_tags: set[str] = set()
     for r in rows:
-        tags_list: list[str] = r["tags"] if isinstance(r["tags"], (list, tuple)) else []
+        raw_tags = r.get("tags") or []
+        tags_list: list[str] = [str(t) for t in raw_tags] if isinstance(raw_tags, (list, tuple)) else []
         items.append(PortalApiItem(
             api_id=str(r["id"]),
             name=r["name"],
@@ -196,7 +197,8 @@ async def get_api_detail(api_id: str) -> PortalApiDetail:
             api_id,
         )
 
-    tags_list: list[str] = api_row["tags"] if isinstance(api_row["tags"], (list, tuple)) else []
+    raw_tags = api_row.get("tags") or []
+    tags_list: list[str] = [str(t) for t in raw_tags] if isinstance(raw_tags, (list, tuple)) else []
     versions: list[PortalVersionItem] = []
     for vr in ver_rows:
         versions.append(PortalVersionItem(

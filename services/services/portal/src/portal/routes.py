@@ -68,7 +68,7 @@ def register_routes(app: FastAPI) -> None:
         offset: int = 0,
     ):
         """API 目录列表 + 搜索/过滤/分页。"""
-        ctx = require_tenant()
+        require_tenant()
         return await repository.list_portal_apis(
             search=search, category=category, tag=tag,
             limit=min(limit, 200), offset=offset,
