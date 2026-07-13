@@ -79,7 +79,15 @@ class LoginRequest(BaseModel):
 
 
 class AuthResponse(BaseModel):
-    """登录成功响应 —— access_token 为 JWT（人的凭证，与机器 API Key 分流）。"""
+    """登录成功响应。"""
 
     access_token: str
+    refresh_token: str = ""
+    expires_in: int = 7200
     user: dict
+
+
+class RefreshRequest(BaseModel):
+    """刷新 token 请求。"""
+
+    refresh_token: str

@@ -23,6 +23,7 @@ from auth.models import (
     ApiKeyResponse,
     AuthResponse,
     LoginRequest,
+    RefreshRequest,
     RegisterRequest,
     VerifyRequest,
     VerifyResponse,
@@ -159,10 +160,17 @@ def register_routes(app: FastAPI) -> None:
 
     @app.post("/v1/auth/login", response_model=AuthResponse)
     async def login_endpoint(payload: LoginRequest):
-        """登录：bcrypt 校验 + status 检查 → 签 JWT。"""
+        """登录：bcrypt 校验 + status 检查 → 签 JWT + refresh token。"""
         from auth import identity
 
         return await identity.login(email=payload.email, password=payload.password)
+
+    @app.post("/v1/auth/refresh")
+    async def refresh_endpoint(payload: RefreshRequest):
+        """刷新 access token（rotation）。"""
+        from auth import identity
+
+        return await identity.refresh_access(payload.refresh_token)
 
     @app.get("/v1/auth/health")
     async def health():

@@ -58,6 +58,13 @@ def register_routes(app: FastAPI) -> None:
             )
         return body
 
+    @app.post("/v1/portal/auth/refresh")
+    async def portal_refresh(payload: dict):
+        st, body = await _forward("POST", "/v1/auth/refresh", json=payload)
+        if st >= 400:
+            raise ApiError(ErrorCode.UNAUTHORIZED, "refresh failed", http_status=st)
+        return body
+
     # ========== API 目录（需 JWT）==========
     @app.get("/v1/portal/apis")
     async def list_portal_apis(
