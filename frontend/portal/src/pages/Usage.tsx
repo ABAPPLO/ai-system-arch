@@ -44,9 +44,11 @@ function fmtNum(n: number): string {
 
 function ProgressBar({ used, total }: { used: number; total: number }) {
   const pct = total > 0 ? Math.min(100, (used / total) * 100) : 0;
+  const color = pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-orange-500' : 'bg-blue-500';
   return (
     <div className="w-full bg-gray-200 rounded h-2 mt-1">
-      <div className="bg-blue-500 h-2 rounded" style={{ width: `${pct}%` }} />
+      <div className={`${color} h-2 rounded`} style={{ width: `${pct}%` }} />
+      {pct >= 100 && <p className="text-xs text-red-600 mt-1">超出配额</p>}
     </div>
   );
 }
@@ -87,6 +89,16 @@ export function Usage() {
     <div className="max-w-4xl mx-auto p-4">
       <h1 className="text-2xl font-bold mb-4">用量统计</h1>
       <p className="text-sm text-gray-500 mb-4">{data.month}</p>
+
+      <div className="border rounded-lg p-4 mb-4 bg-blue-50">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-sm text-gray-500">当前 Plan</p>
+            <p className="text-lg font-bold">{data.plan.name}</p>
+          </div>
+          <a href="/plans" className="text-blue-600 text-sm">升级 Plan →</a>
+        </div>
+      </div>
 
       <div className="grid grid-cols-2 gap-4 mb-6">
         <div className="border rounded-lg p-4">
