@@ -9,6 +9,7 @@ import Login from './pages/Login';
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Retry = lazy(() => import('./pages/Retry'));
 const ChangeRequests = lazy(() => import('./pages/ChangeRequests'));
+const Billing = lazy(() => import('./pages/Billing').then(m => ({ default: m.Billing })));
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const auth = getAuth();
@@ -57,6 +58,14 @@ export default function App() {
           element={
             <Suspense fallback={<PageFallback />}>
               <ChangeRequests />
+            </Suspense>
+          }
+        />
+        <Route
+          path="billing"
+          element={
+            <Suspense fallback={<PageFallback />}>
+              <Billing />
             </Suspense>
           }
         />
