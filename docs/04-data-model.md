@@ -30,6 +30,8 @@
 
 ### 2.1 租户与成员
 
+> 多 Region 双活架构下（参见 ADR-013），每个租户拥有一个 `home_region` 决定写流量路由到哪个区域。读流量可从任一区域读（PG 逻辑复制 + CH 双写）。
+
 ```sql
 CREATE TABLE tenant (
     id              BIGSERIAL PRIMARY KEY,
@@ -39,6 +41,7 @@ CREATE TABLE tenant (
     type            VARCHAR(20) NOT NULL,                       -- system/internal/external
     parent_id       BIGINT REFERENCES tenant(id),               -- 父租户（支持层级）
     status          VARCHAR(20) NOT NULL DEFAULT 'active',      -- active/suspended/closed
+    home_region     VARCHAR(20) NOT NULL DEFAULT 'sh',          -- 归属区域 sh=cn-shanghai, bj=cn-beijing；ADR-013
     quota_config    JSONB DEFAULT '{}',                         -- 租户级配额默认
     rate_limit      JSONB DEFAULT '{}',                         -- 租户级限流
     contact_email   VARCHAR(128),
