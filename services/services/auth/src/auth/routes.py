@@ -84,14 +84,38 @@ def register_routes(app: FastAPI) -> None:
 
         APISIX tenant-affinity 插件在认证后调用此端点获取 consumer 的 home_region，
         用于决定是否将写请求重定向到租户归属 Region。
+
+        缓存策略（与 /v1/apikey/verify 一致）：
+          1. 负缓存查（拒绝已失效 key）
+          2. 正缓存查（Redis 5min TTL）
+          3. DB 查 + 写正/负缓存
         """
         if not is_valid_format(payload.api_key):
             raise ApiError(ErrorCode.UNAUTHORIZED, "invalid api key format")
 
-        record = await verify_api_key_record(payload.api_key)
-        if not record:
+        # 1. 负缓存命中
+        if await cache_negative.exists(payload.api_key):
             raise ApiError(ErrorCode.UNAUTHORIZED, "invalid api key")
 
+        # 2. 正缓存命中
+        cached = await cache_positive.get(payload.api_key)
+        if cached:
+            home_region = await get_tenant_home_region(cached["tenant_id"])
+            return {**cached, "home_region": home_region}
+
+        # 3. DB 查
+        record = await verify_api_key_record(payload.api_key)
+        if not record:
+            await cache_negative.set(payload.api_key)
+            raise ApiError(ErrorCode.UNAUTHORIZED, "invalid api key")
+
+        # 4. 写正缓存
+        await cache_positive.set(payload.api_key, record)
+        log.info(
+            "auth_check_verified",
+            app_id=record["app_id"],
+            tenant_id=record["tenant_id"],
+        )
         home_region = await get_tenant_home_region(record["tenant_id"])
         return {**record, "home_region": home_region}
 

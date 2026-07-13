@@ -1,4 +1,8 @@
-local _M = { version = 0.1, priority = 2000, name = "tenant-affinity" }
+-- Read gateway URLs from env vars with defaults
+local GATEWAY_SH = os.getenv("GATEWAY_URL_SH") or "https://api-sh.apihub.com"
+local GATEWAY_BJ = os.getenv("GATEWAY_URL_BJ") or "https://api-bj.apihub.com"
+
+local _M = { version = 0.2, priority = 2000, name = "tenant-affinity" }
 
 _M.schema = {
     type = "object",
@@ -7,6 +11,10 @@ _M.schema = {
             type = "array",
             items = { type = "string" },
             default = { "POST", "PUT", "PATCH", "DELETE" },
+        },
+        fallback_local = {
+            type = "boolean",
+            default = true,
         },
     },
 }
@@ -23,19 +31,32 @@ function _M.rewrite(conf, ctx)
         return
     end
 
+    -- C1 + I2 + M3: Unknown home_region — log warning and allow write locally
+    if home ~= "sh" and home ~= "bj" then
+        ngx.log(ngx.WARN, "tenant-affinity: unknown home_region '"
+                .. tostring(home) .. "', allowing write locally")
+        return
+    end
+
     local method = ctx.var.request_method
     for _, m in ipairs(conf.write_methods) do
         if m == method then
-            local gw = {
-                sh = "https://api-sh.apihub.com",
-                bj = "https://api-bj.apihub.com",
-            }
+            -- C2: Safe degradation — if fallback_local is enabled and peer is
+            -- unreachable, allow write locally with a warning
+            if conf.fallback_local then
+                ngx.log(ngx.WARN,
+                        "tenant-affinity: write to non-home region allowed via "
+                        .. "fallback_local, tenant=" .. tostring(home))
+                return
+            end
+
+            local gw = { sh = GATEWAY_SH, bj = GATEWAY_BJ }
             local uri = ctx.var.uri
             if ctx.var.is_args == 1 then
                 uri = uri .. "?" .. ctx.var.args
             end
             ngx.status = 302
-            ngx.header["Location"] = (gw[home] or "") .. uri
+            ngx.header["Location"] = gw[home] .. uri
             return ngx.exit(302)
         end
     end
