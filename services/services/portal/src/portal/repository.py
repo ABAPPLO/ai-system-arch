@@ -43,11 +43,21 @@ async def list_apps_for_user(*, tenant_id: str) -> list[dict]:
 async def create_api_key_for_app(
     *, tenant_id: str, app_id: str, name: str
 ) -> dict:
+    from apihub_core.errors import ApiError, ErrorCode
     from auth.apikey import generate_api_key  # 复用 auth 的 key 生成纯函数
 
     plaintext, key_hash, display_prefix = generate_api_key()
     key_id = f"key_{secrets.token_hex(8)}"
     async with db.db_session() as conn:
+        # app 归属校验：db_session 已 SET LOCAL app.tenant_id=caller，RLS 自动过滤
+        # 跨租户 app，查不到即非本租户（或不存在）→ 404，避免悬空 api_key 行。
+        belongs = await conn.fetchval("SELECT 1 FROM app WHERE id = $1", app_id)
+        if not belongs:
+            raise ApiError(
+                ErrorCode.NOT_FOUND,
+                "app not found in your tenant",
+                http_status=404,
+            )
         await conn.execute(
             """
             INSERT INTO api_key (id, tenant_id, app_id, key_prefix, key_hash, name, status)

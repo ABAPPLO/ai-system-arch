@@ -16,7 +16,9 @@ log = get_logger(__name__)
 def register_routes(app: FastAPI) -> None:
     settings = get_settings()
     # auth_service_url 形如 http://auth.apihub-system/v1/apikey/verify → 砍到 base
-    auth_base = settings.auth_service_url.rsplit("/", 2)[0]
+    # rsplit("/",3) 去掉 /v1/apikey/verify 三段，得 http://auth.apihub-system（无 /v1），
+    # 否则拼 /v1/auth/login 会变成 /v1/v1/auth/login（双 /v1/）。
+    auth_base = settings.auth_service_url.rsplit("/", 3)[0]
 
     async def _forward(method: str, path: str, **kw) -> tuple[int, dict]:
         async with httpx.AsyncClient(timeout=5.0) as c:
