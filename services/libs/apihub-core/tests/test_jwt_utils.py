@@ -1,7 +1,6 @@
 """jwt_utils 单测 —— 签发/验签/格式判定。"""
 
 import pytest
-
 from apihub_core import jwt_utils
 
 
