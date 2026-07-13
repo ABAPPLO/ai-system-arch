@@ -34,6 +34,9 @@ ignore = [
 
 [tool.ruff.lint.per-file-ignores]
 "tests/**" = ["S", "E402"]
+# 各微服务测试目录嵌套在 services/services/<svc>/tests/，顶配 tests/** 匹配不到，
+# 补 **/tests/** 让所有测试文件统一豁免 S（含 S106 测试密码）/ E402（测试常延迟 import）。
+"**/tests/**" = ["S", "E402"]
 "scripts/**" = ["E402"]
 # smoke/kind 是运维/联调脚本，subprocess+shell、/tmp 临时文件、拼 SQL 都是合理用法
 "scripts/smoke/**" = ["S"]

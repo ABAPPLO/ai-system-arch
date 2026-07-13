@@ -18,7 +18,11 @@ VALUES
     ('tenant_b', '内部业务-B', 'internal-b', 'internal', 'active', 'standard',
      '{"dept": "risk"}'::jsonb),
     ('tenant_ext_1', '外部合作方-X', 'ext-x', 'external', 'active', 'free',
-     '{}'::jsonb)
+     '{}'::jsonb),
+    -- 外部开发者自助注册的默认租户（身份地基 Phase 3）：注册成功后 verify-email
+    -- 即加入此租户为 developer。type=external，free 档。
+    ('external-public', '外部公共（自助注册）', 'external-public', 'external',
+     'active', 'free', '{}'::jsonb)
 ON CONFLICT (id) DO NOTHING;
 
 -- 用户（password_hash 是 bcrypt 占位，本地登录用，不要在 prod 用）

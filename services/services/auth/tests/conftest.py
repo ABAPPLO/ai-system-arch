@@ -57,3 +57,18 @@ def clear_settings_cache():
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+
+
+@pytest.fixture
+def fake_redis(monkeypatch):
+    """用 fakeredis 替换 apihub_core.redis._client（镜像 admin tests conftest）。
+
+    identity 注册/验证/登录的 Redis 操作（t:verify:{token}）落 FakeRedis，
+    不依赖真 Redis。无 tenant context → key 不加前缀，原样存取。
+    """
+    import fakeredis.aioredis
+    from apihub_core import redis as redis_mod
+
+    fake = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    monkeypatch.setattr(redis_mod, "_client", fake)
+    return fake
