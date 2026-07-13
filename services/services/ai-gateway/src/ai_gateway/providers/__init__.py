@@ -1,12 +1,12 @@
-from collections.abc import AsyncIterator
 from abc import ABC, abstractmethod
+from collections.abc import AsyncIterator
 
 from ai_gateway.models import SSEChunk
 
 
 class BaseProvider(ABC):
     @abstractmethod
-    async def chat_completion(
+    def chat_completion(
         self,
         messages: list[dict],
         model: str,
@@ -35,8 +35,8 @@ def get_provider(provider_type: str) -> BaseProvider:
 
 
 # Register built-in providers
-from ai_gateway.providers.openai_compat import OpenAICompatibleProvider  # noqa: E402
 from ai_gateway.providers.anthropic import AnthropicProvider  # noqa: E402
+from ai_gateway.providers.openai_compat import OpenAICompatibleProvider  # noqa: E402
 
 register_provider("openai_compatible", OpenAICompatibleProvider)
 register_provider("anthropic", AnthropicProvider)

@@ -1,6 +1,8 @@
 import json
 from collections.abc import AsyncIterator
+
 import httpx
+
 from ai_gateway.models import SSEChunk
 from ai_gateway.providers import BaseProvider
 
@@ -22,7 +24,7 @@ def _extract_text(content_blocks: list) -> str:
     return "\n".join(texts)
 
 
-def _map_stop_reason(reason: str | None) -> str | None:
+def _map_stop_reason(reason: str) -> str:
     return {"end_turn": "stop", "max_tokens": "length", "stop_sequence": "stop"}.get(reason, reason)
 
 
@@ -39,8 +41,10 @@ class AnthropicProvider(BaseProvider):
             "max_tokens": max_tokens or 1024,
             "stream": stream,
         }
-        if temperature is not None: payload["temperature"] = temperature
-        if extra_body: payload.update(extra_body)
+        if temperature is not None:
+            payload["temperature"] = temperature
+        if extra_body:
+            payload.update(extra_body)
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             if not stream:
@@ -56,8 +60,10 @@ class AnthropicProvider(BaseProvider):
             async with client.stream("POST", url, json=payload, headers=headers) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
-                    if line.startswith("event: "): continue
-                    if not line.startswith("data: "): continue
+                    if line.startswith("event: "):
+                        continue
+                    if not line.startswith("data: "):
+                        continue
                     try:
                         data = json.loads(line[6:])
                     except json.JSONDecodeError:
@@ -68,8 +74,8 @@ class AnthropicProvider(BaseProvider):
                         if delta.get("type") == "text_delta":
                             yield SSEChunk(content=delta.get("text", ""))
                     elif et == "message_delta":
-                        ud = data.get("usage", {})
-                        usage = {"prompt_tokens": ud.get("input_tokens",0), "completion_tokens": ud.get("output_tokens",0), "total_tokens": ud.get("input_tokens",0)+ud.get("output_tokens",0)} if ud else None
+                        ud = data.get("usage") or {}
+                        usage = {"prompt_tokens": ud.get("input_tokens",0), "completion_tokens": ud.get("output_tokens",0), "total_tokens": ud.get("input_tokens",0)+ud.get("output_tokens",0)}
                         yield SSEChunk(finish_reason=_map_stop_reason(data.get("stop_reason")), usage=usage)
                     elif et == "message_stop":
                         yield SSEChunk(finish_reason="stop")

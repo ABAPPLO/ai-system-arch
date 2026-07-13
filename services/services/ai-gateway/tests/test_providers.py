@@ -1,7 +1,6 @@
 import pytest
-from ai_gateway.models import SSEChunk
-from ai_gateway.providers.openai_compat import OpenAICompatibleProvider
 from ai_gateway.providers.anthropic import AnthropicProvider
+from ai_gateway.providers.openai_compat import OpenAICompatibleProvider
 
 
 class TestOpenAICompatibleProvider:
@@ -26,8 +25,8 @@ class TestOpenAICompatibleProvider:
                 async def __aexit__(self, *a): pass
                 async def raise_for_status(self): pass
                 async def aiter_lines(self):
-                    for l in ['data: {"choices":[{"delta":{"content":"Hello"},"index":0}]}', 'data: {"choices":[{"delta":{},"index":0,"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":20,"total_tokens":30}}', 'data: [DONE]']:
-                        yield l
+                    for line in ['data: {"choices":[{"delta":{"content":"Hello"},"index":0}]}', 'data: {"choices":[{"delta":{},"index":0,"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":20,"total_tokens":30}}', 'data: [DONE]']:
+                        yield line
             return FakeResp()
         monkeypatch.setattr("httpx.AsyncClient.stream", mock_stream)
         provider = OpenAICompatibleProvider()
@@ -58,12 +57,12 @@ class TestAnthropicProvider:
                 async def __aexit__(self, *a): pass
                 async def raise_for_status(self): pass
                 async def aiter_lines(self):
-                    for l in ['event: content_block_start', 'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}',
+                    for line in ['event: content_block_start', 'data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}',
                               'event: content_block_delta', 'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Hello"}}',
                               'event: content_block_delta', 'data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" world"}}',
                               'event: message_delta', 'data: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":15,"output_tokens":10}}',
                               'event: message_stop', 'data: {"type":"message_stop"}']:
-                        yield l
+                        yield line
             return FakeResp()
         monkeypatch.setattr("httpx.AsyncClient.stream", mock_stream)
         provider = AnthropicProvider()

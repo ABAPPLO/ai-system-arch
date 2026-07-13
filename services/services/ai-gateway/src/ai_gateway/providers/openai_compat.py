@@ -1,6 +1,8 @@
 import json
 from collections.abc import AsyncIterator
+
 import httpx
+
 from ai_gateway.models import SSEChunk
 from ai_gateway.providers import BaseProvider
 
@@ -13,9 +15,12 @@ class OpenAICompatibleProvider(BaseProvider):
         url = f"{base_url.rstrip('/')}/chat/completions"
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
         payload = {"model": model, "messages": messages, "stream": stream}
-        if temperature is not None: payload["temperature"] = temperature
-        if max_tokens is not None: payload["max_tokens"] = max_tokens
-        if extra_body: payload.update(extra_body)
+        if temperature is not None:
+            payload["temperature"] = temperature
+        if max_tokens is not None:
+            payload["max_tokens"] = max_tokens
+        if extra_body:
+            payload.update(extra_body)
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             if not stream:
@@ -30,7 +35,8 @@ class OpenAICompatibleProvider(BaseProvider):
             async with client.stream("POST", url, json=payload, headers=headers) as resp:
                 resp.raise_for_status()
                 async for line in resp.aiter_lines():
-                    if not line.startswith("data: "): continue
+                    if not line.startswith("data: "):
+                        continue
                     data_str = line[6:].strip()
                     if data_str == "[DONE]":
                         yield SSEChunk(finish_reason="stop")

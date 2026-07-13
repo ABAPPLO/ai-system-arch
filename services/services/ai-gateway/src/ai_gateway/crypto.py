@@ -7,9 +7,8 @@
 import base64
 import os
 
-from cryptography.hazmat.primitives.ciphers.aead import AESGCM
-
 from apihub_core.config import get_settings
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 _NONCE_LENGTH = 12  # AES-GCM 推荐 96-bit nonce
 

@@ -1,7 +1,6 @@
 """AI 网关测试共享 fixtures。"""
 
 import os
-import sys
 
 # 开发机有 all_proxy=socks://127.0.0.1:12347/ 等代理环境变量，
 # 但 httpx 不认 socks:// scheme（只用 socks5:// / socks5h://），
@@ -24,8 +23,8 @@ os.environ.setdefault("OTEL_SERVICE_NAME", "ai-gateway-test")
 os.environ.setdefault("AI_GATEWAY_ENCRYPTION_KEY", "a" * 64)
 
 import pytest  # noqa: E402
-from httpx import ASGITransport, AsyncClient  # noqa: E402
 from apihub_core.config import get_settings  # noqa: E402
+from httpx import ASGITransport, AsyncClient  # noqa: E402
 
 # 清除模块级缓存 —— 让第一次调用 get_settings() 拿到我们的 ENV_DEFAULTS
 get_settings.cache_clear()

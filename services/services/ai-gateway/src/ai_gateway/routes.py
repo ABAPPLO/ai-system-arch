@@ -2,20 +2,21 @@
 
 import json
 from collections.abc import AsyncIterator
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 
 from ai_gateway.crypto import decrypt
-from ai_gateway.models import ChatRequest, ChatResponse, SSEChunk
-from ai_gateway.repository import resolve_model_route
+from ai_gateway.models import ChatRequest, ChatResponse, ChatResponseChoice, Message, SSEChunk
 from ai_gateway.providers import get_provider
+from ai_gateway.repository import resolve_model_route
 
 router = APIRouter()
 
 
 def _to_sse_line(chunk: SSEChunk) -> bytes:
-    obj = {
+    obj: dict[str, Any] = {
         "id": "chatcmpl-ai-gateway",
         "object": "chat.completion.chunk",
         "choices": [
@@ -28,7 +29,7 @@ def _to_sse_line(chunk: SSEChunk) -> bytes:
     }
     if chunk.usage:
         obj["usage"] = chunk.usage
-    return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n".encode("utf-8")
+    return f"data: {json.dumps(obj, ensure_ascii=False)}\n\n".encode()
 
 
 @router.post("/v1/chat/completions")
@@ -54,20 +55,18 @@ async def chat_completions(payload: ChatRequest):
     )
 
     if payload.stream is False:
-        chunk = await anext(provider_iter)
-        return ChatResponse(
-            choices=[
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": chunk.content,
-                    },
-                    "finish_reason": "stop",
-                }
-            ],
-            usage=chunk.usage or {},
-        )
+        async for chunk in provider_iter:
+            return ChatResponse(
+                choices=[
+                    ChatResponseChoice(
+                        index=0,
+                        message=Message(role="assistant", content=chunk.content),
+                        finish_reason="stop",
+                    )
+                ],
+                usage=chunk.usage or {},
+            )
+        return ChatResponse(choices=[], usage={})
 
     return StreamingResponse(
         _stream_sse(provider_iter),

@@ -1,6 +1,6 @@
 import pytest
-from ai_gateway.models import SSEChunk, RouteResult
 from ai_gateway.crypto import encrypt
+from ai_gateway.models import RouteResult, SSEChunk
 
 
 @pytest.mark.asyncio
@@ -13,8 +13,6 @@ async def test_model_not_found(client, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_chat_completions_ok(client, monkeypatch):
-    import os; os.environ["AI_GATEWAY_ENCRYPTION_KEY"] = "a"*64
-    from apihub_core.config import get_settings; get_settings.cache_clear()
     test_key = encrypt("sk-test")
     route = RouteResult(target_provider_id="p1", target_model="gpt-4o-mini", provider_type="openai_compatible", base_url="https://test.com/v1", provider_key_encrypted=test_key)
     async def mock_resolve(model): return route

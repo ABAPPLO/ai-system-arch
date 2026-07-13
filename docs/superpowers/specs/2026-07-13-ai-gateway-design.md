@@ -61,13 +61,13 @@
 │                    dispatcher (现有逻辑，不改动)               │
 │                                                              │
 │  api.backend_type = ai_model                                 │
-│  backend_url = "http://ai-gateway:8012/v1/chat/completions"   │
+│  backend_url = "http://ai-gateway:8013/v1/chat/completions"   │
 │  → httpx 透传请求体 + SSE 流式转发（现有 forward 逻辑）       │
 └──────────────────────────┬────────────────────────────────────┘
                            │ 内部 HTTP
                            ▼
 ┌──────────────────────────────────────────────────────────────┐
-│                    ai-gateway (:8012)                         │
+│                    ai-gateway (:8013)                         │
 │                                                              │
 │  POST /v1/chat/completions                                    │
 │                                                              │
