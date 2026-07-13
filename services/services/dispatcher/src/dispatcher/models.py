@@ -31,6 +31,9 @@ class ApiVersionSnapshot:
     sla_availability: float | None
     # 超时（如果接口配置覆盖）
     timeout_ms: int = 30_000
+    # 授权可见性（来自 api.visibility，非 api_version）：public / tenant / private
+    # dispatcher 在转发前由 visibility.check_visibility 做应用层授权。
+    visibility: str = "private"
 
     @property
     def is_streaming(self) -> bool:

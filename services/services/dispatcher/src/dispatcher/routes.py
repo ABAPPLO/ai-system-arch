@@ -73,6 +73,17 @@ def register_routes(app: FastAPI) -> None:
             full_path = f"/{rest}"
             snap = await resolve_by_path(method, full_path)
 
+        # 应用层 visibility 授权（public / tenant / private 三级）。
+        # resolve 用 meta_db_session 跨租户拿到 snap，这里按 caller TenantContext
+        # 做授权：public 放行；tenant 同租户；private 同租户 + 平台超管。否则 403。
+        from apihub_core.tenant import get_tenant_context
+
+        from dispatcher.visibility import check_visibility
+
+        ctx = get_tenant_context()
+        if ctx is not None:
+            check_visibility(snap, ctx)
+
         # 按 backend_type 分流
         if snap.backend_type == "async_task":
             return await dispatch_async_task(snap, request)

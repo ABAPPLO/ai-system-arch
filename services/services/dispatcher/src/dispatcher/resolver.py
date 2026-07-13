@@ -3,8 +3,14 @@
 优先级：
 1. X-API-Version-Id header（APISIX 在 auth 阶段已注入，最快）
 2. Path + Method 匹配（开发直连 dispatcher 时回退）
+
+resolve 阶段使用 meta_db_session（绕 RLS）跨租户可见所有 published API/api_version
+元数据 —— 因为路由解析是平台网关职责，external-public caller 也要能 resolve 到
+tenant_a 的 public API。授权（public/tenant/private 三级）由应用层
+dispatcher.visibility.check_visibility 在转发前做。
 """
 
+import dataclasses
 import json
 
 from apihub_core import db, redis
@@ -21,7 +27,7 @@ async def resolve_by_header(version_id: str) -> ApiVersionSnapshot:
     if cached:
         return _from_json(json.loads(cached))
 
-    async with db.db_session() as conn:
+    async with db.meta_db_session() as conn:
         row = await conn.fetchrow(
             """
             SELECT id, api_id, tenant_id, version, backend_type, backend_url,
@@ -35,8 +41,9 @@ async def resolve_by_header(version_id: str) -> ApiVersionSnapshot:
     if not row:
         raise ApiError(ErrorCode.API_NOT_PUBLISHED, f"version {version_id} not published")
 
-    snapshot = _from_row(row)
-    await redis.t_set(cache_key, json.dumps(snapshot.__dict__), ex=300)
+    _, visibility = await _get_api_meta(row["api_id"])
+    snapshot = _from_row(row, visibility=visibility)
+    await redis.t_set(cache_key, json.dumps(dataclasses.asdict(snapshot)), ex=300)
     return snapshot
 
 
@@ -44,7 +51,7 @@ async def resolve_by_path(method: str, full_path: str) -> ApiVersionSnapshot:
     """回退路径：无 header 时按 path 反查。性能差，仅用于 dev / 直连。"""
     require_tenant()
 
-    async with db.db_session() as conn:
+    async with db.meta_db_session() as conn:
         rows = await conn.fetch(
             """
             SELECT id, api_id, tenant_id, version, backend_type, backend_url,
@@ -57,23 +64,32 @@ async def resolve_by_path(method: str, full_path: str) -> ApiVersionSnapshot:
         )
 
     for row in rows:
-        api_base = await _get_base_path(conn_pool=None, api_id=row["api_id"])
+        api_base, visibility = await _get_api_meta(row["api_id"])
         if not api_base:
             continue
         full_pattern = f"{api_base}{row['path']}"
         if _match_path(full_pattern, full_path):
-            return _from_row(row)
+            return _from_row(row, visibility=visibility)
 
     raise ApiError(ErrorCode.API_NOT_FOUND, f"no API matches {method} {full_path}")
 
 
-async def _get_base_path(conn_pool, api_id: str) -> str | None:
-    """从 api 表取 base_path（dev 回退路径才用，prod 走 header）。"""
+async def _get_api_meta(api_id: str) -> tuple[str | None, str]:
+    """从 api 表取 (base_path, visibility)。
+
+    路由解析需要跨租户可见性（public API 也位于任意租户下），故走 meta_db_session。
+    行不存在时返回 (None, 'private')：base_path=None 让调用方 skip 该候选，
+    visibility 取最严格的 'private' 做防御性默认。
+    """
     from apihub_core import db as _db
 
-    async with _db.db_session() as conn:
-        row = await conn.fetchrow("SELECT base_path FROM api WHERE id = $1", api_id)
-    return row["base_path"] if row else None
+    async with _db.meta_db_session() as conn:
+        row = await conn.fetchrow(
+            "SELECT base_path, visibility FROM api WHERE id = $1", api_id
+        )
+    if not row:
+        return None, "private"
+    return row["base_path"], row["visibility"]
 
 
 def _match_path(pattern: str, actual: str) -> bool:
@@ -102,7 +118,7 @@ def _extract_path_params(pattern: str, actual: str) -> dict[str, str]:
     return params
 
 
-def _from_row(row) -> ApiVersionSnapshot:
+def _from_row(row, visibility: str = "private") -> ApiVersionSnapshot:
     return ApiVersionSnapshot(
         id=row["id"],
         api_id=row["api_id"],
@@ -121,6 +137,7 @@ def _from_row(row) -> ApiVersionSnapshot:
         ai_params=row["ai_params"],
         sla_p99_ms=row["sla_p99_ms"],
         sla_availability=row["sla_availability"],
+        visibility=visibility,
     )
 
 

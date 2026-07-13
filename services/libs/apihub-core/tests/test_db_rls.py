@@ -171,3 +171,36 @@ class TestRLSViaDbSession:
             assert len(rows) > 0
         finally:
             await pool.close()
+
+    async def test_meta_db_session_bypasses_rls_without_tenant_ctx(self, monkeypatch, tenant_a):
+        """meta_db_session 绕过 RLS，无租户上下文也能跨租户可见所有 published api 元数据。
+
+        场景：dispatcher resolver 跨租户路由解析 —— external-public caller 也要能
+        resolve 到 tenant_a 的 public API。授权由应用层（dispatcher visibility）做。
+        区别于 admin_db_session：meta 不写审计，面向平台网关读路径。
+        """
+        from apihub_core import db
+        from apihub_core.tenant import clear_tenant_context, set_tenant_context
+
+        pool = await asyncpg.create_pool(PG_DSN, min_size=1, max_size=2)
+        monkeypatch.setattr(db, "_pool", pool)
+
+        try:
+            # 先用 tenant_a 上下文确认 RLS 正常只返回 tenant_a（对照组）
+            set_tenant_context(tenant_a)
+            async with db.db_session() as conn:
+                rows = await conn.fetch("SELECT tenant_id FROM api")
+            assert all(r["tenant_id"] == "tenant_a" for r in rows)
+
+            # 清空上下文，meta_db_session 应仍能看到所有租户（绕 RLS）
+            clear_tenant_context()
+            async with db.meta_db_session() as conn:
+                rows = await conn.fetch("SELECT tenant_id FROM api GROUP BY tenant_id")
+
+            tenants = {r["tenant_id"] for r in rows}
+            # dev 种子至少有 tenant_a / tenant_b（见 02-seed.sql）
+            assert {"tenant_a", "tenant_b"}.issubset(tenants), (
+                f"meta_db_session 应跨租户可见，实际看到: {tenants}"
+            )
+        finally:
+            await pool.close()
