@@ -80,7 +80,7 @@ async def verify_email(token: str) -> dict:
 
 
 async def login(*, email: str, password: str) -> dict:
-    """登录：bcrypt 校验 + status=active 检查 → 签 JWT。"""
+    """登录：bcrypt 校验 + status=active 检查 → 签 JWT + refresh token。"""
     from apihub_core import jwt_utils
     from apihub_core.config import get_settings
 
@@ -95,9 +95,50 @@ async def login(*, email: str, password: str) -> dict:
         raise ApiError(ErrorCode.FORBIDDEN, "email not verified", http_status=403)
 
     s = get_settings()
-    token = jwt_utils.issue_token(
+    access = jwt_utils.issue_token(
         user_id=row["id"], tenant_id=EXTERNAL_PUBLIC_TENANT,
         secret=s.jwt_secret, ttl_seconds=s.jwt_ttl_seconds,
     )
-    return {"access_token": token,
+    refresh = jwt_utils.issue_refresh_token(
+        user_id=row["id"], tenant_id=EXTERNAL_PUBLIC_TENANT,
+        secret=s.jwt_secret, ttl_seconds=s.jwt_refresh_ttl_seconds,
+    )
+    rt_payload = jwt_utils.decode_token(refresh, s.jwt_secret)
+    await redis.t_set(f"t:refresh:{rt_payload['jti']}", row["id"],
+                      ex=s.jwt_refresh_ttl_seconds)
+    return {"access_token": access, "refresh_token": refresh,
+            "expires_in": s.jwt_ttl_seconds,
             "user": {"id": row["id"], "name": row["name"], "tenant_id": EXTERNAL_PUBLIC_TENANT}}
+
+
+async def refresh_access(refresh_token: str) -> dict:
+    """用 refresh token 换新 access_token + refresh_token（rotation）。"""
+    from apihub_core import jwt_utils
+    from apihub_core.config import get_settings
+
+    s = get_settings()
+    try:
+        payload = jwt_utils.decode_token(refresh_token, s.jwt_secret)
+    except jwt_utils.JWTError as e:
+        raise ApiError(ErrorCode.UNAUTHORIZED, "invalid refresh token", http_status=401) from e
+    if payload.get("type") != "refresh":
+        raise ApiError(ErrorCode.UNAUTHORIZED, "invalid token type", http_status=401)
+    jti = payload.get("jti")
+    stored = await redis.t_get(f"t:refresh:{jti}")
+    if not stored:
+        raise ApiError(ErrorCode.UNAUTHORIZED, "refresh token revoked or expired", http_status=401)
+    await redis.t_delete(f"t:refresh:{jti}")
+
+    new_access = jwt_utils.issue_token(
+        user_id=payload["user_id"], tenant_id=payload["tenant_id"],
+        secret=s.jwt_secret, ttl_seconds=s.jwt_ttl_seconds,
+    )
+    new_refresh = jwt_utils.issue_refresh_token(
+        user_id=payload["user_id"], tenant_id=payload["tenant_id"],
+        secret=s.jwt_secret, ttl_seconds=s.jwt_refresh_ttl_seconds,
+    )
+    new_rt = jwt_utils.decode_token(new_refresh, s.jwt_secret)
+    await redis.t_set(f"t:refresh:{new_rt['jti']}", payload["user_id"],
+                      ex=s.jwt_refresh_ttl_seconds)
+    return {"access_token": new_access, "refresh_token": new_refresh,
+            "expires_in": s.jwt_ttl_seconds}

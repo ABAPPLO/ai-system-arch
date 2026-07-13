@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, setAuth, AuthState } from '../api/client';
+import { api, setTokens, AuthState } from '../api/client';
 import { useStore } from '../store';
 
 export function Login() {
@@ -13,12 +13,12 @@ export function Login() {
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const r = await api.post<{ access_token: string; user: AuthState['user'] }>(
+      const r = await api.post<{ access_token: string; refresh_token: string; user: AuthState['user'] }>(
         '/v1/portal/auth/login',
         { email, password },
         { skipAuth: true },
       );
-      setAuth(r.access_token, r.user);
+      setTokens(r.access_token, r.refresh_token, r.user);
       refresh();
       nav('/apps');
     } catch (error) {

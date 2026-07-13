@@ -37,6 +37,26 @@ def issue_token(
     return jwt.encode(payload, secret, algorithm=ALGORITHM)
 
 
+def issue_refresh_token(
+    *,
+    user_id: str,
+    tenant_id: str,
+    secret: str,
+    ttl_seconds: int,
+) -> str:
+    """签发 refresh token（含唯一 jti，用于 Redis 吊销追踪）。"""
+    import uuid
+    payload = {
+        "user_id": user_id,
+        "tenant_id": tenant_id,
+        "type": "refresh",
+        "jti": uuid.uuid4().hex,
+        "iat": int(time.time()),
+        "exp": int(time.time()) + ttl_seconds,
+    }
+    return jwt.encode(payload, secret, algorithm=ALGORITHM)
+
+
 def decode_token(token: str, secret: str) -> dict:
     try:
         return jwt.decode(token, secret, algorithms=[ALGORITHM])

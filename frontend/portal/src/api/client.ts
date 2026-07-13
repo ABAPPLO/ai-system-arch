@@ -1,16 +1,12 @@
 /**
  * Portal API client —— 统一 fetch wrapper（JWT 鉴权版）。
  *
- * 与 admin/client.ts 的差异：
- *   - 存 token 而非 API Key（localStorage 'apihub_portal_token'）
- *   - 注入 Authorization: Bearer <token>（非 X-API-Key）
- *   - 注册/登录走 opts.skipAuth（不带 token）
- *   - 401 自动清凭证并跳登录
- *
- * 业务错误码透传（{ success, code, message } 结构，详见 apihub_core.errors）。
+ * 支持 refresh token 自动续期：401 时自动调 /v1/portal/auth/refresh，
+ * 成功则重试原请求，失败则跳登录。
  */
 
 const TOKEN_STORAGE = 'apihub_portal_token';
+const REFRESH_STORAGE = 'apihub_portal_refresh';
 const USER_STORAGE = 'apihub_portal_user';
 
 export interface AuthState {
@@ -29,13 +25,19 @@ export function getAuth(): AuthState | null {
   }
 }
 
-export function setAuth(token: string, user: AuthState['user']): void {
+export function getRefreshToken(): string | null {
+  return localStorage.getItem(REFRESH_STORAGE);
+}
+
+export function setTokens(token: string, refreshToken: string, user: AuthState['user']): void {
   localStorage.setItem(TOKEN_STORAGE, token);
+  localStorage.setItem(REFRESH_STORAGE, refreshToken);
   localStorage.setItem(USER_STORAGE, JSON.stringify(user));
 }
 
 export function clearAuth(): void {
   localStorage.removeItem(TOKEN_STORAGE);
+  localStorage.removeItem(REFRESH_STORAGE);
   localStorage.removeItem(USER_STORAGE);
 }
 
@@ -85,6 +87,29 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   });
 
   if (resp.status === 401 && !skipAuth) {
+    // Try refresh token
+    const rt = getRefreshToken();
+    if (rt) {
+      try {
+        const rr = await fetch('/v1/portal/auth/refresh', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: rt }),
+        });
+        if (rr.ok) {
+          const data = await rr.json();
+          const auth = getAuth();
+          setTokens(data.access_token, data.refresh_token, auth?.user || { id: '', name: '', tenantId: '' });
+          headers['Authorization'] = 'Bearer ' + data.access_token;
+          const retry = await fetch(url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+          if (retry.ok) {
+            const ct = retry.headers.get('content-type') || '';
+            return ct.includes('application/json') ? await retry.json() : (await retry.text()) as T;
+          }
+          // retry also 401 — fall through to logout
+        }
+      } catch { /* fall through to logout */ }
+    }
     clearAuth();
     window.location.href = '/login';
     throw new ApiError(401, 10002, 'Unauthorized');
