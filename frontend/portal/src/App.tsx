@@ -4,6 +4,7 @@ import { Login } from './pages/Login';
 import { Apps } from './pages/Apps';
 import { ApiCatalog } from './pages/ApiCatalog';
 import { ApiDetail } from './pages/ApiDetail';
+import { Usage } from './pages/Usage';
 import { useStore } from './store';
 
 export default function App() {
@@ -16,6 +17,7 @@ export default function App() {
         <Route path="/apps" element={auth ? <Apps /> : <Navigate to="/login" />} />
         <Route path="/apis" element={auth ? <ApiCatalog /> : <Navigate to="/login" />} />
         <Route path="/apis/:id" element={auth ? <ApiDetail /> : <Navigate to="/login" />} />
+        <Route path="/usage" element={auth ? <Usage /> : <Navigate to="/login" />} />
         <Route path="*" element={<Navigate to={auth ? '/apis' : '/login'} />} />
       </Routes>
     </BrowserRouter>
