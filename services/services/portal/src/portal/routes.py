@@ -113,6 +113,44 @@ def register_routes(app: FastAPI) -> None:
         sub = await repository.get_subscription(ctx.tenant_id)
         return sub if sub else {"plan_code": "free", "plan_name": "Free", "status": "active"}
 
+    # ========== Webhook 管理（需 JWT）==========
+    notif_base = settings.notification_service_url
+
+    @app.get("/v1/portal/webhooks")
+    async def portal_list_webhooks():
+        require_tenant()
+        async with httpx.AsyncClient(timeout=5.0) as c:
+            r = await c.get(f"{notif_base}/webhooks")
+        return r.json()
+
+    @app.post("/v1/portal/webhooks", status_code=201)
+    async def portal_create_webhook(payload: dict):
+        require_tenant()
+        async with httpx.AsyncClient(timeout=5.0) as c:
+            r = await c.post(f"{notif_base}/webhooks", json=payload)
+        return r.json()
+
+    @app.put("/v1/portal/webhooks/{webhook_id}")
+    async def portal_update_webhook(webhook_id: str, payload: dict):
+        require_tenant()
+        async with httpx.AsyncClient(timeout=5.0) as c:
+            r = await c.put(f"{notif_base}/webhooks/{webhook_id}", json=payload)
+        return r.json()
+
+    @app.delete("/v1/portal/webhooks/{webhook_id}")
+    async def portal_delete_webhook(webhook_id: str):
+        require_tenant()
+        async with httpx.AsyncClient(timeout=5.0) as c:
+            r = await c.delete(f"{notif_base}/webhooks/{webhook_id}")
+        return {"status": "deleted"}
+
+    @app.post("/v1/portal/webhooks/{webhook_id}/test")
+    async def portal_test_webhook(webhook_id: str):
+        require_tenant()
+        async with httpx.AsyncClient(timeout=15.0) as c:
+            r = await c.post(f"{notif_base}/webhooks/{webhook_id}/test")
+        return r.json()
+
     # ========== app/key 自助（需 JWT → require_tenant）==========
     @app.post("/v1/portal/apps", response_model=AppResponse, status_code=201)
     async def create_app(payload: AppCreate):

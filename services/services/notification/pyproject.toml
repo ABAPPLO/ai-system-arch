@@ -1,0 +1,20 @@
+[project]
+name = "notification"
+version = "0.1.0"
+description = "APIHub Notification —— Webhook 推送 + 邮件通知"
+requires-python = ">=3.11"
+dependencies = [
+  "apihub-core",
+  "aiokafka>=0.12,<1",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

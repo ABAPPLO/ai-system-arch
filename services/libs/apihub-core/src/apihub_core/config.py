@@ -65,6 +65,7 @@ class Settings(BaseSettings):
 
     # JWT（外部开发者「人」的登录态；与机器 API Key 分流）
     # prod 必须用强密钥（env 注入），dev 默认值仅供本地。
+    notification_service_url: str = "http://notification.apihub-system/v1/notification"
     jwt_secret: str = "dev-only-insecure-secret"
     jwt_ttl_seconds: int = 7200  # access token 2h
     jwt_refresh_ttl_seconds: int = 604800  # refresh token 7天
