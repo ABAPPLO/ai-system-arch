@@ -193,3 +193,139 @@ async def test_create_api_key_for_app_rejects_foreign_app(monkeypatch):
         )
     assert ei.value.code == ErrorCode.NOT_FOUND
     assert ei.value.http_status == 404
+
+
+# ========== API 目录 + 在线调试（Task 4）==========
+
+
+async def test_list_portal_apis(client, monkeypatch):
+    """GET /v1/portal/apis 返回过滤/分页后的 API 列表。"""
+    from portal.models import PortalApiListResponse, PortalApiItem
+
+    async def fake_list(**kw):
+        return PortalApiListResponse(
+            items=[
+                PortalApiItem(
+                    api_id="api_1", name="Test API", category="test",
+                    tags=["foo"], base_path="/test", visibility="public",
+                    backend_type="http", version="v1", updated_at="2026-07-13T00:00:00",
+                )
+            ],
+            total=1, limit=50, offset=0,
+            categories=["test"], tags=["foo"],
+        )
+
+    monkeypatch.setattr("portal.routes.repository.list_portal_apis", fake_list)
+
+    r = await client.get("/v1/portal/apis?search=test&category=test&tag=foo")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["total"] == 1
+    assert body["items"][0]["name"] == "Test API"
+    assert body["categories"] == ["test"]
+    assert body["tags"] == ["foo"]
+
+
+async def test_get_api_detail(client, monkeypatch):
+    """GET /v1/portal/apis/{id} 返回 API 详情 + 版本列表。"""
+    from portal.models import PortalApiDetail, PortalVersionItem
+
+    async def fake_detail(api_id):
+        return PortalApiDetail(
+            api_id=api_id, name="Detail API", category="test",
+            tags=[], base_path="/test", visibility="public",
+            api_status="published",
+            versions=[
+                PortalVersionItem(
+                    version_id="ver_1", version="v1", method="GET",
+                    path="/echo", backend_type="http", status="published",
+                    request_schema={"type": "object"},
+                ),
+            ],
+        )
+
+    monkeypatch.setattr("portal.routes.repository.get_api_detail", fake_detail)
+
+    r = await client.get("/v1/portal/apis/api_1")
+    assert r.status_code == 200
+    body = r.json()
+    assert body["name"] == "Detail API"
+    assert len(body["versions"]) == 1
+    assert body["versions"][0]["version"] == "v1"
+
+
+async def test_try_api_success(client, monkeypatch):
+    """POST /v1/portal/try 成功返回后端响应 + 延迟。"""
+    from portal.models import TryResponse
+
+    async def fake_try(payload):
+        return TryResponse(
+            status=200,
+            headers={"content-type": "application/json"},
+            body={"ok": True},
+            latency_ms=42,
+        )
+
+    monkeypatch.setattr("portal.routes.repository.try_api", fake_try)
+
+    r = await client.post(
+        "/v1/portal/try",
+        json={
+            "api_id": "api_1",
+            "method": "GET",
+            "api_key": "ak_test_valid",
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == 200
+    assert body["body"] == {"ok": True}
+    assert body["latency_ms"] == 42
+    assert body["error"] is None
+
+
+async def test_try_api_key_invalid(client, monkeypatch):
+    """POST /v1/portal/try 在 API Key 无效时返回 401 error。"""
+    from portal.models import TryResponse
+
+    async def fake_try(payload):
+        return TryResponse(status=401, error="API Key 无效")
+
+    monkeypatch.setattr("portal.routes.repository.try_api", fake_try)
+
+    r = await client.post(
+        "/v1/portal/try",
+        json={
+            "api_id": "api_1",
+            "method": "GET",
+            "api_key": "ak_bad",
+        },
+    )
+    assert r.status_code == 200  # try 端点始终 200
+    body = r.json()
+    assert body["status"] == 401
+    assert body["error"] is not None
+
+
+async def test_try_api_backend_timeout(client, monkeypatch):
+    """POST /v1/portal/try 在后端超时时返回 504 error + latency。"""
+    from portal.models import TryResponse
+
+    async def fake_try(payload):
+        return TryResponse(status=504, error="后端响应超时", latency_ms=30000)
+
+    monkeypatch.setattr("portal.routes.repository.try_api", fake_try)
+
+    r = await client.post(
+        "/v1/portal/try",
+        json={
+            "api_id": "api_1",
+            "method": "GET",
+            "api_key": "ak_test",
+            "timeout_ms": 100,
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == 504
+    assert body["latency_ms"] == 30000

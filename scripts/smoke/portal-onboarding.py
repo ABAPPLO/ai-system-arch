@@ -2,7 +2,8 @@
 """外部开发者身份地基端到端 smoke。
 
 链路：portal-bff /v1/portal/auth/* → auth（PG/Redis）→ 拿 JWT →
-      portal-bff /v1/portal/apps → 拿 Key → APISIX /dispatch/smoke-sync/echo → 200。
+      portal-bff /v1/portal/apps → 拿 Key → APISIX /dispatch/smoke-sync/echo → 200 →
+      portal-bff /v1/portal/apis 目录搜索 → portal-bff /v1/portal/try 在线调试。
 
 前置：make dev-up + make run-auth + make run-portal + make run-dispatcher（或 kind 全栈）。
 退出码：0 OK / 1 assert fail / 2 env unavailable。
@@ -74,7 +75,41 @@ def main():
     print(f"  call public API -> HTTP {st} {body[:120]!r}")
     assert st == 200, f"call public API HTTP {st}: {body}"
 
-    print("PORTAL-ONBOARDING OK —— 外部开发者端到端闭环（注册→验证→登录→应用→Key→调用 200）")
+    print("== ⑦ API 目录搜索 ==")
+    st, body = http("GET", f"{PORTAL_URL}/v1/portal/apis?search=smoke&limit=5",
+                    headers=auth_hdr)
+    data = json.loads(body)
+    print(f"  search -> HTTP {st}, total={data['total']}")
+    assert st == 200, f"目录搜索失败: {st} {body}"
+    assert data["total"] >= 1, f"应至少找到 1 个 API, 找到 {data['total']}"
+    smoke_api = [a for a in data["items"] if "smoke" in a["name"].lower()]
+    assert len(smoke_api) >= 1, f"应找到 smoke-sync API: {data['items']}"
+    api_id = smoke_api[0]["api_id"]
+    print(f"  找到 smoke-sync API: {api_id}")
+
+    print("== ⑧ 在线调试 try ==")
+    st, body = http(
+        "POST",
+        f"{PORTAL_URL}/v1/portal/try",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        data=json.dumps({
+            "api_id": api_id,
+            "method": "POST",
+            "body": {"message": "hello"},
+            "api_key": api_key,
+        }).encode(),
+    )
+    try_data = json.loads(body)
+    print(f"  try -> HTTP {st}, status={try_data.get('status')}, latency={try_data.get('latency_ms')}ms")
+    assert st == 200, f"try 端点返回非 200: {st} {body}"
+    assert try_data.get("status") == 200, f"后端返回非 200: {try_data}"
+    assert try_data.get("latency_ms", -1) >= 0, f"缺少 latency_ms: {try_data}"
+    assert try_data.get("error") is None, f"有 error: {try_data}"
+
+    print("PORTAL-ONBOARDING OK —— 外部开发者端到端闭环 + API 目录 + 在线调试")
     sys.exit(0)
 
 
