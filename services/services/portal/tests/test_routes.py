@@ -329,3 +329,40 @@ async def test_try_api_backend_timeout(client, monkeypatch):
     body = r.json()
     assert body["status"] == 504
     assert body["latency_ms"] == 30000
+
+
+# ========== 用量/计费（Task 7）==========
+
+
+async def test_portal_plans(client, monkeypatch):
+    """GET /v1/portal/plans 返回 plan 列表。"""
+    from portal.models import PlanInfo
+    async def fake_plans():
+        return [PlanInfo(code="free", name="Free", price_cents=0, quota_included={}, rate_limits={}, sort_order=1)]
+    monkeypatch.setattr("portal.routes.repository.list_plans", fake_plans)
+    r = await client.get("/v1/portal/plans")
+    assert r.status_code == 200
+    assert r.json()[0]["code"] == "free"
+
+
+async def test_portal_subscription(client, monkeypatch):
+    """GET /v1/portal/subscription 返回当前 plan。"""
+    from portal.models import SubscriptionInfo
+    async def fake_sub(tenant_id):
+        return SubscriptionInfo(plan_code="free", plan_name="Free", period_start="2026-01-01",
+                                period_end="2999-12-31", status="active", auto_renew=True)
+    monkeypatch.setattr("portal.routes.repository.get_subscription", fake_sub)
+    r = await client.get("/v1/portal/subscription")
+    assert r.status_code == 200
+    assert r.json()["plan_code"] == "free"
+
+
+async def test_portal_usage(client, monkeypatch):
+    """GET /v1/portal/usage 返回用量概览。"""
+    async def fake_usage(tenant_id):
+        return {"tenant_id": tenant_id, "month": "2026-07", "plan": {"code": "free"},
+                "daily_usage": [], "total_calls": 0, "total_tokens": 0, "remaining_calls_today": 1000}
+    monkeypatch.setattr("portal.routes.repository.get_billing_summary", fake_usage)
+    r = await client.get("/v1/portal/usage")
+    assert r.status_code == 200
+    assert r.json()["remaining_calls_today"] == 1000

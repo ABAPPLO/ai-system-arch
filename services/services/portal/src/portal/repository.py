@@ -312,3 +312,50 @@ async def try_api(payload: TryRequest) -> TryResponse:
         body=resp_body,
         latency_ms=elapsed,
     )
+
+
+# ========== 用量/计费（Phase 3）==========
+
+from portal.models import PlanInfo, SubscriptionInfo
+
+
+async def get_billing_summary(tenant_id: str) -> dict:
+    import httpx
+    from apihub_core.config import get_settings
+    settings = get_settings()
+    from datetime import datetime
+    month = datetime.utcnow().strftime("%Y-%m")
+    quota_url = getattr(settings, "quota_service_url", "http://quota.apihub-system/v1/quota/billing")
+    async with httpx.AsyncClient(timeout=10.0) as c:
+        r = await c.get(quota_url, params={"tenant_id": tenant_id, "month": month})
+    if r.status_code != 200:
+        return {"tenant_id": tenant_id, "month": month, "plan": {}, "daily_usage": [],
+                "total_calls": 0, "total_tokens": 0, "remaining_calls_today": 0}
+    return r.json()
+
+
+async def list_plans() -> list[PlanInfo]:
+    async with db.db_session() as conn:
+        rows = await conn.fetch("SELECT * FROM plan WHERE status = 'active' ORDER BY sort_order")
+    return [PlanInfo(code=r["code"], name=r["name"], description=r.get("description"),
+                     price_cents=r["price_cents"], quota_included=r["quota_included"] or {},
+                     rate_limits=r["rate_limits"] or {}, features=r.get("features"),
+                     sort_order=r["sort_order"]) for r in rows]
+
+
+async def get_subscription(tenant_id: str) -> SubscriptionInfo | None:
+    async with db.db_session() as conn:
+        row = await conn.fetchrow(
+            "SELECT s.*, p.name AS plan_name FROM subscription s"
+            " JOIN plan p ON p.code = s.plan_code"
+            " WHERE s.tenant_id = $1 AND s.status = 'active' LIMIT 1",
+            tenant_id,
+        )
+    if not row:
+        return None
+    return SubscriptionInfo(
+        plan_code=row["plan_code"], plan_name=row["plan_name"],
+        period_start=row["period_start"].isoformat(),
+        period_end=row["period_end"].isoformat(),
+        status=row["status"], auto_renew=row["auto_renew"],
+    )
