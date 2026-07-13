@@ -8,7 +8,7 @@ from apihub_core.tenant import require_tenant
 from fastapi import FastAPI
 
 from portal import repository
-from portal.models import ApiKeyCreate, ApiKeyResponse, AppCreate, AppResponse, TryRequest
+from portal.models import ApiKeyCreate, ApiKeyResponse, AppCreate, AppResponse, PlanInfo, TryRequest
 
 log = get_logger(__name__)
 
@@ -85,6 +85,26 @@ def register_routes(app: FastAPI) -> None:
         """在线调试代理（用 API Key 调通后端）。"""
         require_tenant()
         return await repository.try_api(payload)
+
+    # ========== 用量/计费（需 JWT）==========
+    @app.get("/v1/portal/usage")
+    async def portal_usage():
+        """Portal 用量概览（当月调用量+剩余+plan）。"""
+        ctx = require_tenant()
+        return await repository.get_billing_summary(ctx.tenant_id)
+
+    @app.get("/v1/portal/plans", response_model=list[PlanInfo])
+    async def portal_plans():
+        """Plan 列表（对比）。"""
+        require_tenant()
+        return await repository.list_plans()
+
+    @app.get("/v1/portal/subscription")
+    async def portal_subscription():
+        """当前 Plan + 周期。"""
+        ctx = require_tenant()
+        sub = await repository.get_subscription(ctx.tenant_id)
+        return sub if sub else {"plan_code": "free", "plan_name": "Free", "status": "active"}
 
     # ========== app/key 自助（需 JWT → require_tenant）==========
     @app.post("/v1/portal/apps", response_model=AppResponse, status_code=201)

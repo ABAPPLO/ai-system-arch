@@ -104,3 +104,23 @@ class TryResponse(BaseModel):
     body: Any = None
     latency_ms: int = 0
     error: str | None = None
+
+
+class PlanInfo(BaseModel):
+    code: str
+    name: str
+    description: str | None = None
+    price_cents: int = 0
+    quota_included: dict = {}
+    rate_limits: dict = {}
+    features: dict | None = None
+    sort_order: int = 0
+
+
+class SubscriptionInfo(BaseModel):
+    plan_code: str
+    plan_name: str = ""
+    period_start: str = ""
+    period_end: str = ""
+    status: str = ""
+    auto_renew: bool = True

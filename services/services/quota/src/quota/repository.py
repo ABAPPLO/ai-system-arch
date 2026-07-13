@@ -112,3 +112,70 @@ async def load_rules(tenant_id: str, app_id: str, api_id: str) -> tuple[QuotaRul
         source = "default"
 
     return merged, source
+
+
+# ========== Phase 3 计费 ==========
+
+from apihub_core.clickhouse import query_all
+from quota.models import PlanSummary
+
+
+async def get_plan(plan_code: str) -> PlanSummary | None:
+    async with db.db_session() as conn:
+        row = await conn.fetchrow("SELECT * FROM plan WHERE code = $1 AND status = 'active'", plan_code)
+    if not row:
+        return None
+    return PlanSummary(
+        code=row["code"], name=row["name"], price_cents=row["price_cents"],
+        quota_included=row["quota_included"] or {}, features=row["features"] or {},
+    )
+
+
+async def list_plans() -> list[PlanSummary]:
+    async with db.db_session() as conn:
+        rows = await conn.fetch("SELECT * FROM plan WHERE status = 'active' ORDER BY sort_order")
+    return [PlanSummary(code=r["code"], name=r["name"], price_cents=r["price_cents"],
+                        quota_included=r["quota_included"] or {}, features=r["features"] or {})
+            for r in rows]
+
+
+async def get_active_subscription(tenant_id: str) -> dict | None:
+    async with db.db_session() as conn:
+        row = await conn.fetchrow(
+            "SELECT * FROM subscription WHERE tenant_id = $1 AND status = 'active' LIMIT 1",
+            tenant_id,
+        )
+    return dict(row) if row else None
+
+
+async def get_billing_from_ch(tenant_id: str, month: str) -> list[dict]:
+    ym = int(month.replace("-", ""))
+    rows = query_all(
+        "SELECT api_id, toDate(ts) AS day, count() AS calls,"
+        "       sum(token_count) AS tokens, sum(latency_ms) AS latency_ms"
+        " FROM api_call_log"
+        " WHERE tenant_id = %(tenant_id)s AND toYYYYMM(ts) = %(ym)s"
+        " GROUP BY api_id, day ORDER BY day, api_id",
+        params={"tenant_id": int(tenant_id), "ym": ym},
+        force_tenant_id=None,
+    )
+    return rows
+
+
+async def get_remaining_calls_today(tenant_id: str) -> int:
+    from datetime import datetime
+    today = datetime.utcnow().strftime("%Y-%m-%d")
+    ym = int(today[:7].replace("-", ""))
+    day = int(today[8:10])
+    rows = query_all(
+        "SELECT count() AS calls FROM api_call_log"
+        " WHERE tenant_id = %(tenant_id)s AND toYYYYMM(ts) = %(ym)s"
+        "   AND toDayOfMonth(ts) = %(day)s",
+        params={"tenant_id": int(tenant_id), "ym": ym, "day": day},
+        force_tenant_id=None,
+    )
+    used = rows[0]["calls"] if rows else 0
+    sub = await get_active_subscription(tenant_id)
+    plan = await get_plan(sub["plan_code"]) if sub else None
+    limit = (plan.quota_included.get("calls_per_day") or 0) if plan else 0
+    return max(0, limit - used)

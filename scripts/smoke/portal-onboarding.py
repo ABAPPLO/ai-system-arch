@@ -109,7 +109,14 @@ def main():
     assert try_data.get("latency_ms", -1) >= 0, f"缺少 latency_ms: {try_data}"
     assert try_data.get("error") is None, f"有 error: {try_data}"
 
-    print("PORTAL-ONBOARDING OK —— 外部开发者端到端闭环 + API 目录 + 在线调试")
+    print("== ⑨ 查用量统计 ==")
+    st, body = http("GET", f"{PORTAL_URL}/v1/portal/usage", headers=auth_hdr)
+    usage = json.loads(body)
+    print(f"  usage -> HTTP {st}, plan={usage.get('plan', {}).get('code')}, calls={usage.get('total_calls')}")
+    assert st == 200
+    assert usage.get("plan", {}).get("code") in ("free", "starter", "pro", "enterprise")
+
+    print("PORTAL-ONBOARDING OK —— 外部开发者端到端闭环 + API 目录 + 在线调试 + 用量统计")
     sys.exit(0)
 
 
