@@ -119,8 +119,8 @@ async def refresh_access(refresh_token: str) -> dict:
     s = get_settings()
     try:
         payload = jwt_utils.decode_token(refresh_token, s.jwt_secret)
-    except jwt_utils.JWTError:
-        raise ApiError(ErrorCode.UNAUTHORIZED, "invalid refresh token", http_status=401)
+    except jwt_utils.JWTError as e:
+        raise ApiError(ErrorCode.UNAUTHORIZED, "invalid refresh token", http_status=401) from e
     if payload.get("type") != "refresh":
         raise ApiError(ErrorCode.UNAUTHORIZED, "invalid token type", http_status=401)
     jti = payload.get("jti")
