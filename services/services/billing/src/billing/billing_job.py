@@ -1,13 +1,18 @@
 """出账核心逻辑：查 CH 用量 → 算超额 → 写 billing_record。"""
 
-from datetime import datetime, timedelta
-from typing import Any
+from datetime import UTC, datetime, timedelta
+
 from apihub_core.clickhouse import query_all
 from apihub_core.logging import get_logger
+
 from billing.models import BillingJobResult, BillingPreviewRecord
 from billing.repository import (
-    insert_billing_record, insert_job_log, list_active_subscriptions,
-    update_job_log, update_subscription_period,
+    check_job_exists,
+    insert_billing_record,
+    insert_job_log,
+    list_active_subscriptions,
+    update_job_log,
+    update_subscription_period,
 )
 
 log = get_logger(__name__)
@@ -15,8 +20,8 @@ log = get_logger(__name__)
 
 def _parse_period(period: str) -> tuple[datetime, datetime]:
     y, m = int(period[:4]), int(period[5:7])
-    start = datetime(y, m, 1)
-    end = datetime(y + 1, 1, 1) if m == 12 else datetime(y, m + 1, 1)
+    start = datetime(y, m, 1, tzinfo=UTC)
+    end = datetime(y + 1, 1, 1, tzinfo=UTC) if m == 12 else datetime(y, m + 1, 1, tzinfo=UTC)
     return start, end
 
 
@@ -37,6 +42,13 @@ def _calc_overage(actual: int, quota: int, price_per_unit: int, unit_size: int) 
 async def run_billing(period: str = "", dry_run: bool = False, tenant_ids: list[str] | None = None) -> BillingJobResult:
     period = period or _default_period()
     period_start, period_end = _parse_period(period)
+
+    if not dry_run:
+        existing = await check_job_exists(period)
+        if existing:
+            log.warning("billing_already_run", period=period)
+            return BillingJobResult(period=period, total_tenants=0, records=[])
+
     subs = await list_active_subscriptions()
     if tenant_ids:
         subs = [s for s in subs if s.tenant_id in tenant_ids]
