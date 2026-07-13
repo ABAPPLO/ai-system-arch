@@ -1,0 +1,17 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: apihub-prod-bj
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:ABAPPLO/ai-system-arch.git
+    targetRevision: main
+    path: deploy/k8s/overlays/prod-bj
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: apihub-system
+  syncPolicy:
+    syncOptions:
+      - CreateNamespace=true
