@@ -8,7 +8,7 @@ from apihub_core.tenant import require_tenant
 from fastapi import FastAPI
 
 from portal import repository
-from portal.models import ApiKeyCreate, ApiKeyResponse, AppCreate, AppResponse, PlanInfo, TryRequest
+from portal.models import ApiKeyCreate, ApiKeyResponse, AppCreate, AppResponse, PlanInfo, SubscribeRequest, TryRequest
 
 log = get_logger(__name__)
 
@@ -112,6 +112,18 @@ def register_routes(app: FastAPI) -> None:
         ctx = require_tenant()
         sub = await repository.get_subscription(ctx.tenant_id)
         return sub if sub else {"plan_code": "free", "plan_name": "Free", "status": "active"}
+
+    @app.post("/v1/portal/subscribe")
+    async def portal_subscribe(payload: SubscribeRequest):
+        """变更 Plan（admin 直写 subscription 表）。"""
+        ctx = require_tenant()
+        return await repository.subscribe_plan(ctx.tenant_id, payload.plan_code)
+
+    @app.get("/v1/portal/invoices")
+    async def portal_invoices(limit: int = 12, offset: int = 0):
+        """账单记录列表（分页）。"""
+        ctx = require_tenant()
+        return await repository.get_invoices(ctx.tenant_id, limit, offset)
 
     # ========== Webhook 管理（需 JWT）==========
     notif_base = settings.notification_service_url

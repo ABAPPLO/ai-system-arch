@@ -125,3 +125,8 @@ class SubscriptionInfo(BaseModel):
     period_end: str = ""
     status: str = ""
     auto_renew: bool = True
+
+
+class SubscribeRequest(BaseModel):
+    plan_code: str
+    action: str = "upgrade"
