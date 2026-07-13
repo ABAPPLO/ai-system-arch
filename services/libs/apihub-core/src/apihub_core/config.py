@@ -63,6 +63,11 @@ class Settings(BaseSettings):
     # K8s 默认走集群内 DNS；本地 dev 通过 .env.dev 覆盖到 localhost:8002
     auth_service_url: str = "http://auth.apihub-system/v1/apikey/verify"
 
+    # JWT（外部开发者「人」的登录态；与机器 API Key 分流）
+    # prod 必须用强密钥（env 注入），dev 默认值仅供本地。
+    jwt_secret: str = "dev-only-insecure-secret"
+    jwt_ttl_seconds: int = 7200  # access token 2h
+
     # 下游服务 URL（BFF 聚合用）
     # K8s 默认走集群内 DNS；dev 在 .env.dev 覆盖到 localhost
     tenant_service_url: str = "http://tenant.apihub-system/v1/tenant"

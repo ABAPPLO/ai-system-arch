@@ -28,6 +28,25 @@ async def authenticate_request(
     if not api_key:
         raise ApiError(ErrorCode.UNAUTHORIZED, "Missing API Key")
 
+    # JWT 分流：外部开发者「人」的 token（eyJ 开头）本地验签，
+    # 不走 auth /v1/apikey/verify（那是机器 API Key 流程）。
+    from apihub_core import jwt_utils
+
+    if jwt_utils.is_jwt(api_key):
+        try:
+            payload = jwt_utils.decode_token(api_key, settings.jwt_secret)
+        except jwt_utils.JWTError:
+            raise ApiError(ErrorCode.UNAUTHORIZED, "invalid or expired token")
+        ctx = TenantContext(
+            tenant_id=payload["tenant_id"],
+            tenant_type="external",
+            user_id=payload["user_id"],
+            is_platform_admin=payload.get("is_platform_admin", False),
+        )
+        set_tenant_context(ctx)
+        return ctx
+    # 否则：原 API Key 流程（以下 httpx 调 auth verify 代码不变）
+
     # 缓存查询（生产环境强烈推荐）：`ak:{sha256(api_key)}` -> json
     # 这里直接调 auth 服务
     # timeout 5s：auth verify 可能回源 PG（cache-miss），2s 在依赖冷启动/抖动时偏紧，

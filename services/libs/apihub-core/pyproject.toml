@@ -15,6 +15,8 @@ dependencies = [
   "httpx>=0.27",
   "clickhouse-connect==0.7.7",
   "structlog>=24.1",
+  # JWT：外部开发者「人」的登录态签发/验签（HS256）。与机器 API Key 分流。
+  "PyJWT>=2.8,<3",
   "opentelemetry-api==1.40.0",
   "opentelemetry-sdk==1.40.0",
   "opentelemetry-instrumentation-fastapi==0.61b0",
