@@ -1,6 +1,7 @@
 import pytest
 from apihub_core.tenant import TenantContext, set_tenant_context
 
+
 @pytest.mark.asyncio
 async def test_health(client):
     resp = await client.get("/health/live")

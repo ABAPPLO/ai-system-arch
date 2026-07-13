@@ -1,6 +1,7 @@
-import pytest
 import billing.billing_job as billing_job
-from billing.billing_job import _parse_period, _calc_overage
+import pytest
+from billing.billing_job import _calc_overage, _parse_period
+
 
 class TestBillingCore:
     def test_parse_period(self):
