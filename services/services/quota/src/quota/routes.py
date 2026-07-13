@@ -24,6 +24,9 @@ from quota.limiter import (
     refund as refund_quota,
 )
 from quota.models import (
+    BillingResponse,
+    DailyApiUsage,
+    PlanSummary,
     QuotaCheckRequest,
     QuotaCheckResponse,
     QuotaRefundRequest,
@@ -114,15 +117,36 @@ def register_routes(app: FastAPI) -> None:
         rules, _ = await repository.load_rules(tenant_id, app_id, api_id)
         return await get_usage(tenant_id, app_id, api_id, rules)
 
-    @app.get("/v1/quota/billing")
+    @app.get("/v1/quota/billing", response_model=BillingResponse)
     async def billing(tenant_id: str, month: str):
-        """Phase 3 占位 —— 真版从 ClickHouse 查汇总。"""
-        return {
-            "tenant_id": tenant_id,
-            "month": month,
-            "status": "not_implemented",
-            "todo": "query ClickHouse for aggregated billing data",
-        }
+        """按月查询用量+plan——Phase 3 真实现。"""
+        ctx = require_tenant()
+        if ctx.tenant_id != tenant_id and not ctx.is_platform_admin:
+            raise ApiError(ErrorCode.FORBIDDEN, "cannot view other tenant's billing")
+
+        sub = await repository.get_active_subscription(tenant_id)
+        plan = await repository.get_plan(sub["plan_code"]) if sub else None
+        ch_rows = await repository.get_billing_from_ch(tenant_id, month)
+        remaining = await repository.get_remaining_calls_today(tenant_id)
+
+        daily_usage = [
+            DailyApiUsage(api_id=r["api_id"], day=str(r["day"]),
+                          calls=r["calls"], tokens=r["tokens"], latency_ms=r["latency_ms"])
+            for r in ch_rows
+        ]
+        return BillingResponse(
+            tenant_id=tenant_id, month=month,
+            plan=plan or PlanSummary(code="free", name="Free", price_cents=0, quota_included={}, features={}),
+            daily_usage=daily_usage,
+            total_calls=sum(u.calls for u in daily_usage),
+            total_tokens=sum(u.tokens for u in daily_usage),
+            remaining_calls_today=remaining,
+        )
+
+    @app.get("/v1/quota/plans")
+    async def plans():
+        """Plan 列表（对比用）。"""
+        return await repository.list_plans()
 
     @app.get("/v1/quota/health")
     async def health():

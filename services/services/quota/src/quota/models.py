@@ -78,3 +78,31 @@ class UsageResponse(BaseModel):
     second: UsagePoint
     minute: UsagePoint
     day: UsagePoint
+
+
+class PlanSummary(BaseModel):
+    code: str
+    name: str
+    price_cents: int = 0
+    quota_included: dict = {}
+    features: dict = {}
+
+
+class DailyApiUsage(BaseModel):
+    api_id: str
+    api_name: str = ""
+    day: str
+    calls: int = 0
+    tokens: int = 0
+    latency_ms: int = 0
+
+
+class BillingResponse(BaseModel):
+    tenant_id: str
+    month: str
+    plan: PlanSummary
+    daily_usage: list[DailyApiUsage] = []
+    total_calls: int = 0
+    total_tokens: int = 0
+    remaining_calls_today: int = 0
+    overage_cents: int = 0
