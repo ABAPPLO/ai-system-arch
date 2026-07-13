@@ -78,10 +78,8 @@ async def chat_completions(payload: ChatRequest):
 async def _stream_sse(
     provider_iter: AsyncIterator[SSEChunk],
 ) -> AsyncIterator[bytes]:
-    try:
-        async for chunk in provider_iter:
-            yield _to_sse_line(chunk)
-            if chunk.finish_reason:
-                break
-    finally:
-        yield b"data: [DONE]\n\n"
+    async for chunk in provider_iter:
+        yield _to_sse_line(chunk)
+        if chunk.finish_reason:
+            break
+    yield b"data: [DONE]\n\n"

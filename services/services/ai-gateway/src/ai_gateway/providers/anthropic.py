@@ -35,12 +35,23 @@ class AnthropicProvider(BaseProvider):
     ) -> AsyncIterator[SSEChunk]:
         url = f"{base_url.rstrip('/')}/v1/messages"
         headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}
+
+        # Extract system message — Anthropic requires it as a top-level field
+        system_content = None
+        for m in messages:
+            if m.get("role") == "system":
+                system_content = m.get("content", "")
+                break
+        non_system = [m for m in messages if m.get("role") != "system"]
+
         payload = {
             "model": model,
-            "messages": _openai_to_anthropic_messages(messages),
+            "messages": _openai_to_anthropic_messages(non_system),
             "max_tokens": max_tokens or 1024,
             "stream": stream,
         }
+        if system_content:
+            payload["system"] = system_content
         if temperature is not None:
             payload["temperature"] = temperature
         if extra_body:
