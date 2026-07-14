@@ -30,10 +30,10 @@ docker run -d --name mirrormaker-sh2bj --restart unless-stopped \
   /usr/bin/kafka-mirror-maker \
   --consumer.config /etc/mm/consumer.properties \
   --producer.config /etc/mm/producer.properties \
-  --whitelist="$TOPICS" \
+  --whitelist="$SH2BJ_TOPICS" \
   --abort.on.send.failure=true
 
-# bj → sh (consumer: bj, producer: sh)
+# bj → sh (consumer: bj, producer: sh) — 仅双向 topics，不含 notification-events
 cat > "$CONF_DIR/bj2sh-consumer.properties" <<EOF
 bootstrap.servers=$KAFKA_BJ
 group.id=mirrormaker-bj2sh
@@ -54,7 +54,7 @@ docker run -d --name mirrormaker-bj2sh --restart unless-stopped \
   /usr/bin/kafka-mirror-maker \
   --consumer.config /etc/mm/consumer.properties \
   --producer.config /etc/mm/producer.properties \
-  --whitelist="$TOPICS" \
+  --whitelist="$BIDIR_TOPICS" \
   --abort.on.send.failure=true
 
 echo "Done. Stop containers: docker rm -f mirrormaker-sh2bj mirrormaker-bj2sh"

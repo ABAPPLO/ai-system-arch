@@ -10,7 +10,8 @@ spec:
     targetRevision: main
     path: deploy/k8s/overlays/prod-bj
   destination:
-    server: https://kubernetes.default.svc
+    name: bj-cluster  # 预先通过 argocd cluster add 注册 Bj ACK 集群
+    # server: https://<bj-ack-cluster-api-server>  # 或者直接写 API Server URL（二选一）
     namespace: apihub-system
   syncPolicy:
     syncOptions:
