@@ -1,0 +1,23 @@
+groups:
+  - name: multi-region
+    rules:
+      - alert: RegionDown
+        expr: count(up{job="apisix"} == 1) by (region) < 3
+        for: 30s
+        labels: { severity: p0 }
+        annotations:
+          summary: "Region {{ $labels.region }} API gateway unavailable"
+      - alert: PGReplicationLag
+        expr: pg_replication_lag_seconds > 30
+        for: 10s
+        labels: { severity: p1 }
+        annotations:
+          summary: "PG replication lag > 30s"
+      - alert: KafkaConsumerLagHigh
+        expr: kafka_consumer_lag > 100000
+        for: 30s
+        labels: { severity: p1 }
+      - alert: DNSHealthCheckFailed
+        expr: probe_success{target="api.apihub.com"} == 0
+        for: 30s
+        labels: { severity: p2 }

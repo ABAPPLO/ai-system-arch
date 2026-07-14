@@ -30,6 +30,7 @@ from auth.models import (
 )
 from auth.repository import (
     create_api_key,
+    get_tenant_home_region,
     list_api_keys_for_app,
     revoke_api_key,
     verify_api_key_record,
@@ -76,6 +77,49 @@ def register_routes(app: FastAPI) -> None:
             tenant_id=record["tenant_id"],
         )
         return VerifyResponse(**record)
+
+    @app.post("/internal/auth/check")
+    async def auth_check(payload: VerifyRequest):
+        """APISIX 租户亲和检查 —— 返回 key 数据 + home_region。
+
+        APISIX tenant-affinity 插件在认证后调用此端点获取 consumer 的 home_region，
+        用于决定是否将写请求重定向到租户归属 Region。
+
+        缓存策略（与 /v1/apikey/verify 一致）：
+          1. 负缓存查（拒绝已失效 key）
+          2. 正缓存查（Redis 5min TTL）
+          3. DB 查 + 写正/负缓存
+        """
+        if not is_valid_format(payload.api_key):
+            raise ApiError(ErrorCode.UNAUTHORIZED, "invalid api key format")
+
+        # 1. 负缓存命中
+        if await cache_negative.exists(payload.api_key):
+            raise ApiError(ErrorCode.UNAUTHORIZED, "invalid api key")
+
+        # 2. 正缓存命中
+        cached = await cache_positive.get(payload.api_key)
+        if cached:
+            if "home_region" not in cached:
+                cached["home_region"] = await get_tenant_home_region(cached["tenant_id"])
+            return {**cached, "home_region": cached["home_region"]}
+
+        # 3. DB 查
+        record = await verify_api_key_record(payload.api_key)
+        if not record:
+            await cache_negative.set(payload.api_key)
+            raise ApiError(ErrorCode.UNAUTHORIZED, "invalid api key")
+
+        # 4. 写正缓存（带上 home_region，后续缓存命中无需额外 DB 查询）
+        home_region = await get_tenant_home_region(record["tenant_id"])
+        record_with_region = {**record, "home_region": home_region}
+        await cache_positive.set(payload.api_key, record_with_region)
+        log.info(
+            "auth_check_verified",
+            app_id=record["app_id"],
+            tenant_id=record["tenant_id"],
+        )
+        return record_with_region
 
     # ========== 用户端点（走 dispatcher + 标准 APIKey middleware） ==========
 

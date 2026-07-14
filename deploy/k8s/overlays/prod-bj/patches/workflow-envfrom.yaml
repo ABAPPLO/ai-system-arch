@@ -1,0 +1,10 @@
+- op: add
+  path: /spec/template/spec/containers/0/envFrom/-
+  value:
+    configMapRef:
+      name: apihub-shared-infra-bj
+- op: add
+  path: /spec/template/spec/containers/0/envFrom/-
+  value:
+    secretRef:
+      name: apihub-shared-secret-bj

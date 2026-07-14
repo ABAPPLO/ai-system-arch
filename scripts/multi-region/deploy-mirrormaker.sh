@@ -1,0 +1,61 @@
+#!/bin/bash
+set -euo pipefail
+
+KAFKA_SH="${KAFKA_SH:-kafka-sh-1:9092,kafka-sh-2:9092,kafka-sh-3:9092}"
+KAFKA_BJ="${KAFKA_BJ:-kafka-bj-1:9092,kafka-bj-2:9092,kafka-bj-3:9092}"
+TOPICS="${TOPICS:-api-call-events,task-requests,task-failures,audit-events,billing-events}"
+MM_IMAGE="${MM_IMAGE:-confluentinc/cp-kafka:7.6.0}"
+
+CONF_DIR="/tmp/mirrormaker-config"
+mkdir -p "$CONF_DIR"
+
+# sh → bj (consumer: sh, producer: bj)
+cat > "$CONF_DIR/sh2bj-consumer.properties" <<EOF
+bootstrap.servers=$KAFKA_SH
+group.id=mirrormaker-sh2bj
+auto.offset.reset=earliest
+EOF
+
+cat > "$CONF_DIR/sh2bj-producer.properties" <<EOF
+bootstrap.servers=$KAFKA_BJ
+acks=all
+EOF
+
+echo "Starting MirrorMaker: sh → bj"
+docker rm -f mirrormaker-sh2bj 2>/dev/null || true
+docker run -d --name mirrormaker-sh2bj --restart unless-stopped \
+  -v "$CONF_DIR/sh2bj-consumer.properties:/etc/mm/consumer.properties:ro" \
+  -v "$CONF_DIR/sh2bj-producer.properties:/etc/mm/producer.properties:ro" \
+  "$MM_IMAGE" \
+  /usr/bin/kafka-mirror-maker \
+  --consumer.config /etc/mm/consumer.properties \
+  --producer.config /etc/mm/producer.properties \
+  --whitelist="$SH2BJ_TOPICS" \
+  --abort.on.send.failure=true
+
+# bj → sh (consumer: bj, producer: sh) — 仅双向 topics，不含 notification-events
+cat > "$CONF_DIR/bj2sh-consumer.properties" <<EOF
+bootstrap.servers=$KAFKA_BJ
+group.id=mirrormaker-bj2sh
+auto.offset.reset=earliest
+EOF
+
+cat > "$CONF_DIR/bj2sh-producer.properties" <<EOF
+bootstrap.servers=$KAFKA_SH
+acks=all
+EOF
+
+echo "Starting MirrorMaker: bj → sh"
+docker rm -f mirrormaker-bj2sh 2>/dev/null || true
+docker run -d --name mirrormaker-bj2sh --restart unless-stopped \
+  -v "$CONF_DIR/bj2sh-consumer.properties:/etc/mm/consumer.properties:ro" \
+  -v "$CONF_DIR/bj2sh-producer.properties:/etc/mm/producer.properties:ro" \
+  "$MM_IMAGE" \
+  /usr/bin/kafka-mirror-maker \
+  --consumer.config /etc/mm/consumer.properties \
+  --producer.config /etc/mm/producer.properties \
+  --whitelist="$BIDIR_TOPICS" \
+  --abort.on.send.failure=true
+
+echo "Done. Stop containers: docker rm -f mirrormaker-sh2bj mirrormaker-bj2sh"
+echo "Verify: kafka-console-consumer --bootstrap-server \$KAFKA_BJ --topic api-call-events --from-beginning --max-messages 1"

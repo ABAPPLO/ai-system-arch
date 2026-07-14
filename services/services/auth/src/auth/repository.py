@@ -61,6 +61,16 @@ async def verify_api_key_record(api_key_plaintext: str) -> dict | None:
         }
 
 
+async def get_tenant_home_region(tenant_id: int) -> str | None:
+    """跨租户查 tenant 的 home_region（admin session，不触发 RLS）。"""
+    async with db.admin_db_session() as conn:
+        row = await conn.fetchval(
+            "SELECT home_region FROM tenant WHERE id = $1",
+            tenant_id,
+        )
+        return row
+
+
 async def create_api_key(
     *,
     key_id: str,

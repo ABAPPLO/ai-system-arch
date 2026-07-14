@@ -43,3 +43,9 @@ variable "password" {
   type        = string
   sensitive   = true
 }
+
+variable "logical_replication" {
+  description = "启用 PostgreSQL 逻辑复制（DTS 跨 Region 同步需要）"
+  type        = bool
+  default     = false
+}

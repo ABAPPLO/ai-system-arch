@@ -1,0 +1,38 @@
+# prod-bj 数据层连接配置 + secrets（占位）。
+# 与 prod（上海）异 region：BJ 的 PG/Redis/Kafka/CH endpoints + PEER_REGION_CH_HOST 指向 sh。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apihub-shared-infra-bj
+  namespace: apihub-system
+data:
+  HOME_REGION: "bj"
+  PG_HOST: "pg-bj.internal"
+  PG_PORT: "5432"
+  PG_USER: "apihub_app"
+  PG_DATABASE: "apihub"
+  PG_SSL: "verify-full"
+  PG_POOL_MIN: "10"
+  PG_POOL_MAX: "50"
+  REDIS_HOST: "redis-bj.internal"
+  REDIS_PORT: "6379"
+  KAFKA_BROKERS: "kafka-bj-1:9092,kafka-bj-2:9092,kafka-bj-3:9092"
+  CH_HOST: "ch-bj.internal"
+  CH_PORT: "8123"
+  CH_USERNAME: "apihub"
+  PEER_REGION_CH_HOST: "ch-sh.internal"
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.apihub-monitoring:4317"
+  QUOTA_REGION_SPLIT_RATIO: "0.4"
+  PEER_QUOTA_REGION_SPLIT_RATIO: "0.6"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apihub-shared-secret-bj
+  namespace: apihub-system
+type: Opaque
+stringData:
+  PG_PASSWORD: "REPLACE_ME"
+  JWT_SECRET: "REPLACE_ME"
+  REDIS_PASSWORD: "REPLACE_ME"
+  CH_PASSWORD: "REPLACE_ME"

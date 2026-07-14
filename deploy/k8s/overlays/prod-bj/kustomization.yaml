@@ -1,0 +1,336 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# 不设全局 namespace：base 资源（Deployment/ConfigMap）已在 metadata.namespace 显式声明
+# apihub-system；全局 namespace transformer 会把 namespaces.yaml 里多个 Namespace
+# （apihub-data/apihub-ingress/...）的 metadata.name 全改成 apihub-system → ID 冲突。
+# （与 overlays/kind 写法一致）
+
+resources:
+  - ../../base/namespaces/namespaces.yaml
+  - ../../base/shared/argo-rollouts/analysis-templates.yaml
+  - ../../services/api-registry/configmap.yaml
+  - ../../services/api-registry/deployment.yaml
+  # dispatcher 走 Argo Rollouts canary（详见 docs/05-core-flows.md §8）
+  - ../../services/dispatcher/configmap.yaml
+  - ../../services/dispatcher/rollout.yaml
+  - ../../services/auth/configmap.yaml
+  - ../../services/auth/deployment.yaml
+  - ../../services/executor/configmap.yaml
+  - ../../services/executor/deployment.yaml
+  - ../../services/quota/configmap.yaml
+  - ../../services/quota/deployment.yaml
+  - ../../services/tenant/configmap.yaml
+  - ../../services/tenant/deployment.yaml
+  - ../../services/admin/configmap.yaml
+  - ../../services/admin/deployment.yaml
+  - ../../services/docs/configmap.yaml
+  - ../../services/docs/deployment.yaml
+  - ../../services/trace/configmap.yaml
+  - ../../services/trace/deployment.yaml
+  - ../../services/retry/configmap.yaml
+  - ../../services/retry/deployment.yaml
+  - ../../services/workflow/configmap.yaml
+  - ../../services/workflow/deployment.yaml
+  # prod-bj 数据层 CM/Secret + HPA + Ingress
+  - shared-infra-bj.yaml
+  - hpa.yaml
+  - ingress.yaml
+
+patches:
+  # ── 副本数：prod-bj 约 50% of prod（向上取整）──
+  - target:
+      kind: Deployment
+      name: api-registry
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 4000m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 4Gi
+  - target:
+      kind: Rollout
+      name: dispatcher
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 4
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 4000m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 4Gi
+  - target:
+      kind: Deployment
+      name: auth
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 2000m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 2Gi
+  - target:
+      kind: Deployment
+      name: executor
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 5
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 4000m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 4Gi
+  - target:
+      kind: Deployment
+      name: quota
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 4
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 2000m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 2Gi
+  - target:
+      kind: Deployment
+      name: tenant
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 1000m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 1Gi
+  - target:
+      kind: Deployment
+      name: admin
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 3
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 1000m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 1Gi
+  - target:
+      kind: Deployment
+      name: docs
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 500m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 512Mi
+  - target:
+      kind: Deployment
+      name: trace
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 1000m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 1Gi
+  - target:
+      kind: Deployment
+      name: retry
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 1000m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 1Gi
+  - target:
+      kind: Deployment
+      name: workflow
+    patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/cpu
+        value: 1000m
+      - op: replace
+        path: /spec/template/spec/containers/0/resources/limits/memory
+        value: 1Gi
+
+  # ── ENV=prod-bj + OTEL deployment.environment=prod-bj（11 服务）──
+  - target: { kind: ConfigMap, name: api-registry-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod-bj"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod-bj"
+  - target: { kind: ConfigMap, name: dispatcher-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod-bj"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod-bj"
+  - target: { kind: ConfigMap, name: auth-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod-bj"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod-bj"
+  - target: { kind: ConfigMap, name: executor-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod-bj"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod-bj"
+  - target: { kind: ConfigMap, name: quota-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod-bj"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod-bj"
+  - target: { kind: ConfigMap, name: tenant-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod-bj"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod-bj"
+  - target: { kind: ConfigMap, name: admin-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod-bj"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod-bj"
+  - target: { kind: ConfigMap, name: docs-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod-bj"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod-bj"
+  - target: { kind: ConfigMap, name: trace-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod-bj"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod-bj"
+  - target: { kind: ConfigMap, name: retry-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod-bj"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod-bj"
+  - target: { kind: ConfigMap, name: workflow-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod-bj"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod-bj"
+
+  # ── envFrom：每服务追加 apihub-shared-infra-bj(CM) + apihub-shared-secret-bj(Secret) ──
+  - path: patches/api-registry-envfrom.yaml
+    target: { kind: Deployment, name: api-registry }
+  - path: patches/dispatcher-envfrom.yaml
+    target: { kind: Rollout, name: dispatcher }
+  - path: patches/auth-envfrom.yaml
+    target: { kind: Deployment, name: auth }
+  - path: patches/executor-envfrom.yaml
+    target: { kind: Deployment, name: executor }
+  - path: patches/quota-envfrom.yaml
+    target: { kind: Deployment, name: quota }
+  - path: patches/tenant-envfrom.yaml
+    target: { kind: Deployment, name: tenant }
+  - path: patches/admin-envfrom.yaml
+    target: { kind: Deployment, name: admin }
+  - path: patches/docs-envfrom.yaml
+    target: { kind: Deployment, name: docs }
+  - path: patches/trace-envfrom.yaml
+    target: { kind: Deployment, name: trace }
+  - path: patches/retry-envfrom.yaml
+    target: { kind: Deployment, name: retry }
+  - path: patches/workflow-envfrom.yaml
+    target: { kind: Deployment, name: workflow }
+
+# images transformer：11 服务镜像 → ACR 同 registry，tag=prod-bj-latest
+images:
+  - name: registry.apihub.internal/apihub/api-registry
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/api-registry
+    newTag: prod-bj-latest
+  - name: registry.apihub.internal/apihub/dispatcher
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/dispatcher
+    newTag: prod-bj-latest
+  - name: registry.apihub.internal/apihub/auth
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/auth
+    newTag: prod-bj-latest
+  - name: registry.apihub.internal/apihub/executor
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/executor
+    newTag: prod-bj-latest
+  - name: registry.apihub.internal/apihub/quota
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/quota
+    newTag: prod-bj-latest
+  - name: registry.apihub.internal/apihub/tenant
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/tenant
+    newTag: prod-bj-latest
+  - name: registry.apihub.internal/apihub/admin
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/admin
+    newTag: prod-bj-latest
+  - name: registry.apihub.internal/apihub/docs
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/docs
+    newTag: prod-bj-latest
+  - name: registry.apihub.internal/apihub/trace
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/trace
+    newTag: prod-bj-latest
+  - name: registry.apihub.internal/apihub/retry
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/retry
+    newTag: prod-bj-latest
+  - name: registry.apihub.internal/apihub/workflow
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/workflow
+    newTag: prod-bj-latest
+
+# prod-bj 同 prod 走 Rollout（Argo Rollouts canary），见 docs/09-deployment.md §6.3

@@ -44,3 +44,21 @@ variable "mgmt_cidr" {
   type        = string
   default     = "10.0.99.0/24"
 }
+
+variable "enable_peering" {
+  description = "启用跨 Region VPC Peering"
+  type        = bool
+  default     = false
+}
+
+variable "peer_vpc_id" {
+  description = "对端 VPC ID"
+  type        = string
+  default     = ""
+}
+
+variable "peer_region" {
+  description = "对端 Region"
+  type        = string
+  default     = ""
+}

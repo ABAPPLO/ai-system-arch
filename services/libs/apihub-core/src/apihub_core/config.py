@@ -43,6 +43,16 @@ class Settings(BaseSettings):
     ch_database: str = "apihub"
     ch_pool_size: int = 10
 
+    # ClickHouse 双集群（跨 Region 查询用）
+    # 多 Region 部署时，每个 Region 有独立 CH 集群。
+    # trace-svc 读本地 CH（ch_host），但跨 Region 聚合查询时需通过 peer_region_ch_host
+    # 访问对端 Region 的 CH，实现 unified trace dashboard。
+    home_region: str = Field(default="sh", alias="HOME_REGION")
+    """当前部署 Region（sh=cn-shanghai, bj=cn-beijing）。"""
+    peer_region_ch_host: str | None = Field(default=None, alias="PEER_REGION_CH_HOST")
+    """对端 Region 的 ClickHouse HTTP 地址（如 http://ch-sh.internal:8123）。
+       空值表示单 Region 模式或暂无对端可查询。"""
+
     # Argo Workflow（workflow-svc 用）
     # stub：dev / test 内存模拟；k8s：in-cluster 走 K8s API
     argo_mode: str = "stub"

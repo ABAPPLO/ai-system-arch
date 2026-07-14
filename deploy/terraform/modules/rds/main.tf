@@ -22,6 +22,14 @@ resource "alicloud_db_instance" "this" {
     name  = "log_statement"
     value = "ddl"
   }
+
+  dynamic "parameters" {
+    for_each = var.logical_replication ? ["on"] : []
+    content {
+      name  = "rds.logical_replication"
+      value = parameters.value
+    }
+  }
 }
 
 data "alicloud_vswitches" "b" {

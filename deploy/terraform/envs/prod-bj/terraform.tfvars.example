@@ -1,0 +1,12 @@
+# prod-bj 环境 tfvars 模板
+# 复制为 terraform.tfvars 后填值，不要提交真实密码
+
+region      = "cn-beijing"
+environment = "prod-bj"
+
+# 强烈建议：通过环境变量注入，不要硬编码
+#   export TF_VAR_rds_password='xxxxx'
+rds_password = "REPLACE_ME_WITH_STRONG_PASSWORD"
+
+# 从上海 prod 环境 terraform output vpc_id 获取
+# peer_vpc_id = "vpc-xxx"

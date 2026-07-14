@@ -42,3 +42,4 @@ plugins:
   - prometheus
   - skywalking        # 链路追踪（或用 otel）
   - opentelemetry
+  - tenant-affinity   # 多 Region 写流量亲和路由
