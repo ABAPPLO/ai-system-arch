@@ -5,7 +5,7 @@ from apihub_core.config import get_settings
 from apihub_core.errors import ApiError, ErrorCode
 from apihub_core.logging import get_logger
 from apihub_core.tenant import require_tenant
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 
 from portal import repository
 from portal.models import ApiKeyCreate, ApiKeyResponse, AppCreate, AppResponse, PlanInfo, SubscribeRequest, TryRequest

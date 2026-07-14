@@ -42,20 +42,15 @@ async def create_user(*, email: str, password: str, phone: str, name: str) -> di
             " VALUES ($1, $2, $3, $4, $5, 'email', 'pending')",
             user_id, email, encrypt_pii(phone), _hash_password(password), encrypt_pii(name),
         )
-    verify_token = secrets.token_urlsafe(32)
-    # GDPR: 记录数据使用同意
-    purposes = [
-        ("account_management", "存储账号信息以提供服务"),
-        ("api_usage_tracking", "记录 API 调用用于计费和监控"),
-    ]
-    for purpose, _desc in purposes:
-        await conn.execute(
-            "INSERT INTO user_consent (user_id, purpose, status, ip_address)"
-            " VALUES ($1, $2, 'granted', '')"
-            " ON CONFLICT (user_id, purpose) DO NOTHING",
-            user_id, purpose,
-        )
+        # GDPR: 记录数据使用同意
+        for purpose in ("account_management", "api_usage_tracking"):
+            await conn.execute(
+                "INSERT INTO user_consent (user_id, purpose, status) VALUES ($1, $2, 'granted')"
+                " ON CONFLICT (user_id, purpose) DO NOTHING",
+                user_id, purpose,
+            )
 
+    verify_token = secrets.token_urlsafe(32)
     await redis.t_set(f"t:verify:{verify_token}", user_id, ex=VERIFY_TTL)
     log.info("user_registered", user_id=user_id, email=email)
     return {"user_id": user_id, "status": "pending",
