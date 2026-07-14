@@ -21,6 +21,8 @@ data:
   CH_PORT: "8123"
   CH_USERNAME: "apihub"
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.apihub-monitoring:4317"
+  QUOTA_REGION_SPLIT_RATIO: "0.6"
+  PEER_QUOTA_REGION_SPLIT_RATIO: "0.4"
 ---
 apiVersion: v1
 kind: Secret

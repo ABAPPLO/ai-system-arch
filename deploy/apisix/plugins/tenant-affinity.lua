@@ -14,7 +14,7 @@ _M.schema = {
         },
         fallback_local = {
             type = "boolean",
-            default = true,
+            default = false,
         },
     },
 }

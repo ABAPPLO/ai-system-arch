@@ -100,8 +100,9 @@ def register_routes(app: FastAPI) -> None:
         # 2. 正缓存命中
         cached = await cache_positive.get(payload.api_key)
         if cached:
-            home_region = await get_tenant_home_region(cached["tenant_id"])
-            return {**cached, "home_region": home_region}
+            if "home_region" not in cached:
+                cached["home_region"] = await get_tenant_home_region(cached["tenant_id"])
+            return {**cached, "home_region": cached["home_region"]}
 
         # 3. DB 查
         record = await verify_api_key_record(payload.api_key)
@@ -109,15 +110,16 @@ def register_routes(app: FastAPI) -> None:
             await cache_negative.set(payload.api_key)
             raise ApiError(ErrorCode.UNAUTHORIZED, "invalid api key")
 
-        # 4. 写正缓存
-        await cache_positive.set(payload.api_key, record)
+        # 4. 写正缓存（带上 home_region，后续缓存命中无需额外 DB 查询）
+        home_region = await get_tenant_home_region(record["tenant_id"])
+        record_with_region = {**record, "home_region": home_region}
+        await cache_positive.set(payload.api_key, record_with_region)
         log.info(
             "auth_check_verified",
             app_id=record["app_id"],
             tenant_id=record["tenant_id"],
         )
-        home_region = await get_tenant_home_region(record["tenant_id"])
-        return {**record, "home_region": home_region}
+        return record_with_region
 
     # ========== 用户端点（走 dispatcher + 标准 APIKey middleware） ==========
 
