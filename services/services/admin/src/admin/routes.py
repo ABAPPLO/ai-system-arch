@@ -22,11 +22,15 @@ from admin import repository
 from admin.aggregator import get_aggregator
 from admin.audit import record_from_request
 from admin.models import (
+    ArchiveRequest,
+    ArchiveResponse,
     AuditDetail,
     AuditListItem,
     AuditQuery,
     AuditRecord,
     AuditStats,
+    CleanupRequest,
+    CleanupResponse,
     DashboardResponse,
     RecordResponse,
 )
@@ -184,6 +188,38 @@ def register_routes(app: FastAPI) -> None:
             audit_7d=audit_7d,
             top_recent_events=[AuditListItem(**r) for r in recent],
         )
+
+    # ========== 健康 ==========
+
+    # ========== 审计归档 ==========
+
+    @app.post("/v1/admin/audit/archive", response_model=ArchiveResponse)
+    async def archive(payload: ArchiveRequest):
+        """归档超管 only：把早于 before 的审计日志归档到 OSS 并删除。"""
+        _require_platform_admin()
+        cutoff = payload.before or (datetime.now(UTC) - timedelta(days=180))
+        n = await repository.archive_before(cutoff)
+        return ArchiveResponse(archived=n, cutoff=cutoff.isoformat())
+
+    # ========== 数据清理 ==========
+
+    @app.post("/v1/admin/data/cleanup", response_model=CleanupResponse)
+    async def cleanup(payload: CleanupRequest):
+        """清理过期数据。超管 only。"""
+        _require_platform_admin()
+        now = datetime.now(UTC)
+        task_before = now - timedelta(days=payload.task_months * 30)
+        retry_before = now - timedelta(days=payload.retry_days)
+
+        partitions = await repository.cleanup_task_partitions(before=task_before)
+        retry = await repository.cleanup_retry_tasks(before=retry_before)
+
+        log.info(
+            "data_cleanup_done",
+            partitions=partitions, retry=retry,
+            task_months=payload.task_months, retry_days=payload.retry_days,
+        )
+        return CleanupResponse(dropped_partitions=partitions, deleted_retry_tasks=retry)
 
     # ========== 健康 ==========
 

@@ -51,7 +51,7 @@ async def process_event(event: dict) -> None:
         for attempt in range(MAX_RETRIES):
             ok = await _deliver(hook["url"], payload, hook.get("secret") or "")
             if ok:
-                log.info("webhook_delivered", webhook_id=hook["id"], event=event_type)
+                log.info("webhook_delivered", webhook_id=hook["id"], event_type=event_type)
                 break
             log.warning("webhook_retry", webhook_id=hook["id"], attempt=attempt + 1)
             if attempt < MAX_RETRIES - 1:

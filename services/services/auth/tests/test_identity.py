@@ -138,3 +138,101 @@ async def test_login_active_user_returns_jwt(fake_redis):
     assert decoded["user_id"] == result["user"]["id"]
     assert decoded["tenant_id"] == "external-public"
 
+
+@pytest.mark.asyncio
+async def test_anonymize_user_hides_pii(fake_redis):
+    from apihub_core import db as db_mod
+
+    user = await identity.create_user(
+        email="new@example.com", password="secret123", phone="13800000000", name="New"
+    )
+    uid = user["user_id"]
+    await identity.anonymize_user(user_id=uid)
+
+    async with db_mod.admin_db_session() as conn:
+        row = await conn.fetchrow(
+            "SELECT email, phone, name, password_hash, status FROM user_account WHERE id=$1", uid,
+        )
+    assert row["email"].endswith("@anonymized")
+    assert row["phone"] == ""
+    assert row["name"] == "Deleted User"
+    assert row["password_hash"] == ""
+    assert row["status"] == "deleted"
+
+
+@pytest.mark.asyncio
+async def test_anonymize_user_removes_tenant_membership(fake_redis):
+    from apihub_core import db as db_mod
+
+    user = await identity.create_user(
+        email="new@example.com", password="secret123", phone="138", name="Del"
+    )
+    uid = user["user_id"]
+    await identity.verify_email(user["verify_token"])
+
+    async with db_mod.admin_db_session() as conn:
+        before = await conn.fetchval(
+            "SELECT COUNT(*) FROM tenant_member WHERE user_id = $1", uid,
+        )
+    assert before > 0
+
+    await identity.anonymize_user(user_id=uid)
+
+    async with db_mod.admin_db_session() as conn:
+        after = await conn.fetchval(
+            "SELECT COUNT(*) FROM tenant_member WHERE user_id = $1", uid,
+        )
+    assert after == 0
+
+
+@pytest.mark.asyncio
+async def test_anonymize_nonexistent_user_raises(fake_redis):
+    from apihub_core.errors import ApiError
+
+    with pytest.raises(ApiError) as exc:
+        await identity.anonymize_user(user_id="u_nonexistent")
+    assert exc.value.http_status == 404
+
+
+@pytest.mark.asyncio
+async def test_export_user_data_returns_account(fake_redis):
+    """导出包含用户账户信息。"""
+    user = await identity.create_user(
+        email="new@example.com", password="secret123", phone="13800000000", name="Export",
+    )
+    uid = user["user_id"]
+    await identity.verify_email(user["verify_token"])
+
+    data = await identity.export_user_data(user_id=uid)
+
+    assert data["user_id"] == uid
+    assert data["account"]["email"].startswith("new@")
+    assert data["account"]["name"] == "Export"
+    assert data["account"]["phone"] == "13800000000"
+    assert data["account"]["status"] == "active"
+    assert "exported_at" in data
+
+
+@pytest.mark.asyncio
+async def test_export_user_data_includes_tenants(fake_redis):
+    """导出包含租户关系。"""
+    user = await identity.create_user(
+        email="new@example.com", password="secret123", phone="138", name="Tenant",
+    )
+    uid = user["user_id"]
+    await identity.verify_email(user["verify_token"])
+
+    data = await identity.export_user_data(user_id=uid)
+
+    assert len(data["tenants"]) >= 1
+    assert any(t["tenant_id"] == "external-public" for t in data["tenants"])
+
+
+@pytest.mark.asyncio
+async def test_export_nonexistent_user_raises(fake_redis):
+    from apihub_core.errors import ApiError
+
+    with pytest.raises(ApiError) as exc:
+        await identity.export_user_data(user_id="u_nonexistent")
+    assert exc.value.http_status == 404
+

@@ -106,6 +106,35 @@ def register_routes(app: FastAPI) -> None:
 
         return _row_to_detail(row)
 
+    # ========== 高级分析 ==========
+
+    @app.get("/v1/trace/analytics/funnel")
+    async def funnel(
+        since: str = "",
+        until: str = "",
+        limit: int = Query(default=50, ge=1, le=200),
+    ):
+        """调用漏斗：按 trace 展示 API 调用序列。"""
+        ctx = require_tenant()
+        return await repo.call_funnel(
+            viewer_tenant_id=None if ctx.is_platform_admin else ctx.tenant_id,
+            use_admin_session=ctx.is_platform_admin,
+            since=since, until=until, limit=limit,
+        )
+
+    @app.get("/v1/trace/analytics/co-occurrence")
+    async def co_occurrence(
+        since: str = "",
+        min_pairs: int = Query(default=3, ge=1),
+    ):
+        """API 共现：统计哪些 API 常被一起调用。"""
+        ctx = require_tenant()
+        return await repo.co_occurrence(
+            viewer_tenant_id=None if ctx.is_platform_admin else ctx.tenant_id,
+            use_admin_session=ctx.is_platform_admin,
+            since=since, min_pairs=min_pairs,
+        )
+
     @app.get("/v1/trace/health")
     async def health():
         return {"status": "ok", "service": "trace"}

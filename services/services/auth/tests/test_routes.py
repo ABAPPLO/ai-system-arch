@@ -309,3 +309,173 @@ class TestHealth:
         resp = await client.get("/v1/auth/health")
         assert resp.status_code == 200
         assert resp.json() == {"status": "ok", "service": "auth"}
+
+
+# ---------- 账号删除 ----------
+
+
+class TestExportAccount:
+    async def test_export_requires_auth(self, client):
+        resp = await client.get("/v1/auth/account/export")
+        assert resp.status_code == 401
+
+    async def test_export_requires_user_id(self, client, authed, monkeypatch):
+        """有 auth 但无 user_id（如 APIKey 调用）→ 401。"""
+        resp = await client.get(
+            "/v1/auth/account/export",
+            headers={"X-API-Key": "ak_test"},
+        )
+        assert resp.status_code == 401
+
+    async def test_export_ok(self, client, monkeypatch):
+        async def _fake(request, settings, api_key, required_scopes=None):
+            ctx = TenantContext(
+                tenant_id="external-public", tenant_type="external",
+                app_id=None, user_id="u_testexport",
+                is_platform_admin=False,
+            )
+            set_tenant_context(ctx)
+            return ctx
+
+        monkeypatch.setattr(core_auth, "authenticate_request", _fake)
+
+        captured = {}
+
+        async def _export(*, user_id):
+            captured["user_id"] = user_id
+            return {
+                "user_id": user_id,
+                "exported_at": "2026-07-14T00:00:00+00:00",
+                "account": {"email": "test@example.com", "phone": "138", "name": "T",
+                            "verification_level": "email", "status": "active",
+                            "created_at": "2026-01-01T00:00:00"},
+                "tenants": [{"tenant_id": "external-public", "role": "developer"}],
+                "apps": [],
+                "api_keys": [],
+                "billing_records": [],
+            }
+
+        from auth import identity as identity_mod
+
+        monkeypatch.setattr(identity_mod, "export_user_data", _export)
+
+        resp = await client.get(
+            "/v1/auth/account/export",
+            headers={"Authorization": "Bearer eyJtest"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["user_id"] == "u_testexport"
+        assert body["account"]["email"] == "test@example.com"
+        assert len(body["tenants"]) == 1
+        assert captured["user_id"] == "u_testexport"
+
+
+class TestConsent:
+    async def test_list_requires_auth(self, client):
+        resp = await client.get("/v1/auth/consent")
+        assert resp.status_code == 401
+
+    async def test_list_ok(self, client, monkeypatch):
+        async def _fake(request, settings, api_key, required_scopes=None):
+            ctx = TenantContext(
+                tenant_id="external-public", tenant_type="external",
+                app_id=None, user_id="u_testconsent",
+                is_platform_admin=False,
+            )
+            set_tenant_context(ctx)
+            return ctx
+
+        monkeypatch.setattr(core_auth, "authenticate_request", _fake)
+
+        async def _list(*, user_id):
+            assert user_id == "u_testconsent"
+            return [{"purpose": "account_management", "description": "desc",
+                     "status": "granted", "granted_at": "2026-01-01", "updated_at": "2026-01-01"}]
+
+        from auth import identity as identity_mod
+
+        monkeypatch.setattr(identity_mod, "list_consents", _list)
+
+        resp = await client.get(
+            "/v1/auth/consent",
+            headers={"Authorization": "Bearer eyJtest"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body["consents"]) == 1
+        assert body["consents"][0]["purpose"] == "account_management"
+
+    async def test_withdraw_requires_auth(self, client):
+        resp = await client.post("/v1/auth/consent/withdraw")
+        assert resp.status_code == 401
+
+    async def test_withdraw_ok(self, client, monkeypatch):
+        async def _fake(request, settings, api_key, required_scopes=None):
+            ctx = TenantContext(
+                tenant_id="external-public", tenant_type="external",
+                app_id=None, user_id="u_testwithdraw",
+                is_platform_admin=False,
+            )
+            set_tenant_context(ctx)
+            return ctx
+
+        monkeypatch.setattr(core_auth, "authenticate_request", _fake)
+
+        captured = {}
+
+        async def _withdraw(*, user_id):
+            captured["user_id"] = user_id
+
+        monkeypatch.setattr("auth.identity.withdraw_consent", _withdraw)
+
+        resp = await client.post(
+            "/v1/auth/consent/withdraw",
+            headers={"Authorization": "Bearer eyJtest"},
+        )
+        assert resp.status_code == 200
+        assert captured["user_id"] == "u_testwithdraw"
+
+
+class TestDeleteAccount:
+    async def test_delete_requires_auth(self, client):
+        resp = await client.delete("/v1/auth/account")
+        assert resp.status_code == 401
+
+    async def test_delete_requires_user_id(self, client, authed, monkeypatch):
+        resp = await client.delete(
+            "/v1/auth/account",
+            headers={"X-API-Key": "ak_test"},
+        )
+        assert resp.status_code == 401
+
+    async def test_delete_account_ok(self, client, monkeypatch):
+        async def _fake(request, settings, api_key, required_scopes=None):
+            ctx = TenantContext(
+                tenant_id="external-public", tenant_type="external",
+                app_id=None, user_id="u_testuser",
+                is_platform_admin=False,
+            )
+            set_tenant_context(ctx)
+            return ctx
+
+        monkeypatch.setattr(core_auth, "authenticate_request", _fake)
+
+        captured = {}
+
+        async def _anonymize(*, user_id):
+            captured["user_id"] = user_id
+
+        from auth import identity as identity_mod
+
+        monkeypatch.setattr(identity_mod, "anonymize_user", _anonymize)
+
+        resp = await client.delete(
+            "/v1/auth/account",
+            headers={"Authorization": "Bearer eyJtest"},
+        )
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["user_id"] == "u_testuser"
+        assert body["status"] == "deleted"
+        assert captured["user_id"] == "u_testuser"

@@ -91,3 +91,45 @@ class RefreshRequest(BaseModel):
     """刷新 token 请求。"""
 
     refresh_token: str
+
+
+class DeleteAccountResponse(BaseModel):
+    """账号删除响应。"""
+
+    user_id: str
+    status: str = "deleted"
+
+
+class ConsentItem(BaseModel):
+    """单条同意记录。"""
+
+    purpose: str
+    description: str = ""
+    status: str
+    granted_at: str
+    updated_at: str
+
+
+class ConsentResponse(BaseModel):
+    """同意列表响应。"""
+
+    consents: list[ConsentItem]
+
+
+class ConsentWithdrawResponse(BaseModel):
+    """同意撤回响应。"""
+
+    user_id: str
+    status: str = "withdrawn"
+
+
+class ExportResponse(BaseModel):
+    """个人数据导出响应（GDPR Right to portability）。"""
+
+    user_id: str
+    exported_at: str
+    account: dict
+    tenants: list[dict] = Field(default_factory=list)
+    apps: list[dict] = Field(default_factory=list)
+    api_keys: list[dict] = Field(default_factory=list)
+    billing_records: list[dict] = Field(default_factory=list)

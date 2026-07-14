@@ -283,6 +283,96 @@ async def stats(
     }
 
 
+# ---------- 高级分析 ----------
+
+
+async def call_funnel(
+    *,
+    viewer_tenant_id: str | None = None,
+    use_admin_session: bool = False,
+    since: str = "",
+    until: str = "",
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    """调用漏斗：按 trace_id 分组，展示每次调用链中的 API 序列。"""
+    ft = "sentinel" if not use_admin_session else None
+    params: dict[str, Any] = {}
+    clauses: list[str] = []
+    if viewer_tenant_id:
+        clauses.append("tenant_id = %(tenant_id)s")
+        params["tenant_id"] = viewer_tenant_id
+    if since:
+        clauses.append("ts >= %(since)s")
+        params["since"] = since
+    if until:
+        clauses.append("ts < %(until)s")
+        params["until"] = until
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    try:
+        rows = ch.query_all(
+            f"""
+            SELECT trace_id, groupArray((ts, api_id, path)) AS steps
+            FROM api_call_log {where}
+            GROUP BY trace_id ORDER BY max(ts) DESC LIMIT {limit}
+            """, params, force_tenant_id=ft,
+        )
+    except RuntimeError as e:
+        log.warning("funnel_ch_unavailable", error=str(e))
+        return []
+    result = []
+    for r in rows:
+        steps = (r.get("steps") or [])[:20]
+        result.append({
+            "trace_id": r["trace_id"],
+            "step_count": len(steps),
+            "steps": [{"api_id": s[1], "path": s[2]} for s in steps],
+        })
+    return result
+
+
+async def co_occurrence(
+    *,
+    viewer_tenant_id: str | None = None,
+    use_admin_session: bool = False,
+    since: str = "",
+    min_pairs: int = 3,
+) -> list[dict[str, Any]]:
+    """API 共现：同一 trace 中的 API 对，按频次降序。"""
+    ft = "sentinel" if not use_admin_session else None
+    params: dict[str, Any] = {}
+    clauses: list[str] = []
+    if viewer_tenant_id:
+        clauses.append("tenant_id = %(tenant_id)s")
+        params["tenant_id"] = viewer_tenant_id
+    if since:
+        clauses.append("ts >= %(since)s")
+        params["since"] = since
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    try:
+        rows = ch.query_all(
+            f"""
+            SELECT a.api_id AS api_a, a.path AS path_a,
+                   b.api_id AS api_b, b.path AS path_b,
+                   count() AS pair_count
+            FROM api_call_log a
+            JOIN api_call_log b ON a.trace_id = b.trace_id AND a.api_id < b.api_id
+            {where}
+            GROUP BY a.api_id, a.path, b.api_id, b.path
+            HAVING pair_count >= %(min)s
+            ORDER BY pair_count DESC LIMIT 30
+            """, {**params, "min": min_pairs}, force_tenant_id=ft,
+        )
+    except RuntimeError as e:
+        log.warning("cooccur_ch_unavailable", error=str(e))
+        return []
+    return [
+        {"api_a": r["api_a"], "path_a": r["path_a"],
+         "api_b": r["api_b"], "path_b": r["path_b"],
+         "pair_count": int(r["pair_count"])}
+        for r in rows
+    ]
+
+
 def _empty_stats() -> dict[str, Any]:
     return {
         "total": 0,

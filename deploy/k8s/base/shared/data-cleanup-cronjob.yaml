@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: data-cleanup
+  namespace: apihub-system
+  labels:
+    app.kubernetes.io/name: data-cleanup
+    app.kubernetes.io/part-of: apihub
+spec:
+  schedule: "0 4 1 * *"   # 每月 1 号凌晨 4 点
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 300
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 1
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          serviceAccountName: admin
+          restartPolicy: Never
+          containers:
+            - name: curl
+              image: curlimages/curl:latest
+              command:
+                - sh
+                - -c
+                - |
+                  curl -sf -X POST http://admin.apihub-system/v1/admin/data/cleanup \
+                    -H "X-API-Key: $(cat /etc/apihub/api-key)" \
+                    -H "Content-Type: application/json" \
+                    -d "{}"
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 32Mi
+                limits:
+                  cpu: 200m
+                  memory: 64Mi

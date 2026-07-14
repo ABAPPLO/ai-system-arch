@@ -22,6 +22,10 @@ from auth.models import (
     ApiKeyListItem,
     ApiKeyResponse,
     AuthResponse,
+    ConsentResponse,
+    ConsentWithdrawResponse,
+    DeleteAccountResponse,
+    ExportResponse,
     LoginRequest,
     RefreshRequest,
     RegisterRequest,
@@ -215,6 +219,55 @@ def register_routes(app: FastAPI) -> None:
         from auth import identity
 
         return await identity.refresh_access(payload.refresh_token)
+
+    @app.delete("/v1/auth/account", response_model=DeleteAccountResponse)
+    async def delete_account():
+        """删除当前账号（GDPR Right to erasure）。需 JWT。"""
+        ctx = require_tenant()
+        from auth import identity
+
+        user_id = ctx.user_id
+        if not user_id:
+            raise ApiError(ErrorCode.UNAUTHORIZED, "JWT required", http_status=401)
+        await identity.anonymize_user(user_id=user_id)
+        return DeleteAccountResponse(user_id=user_id)
+
+    @app.get("/v1/auth/account/export", response_model=ExportResponse)
+    async def export_account():
+        """导出个人数据（GDPR Right to portability）。需 JWT。"""
+        ctx = require_tenant()
+        from auth import identity
+
+        user_id = ctx.user_id
+        if not user_id:
+            raise ApiError(ErrorCode.UNAUTHORIZED, "JWT required", http_status=401)
+        return await identity.export_user_data(user_id=user_id)
+
+    # ========== 同意管理 ==========
+
+    @app.get("/v1/auth/consent", response_model=ConsentResponse)
+    async def list_consents():
+        """查询当前用户的同意记录。需 JWT。"""
+        ctx = require_tenant()
+        from auth import identity
+
+        user_id = ctx.user_id
+        if not user_id:
+            raise ApiError(ErrorCode.UNAUTHORIZED, "JWT required", http_status=401)
+        consents = await identity.list_consents(user_id=user_id)
+        return ConsentResponse(consents=consents)
+
+    @app.post("/v1/auth/consent/withdraw", response_model=ConsentWithdrawResponse)
+    async def withdraw_consents():
+        """撤回全部同意（触发账号匿名化）。需 JWT。"""
+        ctx = require_tenant()
+        from auth import identity
+
+        user_id = ctx.user_id
+        if not user_id:
+            raise ApiError(ErrorCode.UNAUTHORIZED, "JWT required", http_status=401)
+        await identity.withdraw_consent(user_id=user_id)
+        return ConsentWithdrawResponse(user_id=user_id)
 
     @app.get("/v1/auth/health")
     async def health():

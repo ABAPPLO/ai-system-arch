@@ -65,6 +65,74 @@ def register_routes(app: FastAPI) -> None:
             raise ApiError(ErrorCode.UNAUTHORIZED, "refresh failed", http_status=st)
         return body
 
+    @app.delete("/v1/portal/auth/account")
+    async def portal_delete_account(request: Request):
+        """删除账号（需 JWT）。转发到 auth-svc。"""
+        require_tenant()
+        async with httpx.AsyncClient(timeout=5.0) as c:
+            r = await c.delete(
+                f"{auth_base}/auth/account",
+                headers={"Authorization": request.headers.get("Authorization", "")},
+            )
+        if r.status_code >= 400:
+            try:
+                body = r.json()
+            except Exception:
+                body = {"raw": r.text[:200]}
+            raise ApiError(ErrorCode.INTERNAL, body, http_status=r.status_code)
+        return r.json()
+
+    @app.get("/v1/portal/auth/account/export")
+    async def portal_export_account(request: Request):
+        """导出个人数据（需 JWT）。转发到 auth-svc。"""
+        require_tenant()
+        async with httpx.AsyncClient(timeout=5.0) as c:
+            r = await c.get(
+                f"{auth_base}/auth/account/export",
+                headers={"Authorization": request.headers.get("Authorization", "")},
+            )
+        if r.status_code >= 400:
+            try:
+                body = r.json()
+            except Exception:
+                body = {"raw": r.text[:200]}
+            raise ApiError(ErrorCode.INTERNAL, body, http_status=r.status_code)
+        return r.json()
+
+    @app.get("/v1/portal/auth/consent")
+    async def portal_list_consents(request: Request):
+        """查询同意记录。转发到 auth-svc。"""
+        require_tenant()
+        async with httpx.AsyncClient(timeout=5.0) as c:
+            r = await c.get(
+                f"{auth_base}/auth/consent",
+                headers={"Authorization": request.headers.get("Authorization", "")},
+            )
+        if r.status_code >= 400:
+            try:
+                body = r.json()
+            except Exception:
+                body = {"raw": r.text[:200]}
+            raise ApiError(ErrorCode.INTERNAL, body, http_status=r.status_code)
+        return r.json()
+
+    @app.post("/v1/portal/auth/consent/withdraw")
+    async def portal_withdraw_consents(request: Request):
+        """撤回同意。转发到 auth-svc。"""
+        require_tenant()
+        async with httpx.AsyncClient(timeout=5.0) as c:
+            r = await c.post(
+                f"{auth_base}/auth/consent/withdraw",
+                headers={"Authorization": request.headers.get("Authorization", "")},
+            )
+        if r.status_code >= 400:
+            try:
+                body = r.json()
+            except Exception:
+                body = {"raw": r.text[:200]}
+            raise ApiError(ErrorCode.INTERNAL, body, http_status=r.status_code)
+        return r.json()
+
     # ========== API 目录（需 JWT）==========
     @app.get("/v1/portal/apis")
     async def list_portal_apis(

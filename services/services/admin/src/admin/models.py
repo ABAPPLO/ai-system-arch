@@ -95,3 +95,39 @@ class DashboardResponse(BaseModel):
     audit_today: int = 0
     audit_7d: int = 0
     top_recent_events: list[AuditListItem] = Field(default_factory=list)
+
+
+# ---------- 审计归档 ----------
+
+
+class ArchiveRequest(BaseModel):
+    """归档请求。"""
+
+    before: datetime | None = None
+    """早于该时间的记录将被归档（默认 180 天前）。"""
+
+
+class ArchiveResponse(BaseModel):
+    """归档响应。"""
+
+    archived: int
+    cutoff: str
+
+
+# ---------- 数据清理 ----------
+
+
+class CleanupRequest(BaseModel):
+    """数据清理请求。"""
+
+    task_months: int | None = 12
+    """task_instance 分区保留月数。"""
+    retry_days: int | None = 30
+    """retry_task 保留天数。"""
+
+
+class CleanupResponse(BaseModel):
+    """数据清理响应。"""
+
+    dropped_partitions: int = 0
+    deleted_retry_tasks: int = 0

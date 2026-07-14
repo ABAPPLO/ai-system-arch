@@ -5,10 +5,12 @@
 """
 
 import json
+import re
 from datetime import datetime
 from typing import Any
 
 from apihub_core import db
+from apihub_core.config import get_settings
 from apihub_core.errors import ApiError, ErrorCode
 from apihub_core.logging import get_logger
 
@@ -299,9 +301,131 @@ async def stats(
 
 
 async def archive_before(cutoff: datetime) -> int:
-    """清理：把早于 cutoff 的归档到 OSS 并删除（Phase 2 实现）。
+    """清理：把早于 cutoff 的归档到 OSS 并删除。
+
+    逐批读取（每批 1000 条），按 tenant+月份分组，每组写一个 JSONL gzip
+    文件上传到 audit-archive bucket。成功上传后删除 PG 中的已归档记录。
 
     返回归档条数。
     """
-    log.info("audit_archive_called", cutoff=cutoff.isoformat())
-    return 0  # TODO Phase 2: OSS 客户端 + DELETE RETURNING
+    import gzip
+    import json as stdjson
+
+    from apihub_core import oss
+
+    BATCH = 1000
+    total = 0
+
+    while True:
+        batch_start = datetime.now()
+        async with db.admin_db_session() as conn:
+            rows = await conn.fetch(
+                "SELECT id FROM audit_log WHERE created_at < $1"
+                " ORDER BY id LIMIT $2",
+                cutoff, BATCH,
+            )
+            ids = [r["id"] for r in rows]
+            if not ids:
+                break
+
+            records = await conn.fetch(
+                "SELECT * FROM audit_log WHERE id = ANY($1::bigint[])",
+                ids,
+            )
+
+        # 按 (tenant_id, yyyy, mm) 分组
+        groups: dict[tuple[str, str, str], list[dict[str, Any]]] = {}
+        for r in records:
+            rec = dict(r)
+            ts = rec.get("created_at") or cutoff
+            ym = ts.strftime("%Y"), ts.strftime("%m")
+            key = (rec["tenant_id"], *ym)
+            groups.setdefault(key, []).append(rec)
+
+        ok_ids: list[int] = []
+        settings = get_settings()
+        for (tenant_id, yyyy, mm), recs in groups.items():
+            lines = "\n".join(
+                stdjson.dumps(r, default=str) for r in recs
+            ).encode("utf-8")
+            compressed = gzip.compress(lines)
+            oss_key = f"{yyyy}/{mm}/tenant-{tenant_id}-{yyyy}-{mm}.jsonl.gz"
+            uploaded = await oss.put_object(
+                settings.oss_bucket_audit, oss_key, compressed,
+            )
+            if uploaded:
+                ok_ids.extend(r["id"] for r in recs)
+            else:
+                log.warning(
+                    "audit_archive_upload_skipped",
+                    tenant_id=tenant_id, key=oss_key, count=len(recs),
+                )
+
+        if ok_ids:
+            async with db.admin_db_session() as conn:
+                await conn.execute(
+                    "DELETE FROM audit_log WHERE id = ANY($1::bigint[])",
+                    ok_ids,
+                )
+
+            n = len(ok_ids)
+            total += n
+            elapsed = (datetime.now() - batch_start).total_seconds()
+            log.info(
+                "audit_archive_batch_done",
+                batch_size=n, running_total=total, elapsed_seconds=round(elapsed, 2),
+            )
+
+        if len(ids) < BATCH:
+            break
+
+    log.info("audit_archive_done", total=total, cutoff=cutoff.isoformat())
+    return total
+
+
+async def cleanup_task_partitions(*, before: datetime) -> int:
+    """删除早于 before 的 task_instance 分区。
+
+    分区命名格式：task_instance_YYYY_MM。判断条件：分区结束日期 < before。
+    返回删除的分区数。
+    """
+    dropped = 0
+    async with db.admin_db_session() as conn:
+        rows = await conn.fetch(
+            "SELECT relname AS partition_name,"
+            " pg_get_expr(relpartbound, reltoastrelid) AS bound_expr"
+            " FROM pg_class WHERE relispartition = true"
+            " AND relname LIKE 'task_instance_%'"
+            " ORDER BY relname",
+        )
+        for r in rows:
+            # bound_expr 形如 FOR VALUES FROM ('2026-07-01') TO ('2026-08-01')
+            bound = r["bound_expr"]
+            m = re.search(r"TO\s+\('(\d{4}-\d{2}-\d{2})'\)", bound)
+            if m and datetime.fromisoformat(m.group(1)) < before:
+                await conn.execute(f"DROP TABLE IF EXISTS {r['partition_name']} CASCADE")
+                dropped += 1
+                log.info("cleanup_dropped_partition", partition=r["partition_name"])
+    return dropped
+
+
+async def cleanup_retry_tasks(*, before: datetime) -> int:
+    """删除早于 before 的已结束重试任务（terminal status 且超过保留期）。"""
+    async with db.admin_db_session() as conn:
+        result = await conn.execute(
+            "DELETE FROM retry_task"
+            " WHERE status NOT IN ('pending', 'running')"
+            " AND created_at < $1",
+            before,
+        )
+    n = _parse_delete_count(result)
+    log.info("cleanup_retry_tasks_done", deleted=n, before=before.isoformat())
+    return n
+
+
+def _parse_delete_count(result: str) -> int:
+    """解析 PostgreSQL DELETE 返回 'DELETE N' → int。"""
+    try:
+        return int(result.split()[-1])
+    except (ValueError, IndexError):
+        return 0

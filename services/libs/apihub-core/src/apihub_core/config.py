@@ -83,6 +83,18 @@ class Settings(BaseSettings):
     # AI Gateway（ai-gateway 微服务用）
     ai_gateway_encryption_key: str = ""
 
+    # PII 加密密钥（AES-256-GCM，32 字节 hex）
+    pii_encryption_key: str = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
+
+    # OSS / MinIO（S3-compatible）
+    oss_endpoint: str = "http://localhost:9000"
+    oss_access_key: str = "apihub"
+    oss_secret_key: str = "apihub_dev_pwd"
+    oss_bucket_audit: str = "audit-archive"
+
+    # 存储层安全
+    oss_secure: bool = False
+
     # 下游服务 URL（BFF 聚合用）
     # K8s 默认走集群内 DNS；dev 在 .env.dev 覆盖到 localhost
     tenant_service_url: str = "http://tenant.apihub-system/v1/tenant"
