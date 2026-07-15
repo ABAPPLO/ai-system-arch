@@ -6,6 +6,7 @@
 import uuid
 
 from apihub_core import db, kafka
+from apihub_core.events import TaskRequest
 from apihub_core.tenant import require_tenant
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -46,19 +47,15 @@ async def dispatch_async_task(snap: ApiVersionSnapshot, request: Request) -> JSO
         )
 
     # 投递任务请求（executor 消费）
-    await kafka.emit(
-        "task-requests",
-        {
-            "task_id": task_id,
-            "api_id": snap.api_id,
-            "api_version_id": snap.id,
-            "backend_url": snap.backend_url,
-            "payload": body.decode("utf-8", errors="replace"),
-        },
-        key=task_id,  # 同任务的消息进同一分区（用于状态更新顺序）
-        extra_headers={
-            "request_id": request_id,
-        },
+    await kafka.emit_event(
+        TaskRequest(
+            task_id=task_id,
+            api_id=snap.api_id,
+            api_version_id=snap.id,
+            backend_url=snap.backend_url,
+            payload=body.decode("utf-8", errors="replace"),
+            request_id=request_id,
+        )
     )
 
     return JSONResponse(

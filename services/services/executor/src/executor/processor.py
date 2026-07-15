@@ -9,11 +9,12 @@ import time
 
 import httpx
 from apihub_core import kafka
+from apihub_core.events import TaskRequest, TaskStatus
 from apihub_core.logging import get_logger
 from apihub_core.tenant import TenantContext, clear_tenant_context, set_tenant_context
 
 from executor import repository as repo
-from executor.models import TaskMessage, TaskResult
+from executor.models import TaskResult
 
 log = get_logger(__name__)
 
@@ -38,7 +39,7 @@ async def close_http_client() -> None:
         _client = None
 
 
-async def process_task(msg: TaskMessage) -> TaskResult:
+async def process_task(msg: TaskRequest) -> TaskResult:
     """处理单个任务。
 
     流程：
@@ -85,19 +86,17 @@ async def process_task(msg: TaskMessage) -> TaskResult:
         )
 
     async with _suppress_kafka_err():
-        await kafka.emit(
-            "task-status",
-            {
-                "task_id": msg.task_id,
-                "tenant_id": tenant_id,
-                "app_id": msg.app_id,
-                "api_id": msg.api_id,
-                "status": result.status,
-                "error_code": result.error_code,
-                "duration_ms": result.duration_ms,
-            },
-            key=msg.task_id,
-            extra_headers={"request_id": msg.request_id or ""},
+        await kafka.emit_event(
+            TaskStatus(
+                task_id=msg.task_id,
+                tenant_id=tenant_id,
+                app_id=msg.app_id or "",
+                api_id=msg.api_id,
+                status=result.status,
+                error_code=result.error_code or "",
+                duration_ms=result.duration_ms,
+                request_id=msg.request_id or "",
+            )
         )
 
     log.info(
@@ -110,7 +109,7 @@ async def process_task(msg: TaskMessage) -> TaskResult:
     return result
 
 
-async def _call_backend(msg: TaskMessage) -> TaskResult:
+async def _call_backend(msg: TaskRequest) -> TaskResult:
     """POST backend。所有异常都转成 TaskResult，不向上抛。"""
     if _client is None:
         return TaskResult(

@@ -12,10 +12,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
-from executor.models import TaskMessage
+from apihub_core.events import TaskRequest
 
 
-def make_msg(**overrides) -> TaskMessage:
+def make_msg(**overrides) -> TaskRequest:
     base = {
         "task_id": "task_abc123",
         "api_id": "api_users",
@@ -29,7 +29,7 @@ def make_msg(**overrides) -> TaskMessage:
         "trace_id": "tr_1",
     }
     base.update(overrides)
-    return TaskMessage(**base)
+    return TaskRequest(**base)
 
 
 def make_response(status_code=200, text="{}"):
@@ -59,10 +59,14 @@ def mocks(monkeypatch):
     async def _emit(topic, payload, key=None, extra_headers=None):
         calls["emit"].append((topic, payload, key, extra_headers))
 
+    async def _emit_event(event):
+        calls["emit"].append(event)
+
     monkeypatch.setattr(p.repo, "mark_running", _mark_running)
     monkeypatch.setattr(p.repo, "mark_succeeded", _mark_succeeded)
     monkeypatch.setattr(p.repo, "mark_failed", _mark_failed)
     monkeypatch.setattr(p.kafka, "emit", _emit)
+    monkeypatch.setattr(p.kafka, "emit_event", _emit_event)
 
     return calls
 
@@ -94,10 +98,10 @@ class TestSuccess:
         assert mocks["succeeded"] == [("task_abc123", '{"ok":1}', 200)]
         # mark_failed 不应被调
         assert mocks["failed"] == []
-        # 推了 task-status 事件
+        # 推了 task-status 事件（typed：emit_event 收到 TaskStatus）
         assert len(mocks["emit"]) == 1
-        assert mocks["emit"][0][0] == "task-status"
-        assert mocks["emit"][0][1]["status"] == "succeeded"
+        assert mocks["emit"][0].TOPIC == "task-status"
+        assert mocks["emit"][0].status == "succeeded"
 
     async def test_201_also_succeeded(self, http_client, mocks):
         http_client.post.return_value = make_response(201, "created")
@@ -256,7 +260,7 @@ async def test_call_backend_forwards_w3c_traceparent(monkeypatch):
 
     monkeypatch.setattr(processor._client, "post", _fake_post)
 
-    msg = TaskMessage(
+    msg = TaskRequest(
         task_id="task_t1xx",
         api_id="a1",
         api_version_id="v1",
