@@ -1,5 +1,6 @@
 """服务配置基类（基于 pydantic-settings）。"""
 
+import os
 from functools import lru_cache
 
 from pydantic import Field
@@ -110,7 +111,34 @@ class Settings(BaseSettings):
     # K8s 默认走集群内 DNS；dev 在 .env.dev 覆盖到 localhost:8010
     workflow_service_url: str = "http://workflow.apihub-system"
 
+    def validate_security(self) -> None:
+        """prod（或 REQUIRE_SECURE_SECRETS=1）禁止使用不安全默认密钥。
+
+        dev/test 仍允许默认值，便于本地启动；prod 漏配即启动失败。
+        """
+        enforce = self.env.lower() == "prod" or os.environ.get(
+            "REQUIRE_SECURE_SECRETS"
+        ) == "1"
+        if not enforce:
+            return
+        bad = [k for k, v in _INSECURE_DEFAULTS.items() if getattr(self, k) == v]
+        if bad:
+            raise RuntimeError(
+                f"Insecure default secrets in prod ({bad}); "
+                "inject real values via env (jwt_secret/pii_encryption_key/oss_secret_key)."
+            )
+
+
+# 不安全默认值清单：prod 不允许使用（R0a §2.5）
+_INSECURE_DEFAULTS = {
+    "jwt_secret": "dev-only-insecure-secret",
+    "pii_encryption_key": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+    "oss_secret_key": "apihub_dev_pwd",
+}
+
 
 @lru_cache
 def get_settings() -> Settings:
-    return Settings()  # type: ignore[call-arg]
+    s = Settings()  # type: ignore[call-arg]
+    s.validate_security()
+    return s
