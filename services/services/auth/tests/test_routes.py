@@ -189,25 +189,21 @@ class TestInternalAuthCheckAudit:
 
         from apihub_core import db
 
-        # /internal/auth/check 用方法式缓存 API（cache_positive.get/.set 等），
-        # 与 auth.cache 的函数式实现存在历史不一致（Phase 4 遗留）。这里替换
-        # routes_mod 里的引用为可控 mock，专注验证审计 wiring，不引入对（未
-        # 实现的）方法式缓存 API 的依赖。
-        class _CacheStore:
-            def __init__(self):
-                self.data: dict[str, object] = {}
+        # handler 用函数式缓存 API（get_cached / cache_negative / cache_positive），
+        # 与 /v1/apikey/verify 一致（R0a 顺手修了既有方法式误用）。mock 成 cache miss，
+        # 逼 handler 走 DB 路径 → get_tenant_home_region → spied admin_db_session。
+        async def _get_cached(key):
+            return None
 
-            async def exists(self, key):
-                return False
+        async def _cache_neg(key):
+            return None
 
-            async def get(self, key):
-                return None
+        async def _cache_pos(key, value):
+            return None
 
-            async def set(self, key, value):
-                self.data[key] = value
-
-        monkeypatch.setattr(routes_mod, "cache_negative", _CacheStore())
-        monkeypatch.setattr(routes_mod, "cache_positive", _CacheStore())
+        monkeypatch.setattr(routes_mod, "get_cached", _get_cached)
+        monkeypatch.setattr(routes_mod, "cache_negative", _cache_neg)
+        monkeypatch.setattr(routes_mod, "cache_positive", _cache_pos)
 
         # 捕获 admin_db_session 收到的 audit_reason（等价于 brief 里 spy
         # _write_admin_audit 的形式，但避免对真实 PG pool 的依赖，匹配现有
