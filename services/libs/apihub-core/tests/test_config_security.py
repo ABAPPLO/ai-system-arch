@@ -1,12 +1,11 @@
 """R0a: prod 启动断言 —— 拒绝不安全默认密钥。纯单测，无 PG。"""
 
 import pytest
-
 from apihub_core.config import Settings
 
 
 def _mk(**overrides):
-    base = dict(pg_host="x", pg_user="x", pg_password="x", redis_host="x")
+    base = {"pg_host": "x", "pg_user": "x", "pg_password": "x", "redis_host": "x"}
     base.update(overrides)
     return Settings(**base)
 
