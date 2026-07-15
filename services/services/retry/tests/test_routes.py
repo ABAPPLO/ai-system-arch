@@ -198,8 +198,16 @@ class TestGetDetail:
 
 
 class TestTrigger:
-    async def test_trigger_success(self, client, stub_repo):
+    async def test_trigger_success(self, client, stub_repo, monkeypatch):
         stub_repo["requeue_return"] = (True, 42)
+
+        # requeue 成功后 trigger 会 delay_queue.schedule → 真实 Redis；
+        # 单测里 stub 成 no-op，行为验证由专门的 re_enqueues 测试覆盖。
+        async def _noop_schedule(**kwargs):  # noqa: ARG001
+            return None
+
+        monkeypatch.setattr("retry_svc.routes.delay_queue.schedule", _noop_schedule)
+
         resp = await client.post(
             "/v1/retry/1/trigger",
             headers={"X-API-Key": "ak_test"},
@@ -207,6 +215,24 @@ class TestTrigger:
         assert resp.status_code == 200
         data = resp.json()
         assert data["status"] == "pending"
+
+    async def test_trigger_re_enqueues_to_delay_queue(self, client, monkeypatch):
+        """trigger 成功后必须 delay_queue.schedule，否则 worker 取不到。"""
+        called = {}
+
+        async def _fake_schedule(*, tenant_id, retry_task_id, next_attempt_at_ts):  # noqa: ARG001
+            called["args"] = (tenant_id, retry_task_id)
+
+        monkeypatch.setattr("retry_svc.routes.delay_queue.schedule", _fake_schedule)
+
+        async def _fake_requeue(retry_task_id):
+            return (True, "tenant_a")
+
+        monkeypatch.setattr("retry_svc.routes.repo.requeue_for_retry", _fake_requeue)
+
+        resp = await client.post("/v1/retry/42/trigger")
+        assert resp.status_code == 200
+        assert called.get("args") == ("tenant_a", 42), "trigger 必须 re-enqueue"
 
     async def test_trigger_404(self, client, stub_repo):
         stub_repo["requeue_return"] = (False, 0)

@@ -10,12 +10,14 @@ POST trigger/ignore 也走 db_session，但内部需要切回 admin pool 才能
 在本租户范围内）。
 """
 
+import time
 from datetime import datetime
 
 from apihub_core.errors import ApiError, ErrorCode
 from apihub_core.tenant import require_tenant
 from fastapi import FastAPI, Query
 
+from retry_svc import delay_queue
 from retry_svc import repository as repo
 from retry_svc.models import (
     ListFailedQuery,
@@ -83,7 +85,8 @@ def register_routes(app: FastAPI) -> None:
         """手动触发重试。
 
         dead / ignored / pending → pending + next_retry_at=NOW()。
-        worker 下一轮 poll 会取到。
+        requeue 成功后必须 delay_queue.schedule，否则 worker（只 poll Redis
+        延迟队列）取不到、手动 trigger 静默失效（审计 §2.2）。
         """
         require_tenant()
         ok, _tenant = await repo.requeue_for_retry(retry_task_id)
@@ -93,6 +96,11 @@ def register_routes(app: FastAPI) -> None:
                 f"retry_task {retry_task_id} not found or not in triggerable state",
                 http_status=404,
             )
+        await delay_queue.schedule(
+            tenant_id=_tenant,
+            retry_task_id=retry_task_id,
+            next_attempt_at_ts=time.time(),
+        )
         return {"retry_task_id": retry_task_id, "status": "pending"}
 
     @app.post("/v1/retry/{retry_task_id}/ignore")
