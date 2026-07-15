@@ -34,6 +34,10 @@ resources:
   - ../../services/portal/configmap.yaml
   - ../../services/portal/deployment.yaml
   - ../../base/argo/argo-exec-rbac.yaml
+  # CronJobs（audit-archive / data-cleanup）+ 其挂载的 admin API-key Secret
+  - ../../base/shared/audit-archive-cronjob.yaml
+  - ../../base/shared/data-cleanup-cronjob.yaml
+  - ../../base/shared/admin-cron-apikey.secret.yaml
 
 patches:
   # kind/dev 放开 PodSecurity 到 privileged（strategic-merge patch on apihub-system Namespace）
@@ -64,6 +68,10 @@ patches:
     target: { kind: ConfigMap, name: workflow-config }
   - path: patches/portal-envfrom.yaml
     target: { kind: Deployment, name: portal }
+  # kind/dev：把 admin-cron-apikey Secret patch 成 seed 的 tenant_a key
+  # （cron 专用 admin app + key 尚未建，见 PR follow-up；走通 mount/transport 即可）
+  - path: patches/admin-cron-apikey.yaml
+    target: { kind: Secret, name: admin-cron-apikey, namespace: apihub-system }
   # 副本统一压 1（kind 资源友好）
   - target: { kind: Deployment }
     patch: |-
