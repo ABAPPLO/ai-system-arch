@@ -6,6 +6,9 @@
 详见 docs/04-data-model.md §5 RLS 策略。
 """
 
+from __future__ import annotations
+
+import contextvars
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -16,6 +19,20 @@ from apihub_core.config import Settings
 from apihub_core.tenant import get_tenant_context
 
 _pool: asyncpg.Pool | None = None
+
+_AUDIT_TABLE = "audit_log"
+_audit_reason_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "audit_reason", default=None
+)
+
+
+def set_audit_reason(reason: str | None) -> contextvars.ContextToken[str | None]:
+    """在当前协程内设默认审计 reason（HTTP 中间件用，免去逐调用传参）。"""
+    return _audit_reason_var.set(reason)
+
+
+def reset_audit_reason(token: contextvars.ContextToken[str | None]) -> None:
+    _audit_reason_var.reset(token)
 
 
 async def _init_jsonb_codec(conn: asyncpg.Connection) -> None:
@@ -79,6 +96,37 @@ async def close_pool() -> None:
         _pool = None
 
 
+async def _write_admin_audit(reason: str) -> None:
+    """用独立 raw 连接写一条审计（避免走 admin_db_session 递归）。best-effort。
+
+    admin/repository.record() 本身走 admin_db_session 写 audit_log；若本函数也走
+    admin_db_session 会无限递归。故单独 acquire 连接、单独事务、失败只 log。
+    """
+    import structlog
+
+    log = structlog.get_logger("apihub_core.db")
+    if _pool is None:
+        return
+    ctx = get_tenant_context()
+    tenant_id = ctx.tenant_id if ctx else ""
+    try:
+        async with _pool.acquire() as conn, conn.transaction():
+            await conn.execute(
+                "SELECT set_config('app.is_platform_admin', $1, true)", "true"
+            )
+            await conn.execute(
+                f"""
+                INSERT INTO {_AUDIT_TABLE}
+                    (tenant_id, actor_type, action, resource_type, detail)
+                VALUES ($1, 'system', 'admin_db_session', 'platform', $2::jsonb)
+                """,
+                tenant_id,
+                json.dumps({"reason": reason}),
+            )
+    except Exception as e:  # best-effort：审计失败不能影响业务
+        log.warning("admin_audit_write_failed", error=str(e), reason=reason)
+
+
 @asynccontextmanager
 async def db_session() -> AsyncIterator[asyncpg.Connection]:
     """租户感知的 DB 会话。
@@ -119,7 +167,9 @@ async def db_session() -> AsyncIterator[asyncpg.Connection]:
 
 
 @asynccontextmanager
-async def admin_db_session() -> AsyncIterator[asyncpg.Connection]:
+async def admin_db_session(
+    *, audit_reason: str | None = None
+) -> AsyncIterator[asyncpg.Connection]:
     """超管 DB 会话 —— 绕过 RLS，可见所有租户数据。
 
     使用场景（仅限平台运维 + 几个特殊服务）：
@@ -127,11 +177,15 @@ async def admin_db_session() -> AsyncIterator[asyncpg.Connection]:
       - 平台运维跨租户排查
       - 审计聚合查询
 
-    ⚠️ 业务代码禁用，每次调用都会写 audit_events（外部可观测）。
+    ⚠️ 业务代码禁用。审计是 **opt-in**：传 `audit_reason`（或经 `set_audit_reason`
+    设了 contextvar）才写一条 audit_log（action='admin_db_session'）。审计用独立
+    raw 连接写入、best-effort，不影响本会话事务，也不会递归（区别于
+    admin/repository.record() 显式写审计的路径）。
     """
     if _pool is None:
         raise RuntimeError("DB pool not initialized. Call init_pool first.")
 
+    reason = audit_reason or _audit_reason_var.get()
     async with _pool.acquire() as conn:
         tr = conn.transaction()
         await tr.start()
@@ -144,6 +198,8 @@ async def admin_db_session() -> AsyncIterator[asyncpg.Connection]:
         except Exception:
             await tr.rollback()
             raise
+    if reason:
+        await _write_admin_audit(reason)
 
 
 @asynccontextmanager
