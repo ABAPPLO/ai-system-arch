@@ -53,3 +53,31 @@ def test_frozen():
     e = TaskStatus(task_id="tk", tenant_id="t", app_id="a", api_id="api", status="failed")
     with pytest.raises(FrozenInstanceError):
         e.status = "succeeded"  # frozen
+
+
+from apihub_core import kafka as core_kafka
+
+
+def test_parse_event_routes_by_topic():
+    payload = {"task_id": "tk", "tenant_id": "t", "app_id": "a", "api_id": "api",
+               "status": "failed", "future_col": "ignored"}
+    evt = core_kafka.parse_event("task-status", payload)
+    assert isinstance(evt, TaskStatus)
+    assert evt.status == "failed"
+
+
+def test_parse_event_unknown_topic_raises():
+    import pytest
+    with pytest.raises(ValueError):
+        core_kafka.parse_event("nope-topic", {"a": 1})
+
+
+def test_emit_event_requires_topic():
+    # emit_event 取 event.TOPIC；无 TOPIC 的对象应拒
+    import asyncio
+
+    import pytest
+    class NoTopic:
+        pass
+    with pytest.raises(TypeError):
+        asyncio.run(core_kafka.emit_event(NoTopic()))

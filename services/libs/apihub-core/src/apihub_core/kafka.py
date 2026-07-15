@@ -9,6 +9,7 @@ W3C traceparent 自动注入 / 提取（aiokafka 不在 OTel 自动 instrumentat
 import json
 from collections.abc import Awaitable, Callable
 from contextlib import asynccontextmanager
+from dataclasses import asdict
 from typing import Any
 
 import aiokafka
@@ -19,6 +20,7 @@ from opentelemetry.trace import Link, SpanKind
 from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapPropagator
 
 from apihub_core.config import Settings
+from apihub_core.events import CallEvent, TaskFailure, TaskRequest, TaskStatus
 from apihub_core.tenant import get_tenant_context
 
 _producer: aiokafka.AIOKafkaProducer | None = None
@@ -117,6 +119,35 @@ def extract_trace_context(
         vs = v.decode("utf-8") if isinstance(v, bytes) else v
         out[ks] = vs
     return out
+
+
+_TOPIC_TO_EVENT: dict[str, type] = {
+    TaskRequest.TOPIC: TaskRequest,
+    TaskStatus.TOPIC: TaskStatus,
+    TaskFailure.TOPIC: TaskFailure,
+    CallEvent.TOPIC: CallEvent,
+}
+
+
+def parse_event(topic: str, payload: dict):
+    """按 topic 把 payload 解析成 typed 事件。容忍多余字段；未知 topic 抛 ValueError。"""
+    cls = _TOPIC_TO_EVENT.get(topic)
+    if cls is None:
+        raise ValueError(f"未知 topic，无事件契约: {topic}")
+    return cls.from_dict(payload)
+
+
+async def emit_event(event) -> None:
+    """投递 typed 事件：asdict → 复用 emit()（保留 tenant/traceparent/PRODUCER span 注入）。
+
+    key 优先用 task_id（同任务消息进同分区），否则 None（emit 会回落到 tenant_id）。
+    """
+    topic = getattr(event, "TOPIC", None)
+    if not topic:
+        raise TypeError(f"{type(event).__name__} 未定义 TOPIC，不能 emit_event")
+    payload = asdict(event)
+    key = payload.get("task_id") or None
+    await emit(topic, payload, key=key)
 
 
 @asynccontextmanager
