@@ -9,12 +9,12 @@ import time
 
 import httpx
 from apihub_core import kafka
-from apihub_core.events import TaskStatus
+from apihub_core.events import TaskRequest, TaskStatus
 from apihub_core.logging import get_logger
 from apihub_core.tenant import TenantContext, clear_tenant_context, set_tenant_context
 
 from executor import repository as repo
-from executor.models import TaskMessage, TaskResult
+from executor.models import TaskResult
 
 log = get_logger(__name__)
 
@@ -39,7 +39,7 @@ async def close_http_client() -> None:
         _client = None
 
 
-async def process_task(msg: TaskMessage) -> TaskResult:
+async def process_task(msg: TaskRequest) -> TaskResult:
     """处理单个任务。
 
     流程：
@@ -109,7 +109,7 @@ async def process_task(msg: TaskMessage) -> TaskResult:
     return result
 
 
-async def _call_backend(msg: TaskMessage) -> TaskResult:
+async def _call_backend(msg: TaskRequest) -> TaskResult:
     """POST backend。所有异常都转成 TaskResult，不向上抛。"""
     if _client is None:
         return TaskResult(

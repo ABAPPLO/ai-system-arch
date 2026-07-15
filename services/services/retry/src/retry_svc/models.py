@@ -1,4 +1,8 @@
-"""Kafka 消息 + DB 行 + API schema 数据模型。"""
+"""Kafka 消息 + DB 行 + API schema 数据模型。
+
+task-failures 的负载契约由 apihub_core.events.TaskFailure（typed dataclass）定义，
+见 services/libs/apihub-core/src/apihub_core/events.py。
+"""
 
 from datetime import datetime
 from enum import StrEnum
@@ -29,30 +33,6 @@ class BackoffPolicy(StrEnum):
     EXPONENTIAL = "exponential"
     FIXED = "fixed"
     LINEAR = "linear"
-
-
-class FailureMessage(BaseModel):
-    """executor 推到 task-failures 的负载。
-
-    与 executor.processor 推 task-status 的格式对齐，但只关注失败语义。
-    """
-
-    model_config = ConfigDict(coerce_numbers_to_str=True)
-
-    task_id: str = Field(min_length=8)
-    tenant_id: str
-    app_id: str | None = None
-    api_id: str
-    trace_id: str
-    request_id: str | None = None
-    api_version_id: str | None = None
-    backend_url: str
-    payload: str = ""
-    error_code: str
-    error_msg: str
-    timeout_seconds: float = 30.0
-    max_attempts: int = Field(default=3, ge=1, le=10)
-    backoff_base_ms: int = Field(default=1000, ge=100, le=60_000)
 
 
 class RetryTaskRow(BaseModel):

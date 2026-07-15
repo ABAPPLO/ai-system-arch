@@ -12,10 +12,10 @@ from unittest.mock import AsyncMock, MagicMock
 
 import httpx
 import pytest
-from executor.models import TaskMessage
+from apihub_core.events import TaskRequest
 
 
-def make_msg(**overrides) -> TaskMessage:
+def make_msg(**overrides) -> TaskRequest:
     base = {
         "task_id": "task_abc123",
         "api_id": "api_users",
@@ -29,7 +29,7 @@ def make_msg(**overrides) -> TaskMessage:
         "trace_id": "tr_1",
     }
     base.update(overrides)
-    return TaskMessage(**base)
+    return TaskRequest(**base)
 
 
 def make_response(status_code=200, text="{}"):
@@ -260,7 +260,7 @@ async def test_call_backend_forwards_w3c_traceparent(monkeypatch):
 
     monkeypatch.setattr(processor._client, "post", _fake_post)
 
-    msg = TaskMessage(
+    msg = TaskRequest(
         task_id="task_t1xx",
         api_id="a1",
         api_version_id="v1",

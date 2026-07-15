@@ -2,7 +2,7 @@
 
 不依赖真 Kafka，验证：
   - 消息能从 queue 拽到 process_task
-  - header 正确回填到 TaskMessage
+  - tenant_id / app_id / trace_id 从 header 回填，request_id 从 payload（typed 契约）
   - 单条消息异常不杀 worker
   - stop 信号能优雅退出
 """
@@ -51,7 +51,7 @@ class _FakeConsumer:
 
 @pytest.fixture
 def captured_tasks():
-    """记录所有传给 process_task 的 TaskMessage。"""
+    """记录所有传给 process_task 的 TaskRequest。"""
     return []
 
 
@@ -81,7 +81,11 @@ def fake_settings():
 
 class TestHandle:
     async def test_parses_message_and_headers(self, fake_settings, stub_processor, captured_tasks):
-        """Kafka 消息体 + header → TaskMessage 字段齐全。"""
+        """Kafka 消息体 + header → TaskRequest 字段齐全。
+
+        request_id 走 payload（Task 3 闭合通道：生产侧 TaskRequest 已带 request_id）；
+        tenant_id / app_id / trace_id 仍由 kafka.emit 注入 header，消费侧重填。
+        """
         from executor.consumer import TaskConsumer
 
         msg = _FakeKafkaMsg(
@@ -92,12 +96,12 @@ class TestHandle:
                 "backend_url": "http://b/h",
                 "payload": '{"x":1}',
                 "timeout_seconds": 45.0,
+                "request_id": "req_99",
             },
             key="task_xyz12345",
             headers=[
                 (b"tenant_id", b"t_99"),
                 (b"app_id", b"app_99"),
-                (b"request_id", b"req_99"),
             ],
         )
 
@@ -120,6 +124,8 @@ class TestHandle:
         msg = _FakeKafkaMsg(
             value={
                 "task_id": "task_nohdr1234",
+                "api_id": "",
+                "api_version_id": "",
                 "backend_url": "http://b/h",
             },
         )
@@ -140,8 +146,8 @@ class TestRun:
 
         fake = _FakeConsumer(
             [
-                _FakeKafkaMsg(value={"task_id": "task_aaaaaaaa", "backend_url": "http://b/1"}),
-                _FakeKafkaMsg(value={"task_id": "task_bbbbbbbb", "backend_url": "http://b/2"}),
+                _FakeKafkaMsg(value={"task_id": "task_aaaaaaaa", "api_id": "", "api_version_id": "", "backend_url": "http://b/1"}),
+                _FakeKafkaMsg(value={"task_id": "task_bbbbbbbb", "api_id": "", "api_version_id": "", "backend_url": "http://b/2"}),
             ]
         )
 
@@ -176,8 +182,8 @@ class TestRun:
 
         fake = _FakeConsumer(
             [
-                _FakeKafkaMsg(value={"task_id": "task_aaaaaaaa", "backend_url": "http://b/1"}),
-                _FakeKafkaMsg(value={"task_id": "task_bbbbbbbb", "backend_url": "http://b/2"}),
+                _FakeKafkaMsg(value={"task_id": "task_aaaaaaaa", "api_id": "", "api_version_id": "", "backend_url": "http://b/1"}),
+                _FakeKafkaMsg(value={"task_id": "task_bbbbbbbb", "api_id": "", "api_version_id": "", "backend_url": "http://b/2"}),
             ]
         )
         c = mod.TaskConsumer(fake_settings)

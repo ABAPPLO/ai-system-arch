@@ -4,19 +4,20 @@
   - 单消费组多 partition → 横向扩展靠副本数 + partition 数
   - 每条消息处理完才 commit（at-least-once）
   - 消息处理失败不抛 → 写 PG failed 即可，下次重投靠 retry 服务（不在本服务）
-  - 头里取 tenant_id / request_id 等，回填到 TaskMessage
+  - payload 走 typed 契约（parse_event → TaskRequest）；tenant_id / app_id / trace_id
+    由 kafka.emit 从 TenantContext 注入 header（不在 payload），消费侧重填进事件
 """
 
 import asyncio
 import contextlib
 import json
+from dataclasses import replace
 
 import aiokafka
 from apihub_core import kafka as core_kafka
 from apihub_core.config import Settings
 from apihub_core.logging import get_logger
 
-from executor.models import TaskMessage
 from executor.processor import process_task
 
 log = get_logger(__name__)
@@ -88,22 +89,20 @@ class TaskConsumer:
             log.exception("consumer_loop_crashed", error=str(e))
 
     async def _handle(self, msg) -> None:
-        """把 Kafka 消息转成 TaskMessage，调 processor。"""
+        """把 Kafka 消息解析成 TaskRequest，调 processor。"""
         payload = msg.value or {}
         headers = core_kafka.extract_trace_context(msg.headers)
 
-        task_msg = TaskMessage(
-            task_id=payload["task_id"],
-            api_id=payload.get("api_id", ""),
-            api_version_id=payload.get("api_version_id", ""),
-            backend_url=payload["backend_url"],
-            payload=payload.get("payload", ""),
-            timeout_seconds=float(payload.get("timeout_seconds", 30.0)),
-            callback_url=payload.get("callback_url"),
-            tenant_id=headers.get("tenant_id"),
-            app_id=headers.get("app_id"),
-            request_id=headers.get("request_id") or payload.get("request_id"),
-            trace_id=headers.get("trace_id"),
+        task_msg = core_kafka.parse_event(TOPIC, payload)
+        # tenant_id / app_id / trace_id: 生产侧 kafka.emit 从 TenantContext 注入到
+        # header（不在 payload），这里回填进 typed 事件。
+        # request_id 不从 header 取：Task 3 已把它挪进 TaskRequest payload，闭合
+        # 原先 headers.get(...) or payload.get(...) 的双通道。
+        task_msg = replace(
+            task_msg,
+            tenant_id=headers.get("tenant_id") or task_msg.tenant_id,
+            app_id=headers.get("app_id") or task_msg.app_id,
+            trace_id=headers.get("trace_id") or task_msg.trace_id,
         )
 
         await process_task(task_msg)

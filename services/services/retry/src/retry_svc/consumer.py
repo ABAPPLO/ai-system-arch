@@ -5,6 +5,7 @@
   - retry-svc 消费 → 创建 retry_task → 推到 Redis ZSet 延迟队列
   - 单消费组多 partition → 副本数 = 消费并行度
   - 单条消息异常不杀 worker（commit + log）
+  - payload 走 typed 契约（parse_event → TaskFailure）；tenant_id 仍 header 优先
 """
 
 import asyncio
@@ -20,7 +21,7 @@ from apihub_core.tenant import TenantContext, set_tenant_context
 from retry_svc import delay_queue
 from retry_svc import repository as repo
 from retry_svc.backoff import next_attempt_delay_ms
-from retry_svc.models import BackoffPolicy, FailureMessage
+from retry_svc.models import BackoffPolicy
 
 log = get_logger(__name__)
 
@@ -86,7 +87,7 @@ class FailureConsumer:
             log.exception("consumer_loop_crashed", error=str(e))
 
     async def _handle(self, msg) -> None:
-        """Kafka 消息 → FailureMessage → 写 PG → 推 ZSet。"""
+        """Kafka 消息 → TaskFailure → 写 PG → 推 ZSet。"""
         payload = msg.value or {}
         headers = core_kafka.extract_trace_context(msg.headers)
 
@@ -100,22 +101,15 @@ class FailureConsumer:
             log.warning("failure_msg_invalid_tenant", tenant_id=tenant_id)
             return
 
-        failure = FailureMessage(
-            task_id=payload["task_id"],
-            tenant_id=tenant_id,
-            app_id=payload.get("app_id") or headers.get("app_id"),
-            api_id=payload["api_id"],
-            trace_id=payload.get("trace_id") or payload["task_id"],
-            request_id=headers.get("request_id") or payload.get("request_id"),
-            api_version_id=payload.get("api_version_id"),
-            backend_url=payload["backend_url"],
-            payload=payload.get("payload", ""),
-            error_code=payload.get("error_code", "unknown"),
-            error_msg=payload.get("error_msg", ""),
-            timeout_seconds=float(payload.get("timeout_seconds", 30.0)),
-            max_attempts=int(payload.get("max_attempts", 3)),
-            backoff_base_ms=int(payload.get("backoff_base_ms", 1000)),
-        )
+        # tenant_id 已校验；并入 payload 再 parse，保证 TaskFailure.tenant_id 必填有值，
+        # 且与原 FailureMessage(tenant_id=tenant_id) 行为一致（header tenant 为准）。
+        # app_id 原 payload 优先回落 header —— 一并并入。
+        parse_payload = {
+            **payload,
+            "tenant_id": tenant_id,
+            "app_id": payload.get("app_id") or headers.get("app_id"),
+        }
+        failure = core_kafka.parse_event(TOPIC, parse_payload)
 
         # 设 TenantContext（虽然写走 admin_db_session，但 log / OTel 需要 tenant）
         set_tenant_context(
