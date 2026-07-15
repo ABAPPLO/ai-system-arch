@@ -204,3 +204,42 @@ class TestRLSViaDbSession:
             )
         finally:
             await pool.close()
+
+
+class TestRLSInjectionHardened:
+    """R0a §2.5: db_session 用 set_config($1) 参数化，含引号的 tenant_id 不能注入/报错。"""
+
+    async def test_db_session_handles_quote_in_tenant_id(self, monkeypatch):
+        from apihub_core import db
+        from apihub_core.tenant import TenantContext, set_tenant_context
+
+        pool = await asyncpg.create_pool(PG_DSN, min_size=1, max_size=2)
+        monkeypatch.setattr(db, "_pool", pool)
+        # 尝试 SQL 注入：旧 f-string 实现会拼进 SQL 破坏语句或改写 RLS
+        evil = TenantContext(
+            tenant_id="x', 'true'); -- ",
+            tenant_type="internal",
+            app_id="app_trading",
+        )
+        try:
+            set_tenant_context(evil)
+            async with db.db_session() as conn:
+                rows = await conn.fetch("SELECT id, tenant_id FROM api")
+            # 参数化后 evil 被当字面量：RLS 过滤到该(不存在)tenant → 空，无注入、无报错
+            assert rows == [], f"注入面：意外返回行 {rows}"
+        finally:
+            await pool.close()
+
+    async def test_db_session_still_filters_correctly_after_param_change(self, monkeypatch, tenant_a):
+        from apihub_core import db
+        from apihub_core.tenant import set_tenant_context
+
+        pool = await asyncpg.create_pool(PG_DSN, min_size=1, max_size=2)
+        monkeypatch.setattr(db, "_pool", pool)
+        try:
+            set_tenant_context(tenant_a)
+            async with db.db_session() as conn:
+                rows = await conn.fetch("SELECT tenant_id FROM api")
+            assert rows and all(r["tenant_id"] == "tenant_a" for r in rows)
+        finally:
+            await pool.close()

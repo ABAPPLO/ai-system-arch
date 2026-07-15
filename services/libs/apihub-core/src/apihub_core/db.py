@@ -101,9 +101,14 @@ async def db_session() -> AsyncIterator[asyncpg.Connection]:
             tr = conn.transaction()
             await tr.start()
             try:
-                # 注入租户上下文给 RLS 用
-                await conn.execute(f"SET LOCAL app.tenant_id = '{ctx.tenant_id}'")
-                await conn.execute(f"SET LOCAL app.is_platform_admin = '{ctx.is_platform_admin}'")
+                # 注入租户上下文给 RLS 用（参数化，防 SQL 注入 —— R0a §2.5）
+                await conn.execute(
+                    "SELECT set_config('app.tenant_id', $1, true)", ctx.tenant_id
+                )
+                await conn.execute(
+                    "SELECT set_config('app.is_platform_admin', $1, true)",
+                    "true" if ctx.is_platform_admin else "false",
+                )
                 yield conn
                 await tr.commit()
             except Exception:
@@ -131,7 +136,9 @@ async def admin_db_session() -> AsyncIterator[asyncpg.Connection]:
         tr = conn.transaction()
         await tr.start()
         try:
-            await conn.execute("SET LOCAL app.is_platform_admin = 'true'")
+            await conn.execute(
+                "SELECT set_config('app.is_platform_admin', $1, true)", "true"
+            )
             yield conn
             await tr.commit()
         except Exception:
@@ -157,7 +164,9 @@ async def meta_db_session() -> AsyncIterator[asyncpg.Connection]:
         tr = conn.transaction()
         await tr.start()
         try:
-            await conn.execute("SET LOCAL app.is_platform_admin = 'true'")
+            await conn.execute(
+                "SELECT set_config('app.is_platform_admin', $1, true)", "true"
+            )
             yield conn
             await tr.commit()
         except Exception:
