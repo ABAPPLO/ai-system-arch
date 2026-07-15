@@ -19,9 +19,17 @@ spec:
         spec:
           serviceAccountName: admin
           restartPolicy: Never
+          volumes:
+            - name: admin-apikey
+              secret:
+                secretName: admin-cron-apikey
           containers:
             - name: curl
               image: curlimages/curl:latest
+              volumeMounts:
+                - name: admin-apikey
+                  mountPath: /etc/apihub
+                  readOnly: true
               command:
                 - sh
                 - -c

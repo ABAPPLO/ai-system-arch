@@ -97,13 +97,12 @@ def register_routes(app: FastAPI) -> None:
         if not is_valid_format(payload.api_key):
             raise ApiError(ErrorCode.UNAUTHORIZED, "invalid api key format")
 
-        # 1. 负缓存命中
-        if await cache_negative.exists(payload.api_key):
-            raise ApiError(ErrorCode.UNAUTHORIZED, "invalid api key")
-
-        # 2. 正缓存命中
-        cached = await cache_positive.get(payload.api_key)
-        if cached:
+        # 1+2. 缓存命中（正/负都走 get_cached；负缓存存 {"invalid": True}，
+        #    与 /v1/apikey/verify 一致 —— 修正既有 cache API 误用，R0a §2.4）
+        cached = await get_cached(payload.api_key)
+        if cached is not None:
+            if cached.get("invalid"):
+                raise ApiError(ErrorCode.UNAUTHORIZED, "invalid api key")
             if "home_region" not in cached:
                 cached["home_region"] = await get_tenant_home_region(cached["tenant_id"])
             return {**cached, "home_region": cached["home_region"]}
@@ -111,13 +110,13 @@ def register_routes(app: FastAPI) -> None:
         # 3. DB 查
         record = await verify_api_key_record(payload.api_key)
         if not record:
-            await cache_negative.set(payload.api_key)
+            await cache_negative(payload.api_key)
             raise ApiError(ErrorCode.UNAUTHORIZED, "invalid api key")
 
         # 4. 写正缓存（带上 home_region，后续缓存命中无需额外 DB 查询）
         home_region = await get_tenant_home_region(record["tenant_id"])
         record_with_region = {**record, "home_region": home_region}
-        await cache_positive.set(payload.api_key, record_with_region)
+        await cache_positive(payload.api_key, record_with_region)
         log.info(
             "auth_check_verified",
             app_id=record["app_id"],

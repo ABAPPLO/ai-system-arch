@@ -204,3 +204,117 @@ class TestRLSViaDbSession:
             )
         finally:
             await pool.close()
+
+
+class TestRLSInjectionHardened:
+    """R0a §2.5: db_session 用 set_config($1) 参数化，含引号的 tenant_id 不能注入/报错。"""
+
+    async def test_db_session_handles_quote_in_tenant_id(self, monkeypatch):
+        from apihub_core import db
+        from apihub_core.tenant import TenantContext, set_tenant_context
+
+        pool = await asyncpg.create_pool(PG_DSN, min_size=1, max_size=2)
+        monkeypatch.setattr(db, "_pool", pool)
+        # 尝试 SQL 注入：旧 f-string 实现会拼进 SQL 破坏语句或改写 RLS
+        evil = TenantContext(
+            tenant_id="x', 'true'); -- ",
+            tenant_type="internal",
+            app_id="app_trading",
+        )
+        try:
+            set_tenant_context(evil)
+            async with db.db_session() as conn:
+                rows = await conn.fetch("SELECT id, tenant_id FROM api")
+            # 参数化后 evil 被当字面量：RLS 过滤到该(不存在)tenant → 空，无注入、无报错
+            assert rows == [], f"注入面：意外返回行 {rows}"
+        finally:
+            await pool.close()
+
+    async def test_db_session_still_filters_correctly_after_param_change(self, monkeypatch, tenant_a):
+        from apihub_core import db
+        from apihub_core.tenant import set_tenant_context
+
+        pool = await asyncpg.create_pool(PG_DSN, min_size=1, max_size=2)
+        monkeypatch.setattr(db, "_pool", pool)
+        try:
+            set_tenant_context(tenant_a)
+            async with db.db_session() as conn:
+                rows = await conn.fetch("SELECT tenant_id FROM api")
+            assert rows and all(r["tenant_id"] == "tenant_a" for r in rows)
+        finally:
+            await pool.close()
+
+
+class TestAdminDbSessionAudit:
+    """R0a §2.4: admin_db_session 可审计（opt-in），且不递归。"""
+
+    async def test_no_audit_by_default(self, monkeypatch):
+        from apihub_core import db
+
+        pool = await asyncpg.create_pool(PG_DSN, min_size=1, max_size=2)
+        monkeypatch.setattr(db, "_pool", pool)
+        try:
+            async with _connect() as c, c.transaction():
+                await c.execute(
+                    "SELECT set_config('app.is_platform_admin', $1, true)", "true"
+                )
+                before = await c.fetchval(
+                    "SELECT count(*) FROM audit_log WHERE action = 'admin_db_session'"
+                )
+            async with db.admin_db_session() as conn:
+                await conn.fetchval("SELECT 1")
+            async with _connect() as c, c.transaction():
+                await c.execute(
+                    "SELECT set_config('app.is_platform_admin', $1, true)", "true"
+                )
+                after = await c.fetchval(
+                    "SELECT count(*) FROM audit_log WHERE action = 'admin_db_session'"
+                )
+            assert after == before, "默认不应写审计"
+        finally:
+            await pool.close()
+
+    async def test_audits_when_reason_given(self, monkeypatch, tenant_a):
+        from apihub_core import db
+        from apihub_core.tenant import set_tenant_context
+
+        pool = await asyncpg.create_pool(PG_DSN, min_size=1, max_size=2)
+        monkeypatch.setattr(db, "_pool", pool)
+        set_tenant_context(tenant_a)
+        try:
+            async with _connect() as c, c.transaction():
+                await c.execute(
+                    "SELECT set_config('app.is_platform_admin', $1, true)", "true"
+                )
+                before = await c.fetchval(
+                    "SELECT count(*) FROM audit_log WHERE action = 'admin_db_session'"
+                )
+            async with db.admin_db_session(audit_reason="cross-tenant key verify") as conn:
+                await conn.fetchval("SELECT 1")
+            async with _connect() as c, c.transaction():
+                await c.execute(
+                    "SELECT set_config('app.is_platform_admin', $1, true)", "true"
+                )
+                after = await c.fetchval(
+                    "SELECT count(*) FROM audit_log WHERE action = 'admin_db_session'"
+                )
+            assert after == before + 1, "传 audit_reason 应写一条审计"
+        finally:
+            await pool.close()
+
+    async def test_audit_failure_does_not_break_operation(self, monkeypatch, tenant_a):
+        """审计写失败（如 audit_log 表不存在）不能影响业务操作。"""
+        from apihub_core import db
+        from apihub_core.tenant import set_tenant_context
+
+        pool = await asyncpg.create_pool(PG_DSN, min_size=1, max_size=2)
+        monkeypatch.setattr(db, "_pool", pool)
+        set_tenant_context(tenant_a)
+        # 让 _write_admin_audit 内部 INSERT 报错：指向不存在的表
+        monkeypatch.setattr(db, "_AUDIT_TABLE", "audit_log_does_not_exist")
+        try:
+            async with db.admin_db_session(audit_reason="x") as conn:
+                val = await conn.fetchval("SELECT 1")
+            assert val == 1  # 业务操作照常完成
+        finally:
+            await pool.close()
