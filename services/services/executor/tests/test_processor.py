@@ -199,6 +199,82 @@ class TestIdempotency:
         assert mocks["failed"] == []
 
 
+class TestTaskFailureEmit:
+    async def test_failed_task_emits_task_failure(self, http_client, mocks):
+        """failed 任务必须产 TaskFailure（带显式 trace_id），succeeded 不产。"""
+        from apihub_core.events import TaskFailure
+        from executor.processor import process_task
+
+        # 500 → failed
+        http_client.post.return_value = make_response(500, "boom")
+
+        result = await process_task(make_msg())
+
+        assert result.status == "failed"
+
+        captured = mocks["emit"]
+        failures = [a for a in captured if isinstance(a, TaskFailure)]
+        assert failures, "failed 任务应产 TaskFailure"
+        f = failures[0]
+        # 显式 trace_id（msg.trace_id 优先）
+        assert f.trace_id == "tr_1"
+        # 回填给 retry 用的 backend_url
+        assert f.backend_url == "http://backend.internal/users"
+        # 其余字段对齐 R0b 契约
+        assert f.task_id == "task_abc123"
+        assert f.tenant_id == "t1"
+        assert f.app_id == "app_x"
+        assert f.api_id == "api_users"
+        assert f.api_version_id == "ver_1"
+        assert f.request_id == "req_1"
+        assert f.payload == '{"user":"u1"}'
+        assert f.error_code == "backend_http_500"
+        assert f.error_msg == "boom"
+        assert f.timeout_seconds == 5.0
+
+    async def test_trace_id_falls_back_to_task_id(self, http_client, mocks):
+        """trace_id 缺省时回退到 task_id（仍是显式非空）。"""
+        from apihub_core.events import TaskFailure
+        from executor.processor import process_task
+
+        http_client.post.return_value = make_response(500, "boom")
+        msg = make_msg(trace_id=None)
+
+        result = await process_task(msg)
+
+        assert result.status == "failed"
+        failures = [a for a in mocks["emit"] if isinstance(a, TaskFailure)]
+        assert failures
+        assert failures[0].trace_id == msg.task_id  # 回退到 task_id
+
+    async def test_timeout_also_emits_task_failure(self, http_client, mocks):
+        """timeout 任务也必须产 TaskFailure（retry 同道消费）。"""
+        import httpx as _httpx
+        from apihub_core.events import TaskFailure
+        from executor.processor import process_task
+
+        http_client.post.side_effect = _httpx.TimeoutException("read timeout")
+        result = await process_task(make_msg(timeout_seconds=0.05))
+
+        assert result.status == "timeout"
+        failures = [a for a in mocks["emit"] if isinstance(a, TaskFailure)]
+        assert failures, "timeout 任务应产 TaskFailure"
+        assert failures[0].error_code == "backend_timeout"
+
+    async def test_succeeded_does_not_emit_task_failure(self, http_client, mocks):
+        """succeeded 任务不应产 TaskFailure。"""
+        from apihub_core.events import TaskFailure
+        from executor.processor import process_task
+
+        http_client.post.return_value = make_response(200, '{"ok":1}')
+
+        result = await process_task(make_msg())
+
+        assert result.status == "succeeded"
+        failures = [a for a in mocks["emit"] if isinstance(a, TaskFailure)]
+        assert not failures, "succeeded 任务不应产 TaskFailure"
+
+
 class TestHeaders:
     async def test_request_headers_set(self, http_client, mocks):
         """调 backend 时应带 X-Task-Id / X-Tenant-Id 等。"""
