@@ -5,8 +5,8 @@ ClickHouse 端 schema 与此对齐（见 scripts/init-clickhouse/01-schema.sql�
 
 import uuid
 from datetime import UTC, datetime
-from typing import Any
 
+from apihub_core.events import CallEvent
 from apihub_core.tenant import get_tenant_context
 
 
@@ -34,7 +34,7 @@ def build_call_event(
     token_total: int = 0,
     trace_id: str = "",
     request_id: str = "",
-) -> dict[str, Any]:
+) -> CallEvent:
     """组装一条调用事件。
 
     tenant_id / tenant_type / app_id 由 apihub_core.kafka.emit 自动从
@@ -45,7 +45,7 @@ def build_call_event(
     tenant_type = ctx.tenant_type if ctx else ""
     app_id = ctx.app_id if ctx else ""
 
-    return {
+    d = {
         "ts": _now_ch_ts(),
         "tenant_id": tenant_id,
         "tenant_type": tenant_type,
@@ -73,6 +73,7 @@ def build_call_event(
         "token_completion": token_completion,
         "token_total": token_total,
     }
+    return CallEvent(**d)
 
 
 def new_request_id() -> str:

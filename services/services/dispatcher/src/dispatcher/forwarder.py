@@ -283,7 +283,7 @@ async def _emit_success(
         request_id=request_id,
         trace_id=request.headers.get("X-Trace-Id", ""),
     )
-    await kafka.emit("api-call-events", payload)
+    await kafka.emit_event(payload)
 
 
 async def _emit_failure(snap, request, exc, request_id, backend_latency_ms):
@@ -308,7 +308,7 @@ async def _emit_failure(snap, request, exc, request_id, backend_latency_ms):
         request_id=request_id,
         trace_id=request.headers.get("X-Trace-Id", ""),
     )
-    await kafka.emit("api-call-events", payload)
+    await kafka.emit_event(payload)
 
 
 async def _emit_stream_complete(
@@ -346,7 +346,7 @@ async def _emit_stream_complete(
         request_id=request_id,
         trace_id=request.headers.get("X-Trace-Id", ""),
     )
-    await kafka.emit("api-call-events", payload)
+    await kafka.emit_event(payload)
 
 
 def _b(s: str) -> bytes:

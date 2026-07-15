@@ -9,6 +9,7 @@ import time
 
 import httpx
 from apihub_core import kafka
+from apihub_core.events import TaskStatus
 from apihub_core.logging import get_logger
 from apihub_core.tenant import TenantContext, clear_tenant_context, set_tenant_context
 
@@ -85,19 +86,17 @@ async def process_task(msg: TaskMessage) -> TaskResult:
         )
 
     async with _suppress_kafka_err():
-        await kafka.emit(
-            "task-status",
-            {
-                "task_id": msg.task_id,
-                "tenant_id": tenant_id,
-                "app_id": msg.app_id,
-                "api_id": msg.api_id,
-                "status": result.status,
-                "error_code": result.error_code,
-                "duration_ms": result.duration_ms,
-            },
-            key=msg.task_id,
-            extra_headers={"request_id": msg.request_id or ""},
+        await kafka.emit_event(
+            TaskStatus(
+                task_id=msg.task_id,
+                tenant_id=tenant_id,
+                app_id=msg.app_id or "",
+                api_id=msg.api_id,
+                status=result.status,
+                error_code=result.error_code or "",
+                duration_ms=result.duration_ms,
+                request_id=msg.request_id or "",
+            )
         )
 
     log.info(
