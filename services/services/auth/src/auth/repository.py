@@ -62,8 +62,11 @@ async def verify_api_key_record(api_key_plaintext: str) -> dict | None:
 
 
 async def get_tenant_home_region(tenant_id: int) -> str | None:
-    """跨租户查 tenant 的 home_region（admin session，不触发 RLS）。"""
-    async with db.admin_db_session() as conn:
+    """跨租户查 tenant 的 home_region（admin session，不触发 RLS）。
+
+    R0a §2.4：opt-in 审计 —— 每次 /internal/auth/check 跨租户读都留一条 audit_log。
+    """
+    async with db.admin_db_session(audit_reason="cross-tenant api-key verify") as conn:
         row = await conn.fetchval(
             "SELECT home_region FROM tenant WHERE id = $1",
             tenant_id,

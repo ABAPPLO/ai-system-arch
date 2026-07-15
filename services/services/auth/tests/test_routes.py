@@ -170,6 +170,82 @@ class TestVerify:
         assert cache_key(plaintext) in fake_redis.store  # 写了负缓存
 
 
+# ========== /internal/auth/check (内部端点，APISIX tenant-affinity) ==========
+
+
+class _FakeAdminConn:
+    """admin_db_session 被 mock 后 yield 的假连接，仅满足 get_tenant_home_region 的 fetchval。"""
+
+    async def fetchval(self, sql, *args):
+        return "region-test"
+
+
+class TestInternalAuthCheckAudit:
+    """R0a §2.4: /internal/auth/check 的跨租户读必须带 audit_reason 触发 admin_db_session 审计。"""
+
+    async def test_internal_auth_check_audited(self, client, monkeypatch):
+        """/internal/auth/check 做 cross-tenant 读取，应带 audit_reason 触发 admin_db_session。"""
+        import contextlib
+
+        from apihub_core import db
+
+        # /internal/auth/check 用方法式缓存 API（cache_positive.get/.set 等），
+        # 与 auth.cache 的函数式实现存在历史不一致（Phase 4 遗留）。这里替换
+        # routes_mod 里的引用为可控 mock，专注验证审计 wiring，不引入对（未
+        # 实现的）方法式缓存 API 的依赖。
+        class _CacheStore:
+            def __init__(self):
+                self.data: dict[str, object] = {}
+
+            async def exists(self, key):
+                return False
+
+            async def get(self, key):
+                return None
+
+            async def set(self, key, value):
+                self.data[key] = value
+
+        monkeypatch.setattr(routes_mod, "cache_negative", _CacheStore())
+        monkeypatch.setattr(routes_mod, "cache_positive", _CacheStore())
+
+        # 捕获 admin_db_session 收到的 audit_reason（等价于 brief 里 spy
+        # _write_admin_audit 的形式，但避免对真实 PG pool 的依赖，匹配现有
+        # auth 单测全 mock 的约定）。
+        captured: list[str | None] = []
+
+        @contextlib.asynccontextmanager
+        async def _spy_admin_session(*, audit_reason: str | None = None):
+            captured.append(audit_reason)
+            yield _FakeAdminConn()
+
+        monkeypatch.setattr(db, "admin_db_session", _spy_admin_session)
+
+        # verify_api_key_record 返回固定 record，避免真实 PG key 查询
+        async def _verify(p):
+            return {
+                "is_active": True,
+                "tenant_id": "t_audit",
+                "tenant_type": "internal",
+                "app_id": "app_audit",
+                "is_platform_admin": False,
+                "scopes": [],
+            }
+
+        from auth import repository as r
+
+        monkeypatch.setattr(r, "verify_api_key_record", _verify)
+        routes_mod.verify_api_key_record = r.verify_api_key_record
+
+        resp = await client.post(
+            "/internal/auth/check",
+            json={"api_key": "ak_" + "a" * 40},
+        )
+
+        assert resp.status_code == 200
+        assert "cross-tenant api-key verify" in captured, "应传 audit_reason 触发审计"
+
+
 # ========== /v1/apps/{app_id}/api-keys (受保护端点) ==========
 
 
