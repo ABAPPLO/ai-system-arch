@@ -38,6 +38,42 @@ class TestBuildCallEvent:
         assert event.trace_id.startswith("trc_")
         assert event.request_id.startswith("req_")
 
+    def test_trace_id_uses_otel_span_when_active(self, tenant_a):
+        """有活跃 OTel span 时，trace_id 取自该 span（= Jaeger 同 trace），不再是随机 trc_。
+
+        R1b §3.9：让 ClickHouse 调用日志的 trace_id 能 join Jaeger。
+        用 NonRecordingSpan + attach，不依赖全局 TracerProvider（测试环境可能未装/被冻结）。
+        """
+        from opentelemetry import trace
+        from opentelemetry.context import attach, detach
+        from opentelemetry.trace import NonRecordingSpan, SpanContext, TraceFlags
+
+        tid = 0x1234567890ABCDEF1234567890ABCDEF
+        ctx = SpanContext(
+            trace_id=tid,
+            span_id=0x1,
+            is_remote=False,
+            trace_flags=TraceFlags(TraceFlags.SAMPLED),
+        )
+        token = attach(trace.set_span_in_context(NonRecordingSpan(ctx)))
+        try:
+            set_tenant_context(tenant_a)
+            event = build_call_event(
+                api_id="api_1",
+                api_version_id="ver_1",
+                method="GET",
+                path="/x",
+                status_code=200,
+                is_success=True,
+                latency_ms=1,
+                request_size=1,
+                response_size=1,
+            )
+            assert event.trace_id == f"{tid:032x}"
+            assert not event.trace_id.startswith("trc_")
+        finally:
+            detach(token)
+
     def test_is_success_serialized_as_int(self, tenant_a):
         set_tenant_context(tenant_a)
         event = build_call_event(
