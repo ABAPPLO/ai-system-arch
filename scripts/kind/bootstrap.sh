@@ -144,7 +144,7 @@ if [ "${REDIS_HP:-}" != "6379" ] || [ "${PG_HP:-}" != "5432" ]; then
 fi
 
 # 4) 构建 11 镜像 + load 进 kind
-SVC=(api-registry dispatcher auth executor quota tenant admin docs trace retry workflow)
+SVC=(api-registry dispatcher auth executor quota tenant admin docs trace retry workflow portal)
 for s in "${SVC[@]}"; do
   echo "=== build+load $s ==="
   docker build -f "services/services/$s/Dockerfile" \
@@ -158,6 +158,15 @@ kind load docker-image python:3.11-slim --name apihub
 
 # 5) apply（--load-restrictor：overlay 引用上级目录资源）
 kustomize build --load-restrictor LoadRestrictionsNone deploy/k8s/overlays/kind | kubectl apply -f -
+
+# 5a) shared-infra（数据层连接 CM/Secret）—— 故意不在 kustomization resources（避 ArgoCD
+#     管，见 shared-infra.yaml 顶部注释：由独立 kubectl apply 下发）。bootstrap 需自己 apply，
+#     否则 deployment envFrom 的 apihub-shared-infra 缺失 → 全员 CreateContainerConfigError。
+#     端口用 compose 实际 publish（上方 read-back 的 PG_HP/REDIS_HP）patch 进 live CM——
+#     host 5432/6379 被占时 compose 重映射到 15433/16379 等，git 模板里是标准端口。
+kubectl apply -f deploy/k8s/overlays/kind/shared-infra.yaml
+kubectl -n apihub-system patch cm apihub-shared-infra --type merge \
+  -p "{\"data\":{\"PG_PORT\":\"$PG_HP\",\"REDIS_PORT\":\"$REDIS_HP\"}}"
 
 # 5b) 注入 host.docker.internal → docker-bridge IP 的集群范围 DNS 解析（CoreDNS 运行时层）。
 #     kind-on-Linux pod 不继承 node /etc/hosts → host.docker.internal 默认不可解析；
