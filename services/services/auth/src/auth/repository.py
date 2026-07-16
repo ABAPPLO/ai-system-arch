@@ -157,3 +157,38 @@ async def revoke_api_key(key_id: str) -> dict:
             f"active api_key {key_id} not found",
         )
     return dict(row)
+
+
+async def create_app(
+    *, app_id: str, tenant_id: str, name: str, app_type: str
+) -> dict:
+    """插入新 app（同租户 RLS 由 db_session 的 SET LOCAL app.tenant_id 保证）。"""
+    async with db.db_session() as conn:
+        await conn.execute(
+            """
+            INSERT INTO app (id, tenant_id, name, type, status)
+            VALUES ($1, $2, $3, $4, 'active')
+            """,
+            app_id,
+            tenant_id,
+            name,
+            app_type,
+        )
+    return {
+        "id": app_id,
+        "name": name,
+        "tenant_id": tenant_id,
+        "type": app_type,
+        "status": "active",
+    }
+
+
+async def list_apps_for_tenant(tenant_id: str) -> list[dict]:
+    """列出本租户所有 app（RLS 过滤）。"""
+    async with db.db_session() as conn:
+        rows = await conn.fetch(
+            "SELECT id, name, tenant_id, type, status FROM app "
+            "WHERE tenant_id = $1 ORDER BY created_at DESC",
+            tenant_id,
+        )
+    return [dict(r) for r in rows]

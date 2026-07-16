@@ -21,6 +21,8 @@ from auth.models import (
     ApiKeyCreate,
     ApiKeyListItem,
     ApiKeyResponse,
+    AppCreate,
+    AppResponse,
     AuthResponse,
     ConsentResponse,
     ConsentWithdrawResponse,
@@ -34,8 +36,10 @@ from auth.models import (
 )
 from auth.repository import (
     create_api_key,
+    create_app,
     get_tenant_home_region,
     list_api_keys_for_app,
+    list_apps_for_tenant,
     revoke_api_key,
     verify_api_key_record,
 )
@@ -185,6 +189,29 @@ def register_routes(app: FastAPI) -> None:
             tenant_id=ctx.tenant_id,
         )
         return {"id": key_id, "status": "revoked"}
+
+    # ========== app 管理（受保护端点；portal 转发用户 JWT 到此）==========
+
+    @app.post("/v1/apps", response_model=AppResponse)
+    async def create_app_route(payload: AppCreate):
+        """创建 app。调用方 tenant 来自中间件注入的 ctx（JWT 或 APIKey）。"""
+        ctx = require_tenant()
+        app_id = f"app_{uuid.uuid4().hex[:16]}"
+        record = await create_app(
+            app_id=app_id,
+            tenant_id=ctx.tenant_id,
+            name=payload.name,
+            app_type=payload.type,
+        )
+        log.info("app_created", app_id=app_id, tenant_id=ctx.tenant_id)
+        return AppResponse(**record)
+
+    @app.get("/v1/apps", response_model=list[AppResponse])
+    async def list_apps_route():
+        """列出本租户所有 app。"""
+        ctx = require_tenant()
+        rows = await list_apps_for_tenant(ctx.tenant_id)
+        return [AppResponse(**r) for r in rows]
 
     # ========== 外部开发者身份端点（公开，skip APIKey middleware）==========
 
