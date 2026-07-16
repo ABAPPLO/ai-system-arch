@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     pg_password: str
     pg_pool_min: int = 10
     pg_pool_max: int = 50
+    # 启动建连退避重试（kind CNI/DNS 抢跑：首枪 EAI_AGAIN/连接拒绝时退避，
+    # 在 startupProbe 窗口内建好，避免 CrashLoopBackOff）
+    startup_connect_retries: int = 10
+    startup_connect_backoff: float = 1.5
     # asyncpg ssl 值：disable / prefer / require / verify-ca / verify-full
     # dev 默认 prefer（先试 SSL，PG 未装 SSL 则回落明文，与 disable 行为一致但面向未来）；
     # prod 必须 require 或 verify-full（由 .env 显式覆盖）。
