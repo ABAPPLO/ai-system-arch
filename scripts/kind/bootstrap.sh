@@ -79,6 +79,13 @@ OVR=/tmp/kind-compose-override.yml
 #     grafana/prometheus 端口被占且 pod 不依赖，跳过）。
 #     不用 --wait：clickhouse 的 Kafka-engine 物化视图不稳（间歇 connection refused），
 #     会拖垮整体 --wait；CH 仅 trace 服务依赖，单列探测、非致命。
+
+# 1c-pre) 清残留 apihub-* 容器与网络（含跨 compose project 的孤儿，如旧 apihub-pg）。
+#   否则 `up` 时名字冲突 → 容器不重建 → 旧配置残留（Kafka advertised 指向错地址、
+#   redis/pg 端口漂移），pod 连不上、CrashLoop。bootstrap 是重建性脚本，清空合理。
+docker rm -f $(docker ps -aq --filter "name=apihub-") >/dev/null 2>&1 || true
+docker network rm apihub-dev >/dev/null 2>&1 || true
+
 docker compose --env-file .env.dev -f docker-compose.dev.yml -f "$OVR" \
   up -d postgres redis kafka kafka-init clickhouse jaeger otel-collector minio minio-init
 
