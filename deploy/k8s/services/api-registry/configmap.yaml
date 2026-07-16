@@ -34,7 +34,7 @@ data:
   APISIX_ADMIN_URL: http://apisix-admin.apihub-ingress:9180
 
   # dispatcher upstream（api-registry publish 下发路由时的 upstream 目标）
-  DISPATCHER_UPSTREAM: dispatcher.apihub-system:8001
+  DISPATCHER_UPSTREAM: dispatcher.apihub-system:80
 
   # OTel
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.apihub-monitoring:4317

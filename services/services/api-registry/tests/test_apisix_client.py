@@ -64,9 +64,9 @@ async def test_publish_route_puts_admin_route(monkeypatch):
     assert body["uri"] == "/v1/users/:user_id"  # base_path + path，{var}→:var
     assert body["methods"] == ["GET"]
     assert body["upstream"]["nodes"] == {"dispatcher.apihub-system:8001": 1}
-    assert body["plugins"]["proxy-rewrite"]["headers"]["set"] == [
-        "X-API-Version-Id: ver_abc"
-    ]
+    assert body["plugins"]["proxy-rewrite"]["headers"]["set"] == {
+        "X-API-Version-Id": "ver_abc"
+    }
     assert body["plugins"]["proxy-rewrite"]["regex_uri"] == ["^/(.*)$", "/dispatch/$1"]
 
 

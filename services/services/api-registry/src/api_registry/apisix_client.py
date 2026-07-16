@@ -56,7 +56,7 @@ async def publish_route(*, version_id: str, method: str, path: str, base_path: s
         "plugins": {
             "proxy-rewrite": {
                 "regex_uri": ["^/(.*)$", "/dispatch/$1"],
-                "headers": {"set": [f"X-API-Version-Id: {version_id}"]},
+                "headers": {"set": {"X-API-Version-Id": version_id}},
             }
         },
     }
