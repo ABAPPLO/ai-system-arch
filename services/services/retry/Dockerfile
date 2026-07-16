@@ -3,7 +3,7 @@ FROM python:3.11-slim AS builder
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      build-essential libpq-dev libffi-dev \
+      build-essential libpq-dev libffi-dev zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 
 RUN useradd -m -u 1000 apihub && chown -R apihub:apihub /app
