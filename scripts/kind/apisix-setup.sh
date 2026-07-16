@@ -76,6 +76,17 @@ helm upgrade --install apisix apisix/apisix -n "${NS}" --create-namespace \
   -f /tmp/apisix-kind-values.yaml --timeout 5m || \
   say "(helm install did not fully wait — continuing to pre-load images)"
 
+# 2a) 兜底：显式预装 pinned 镜像（§3 的 mapfile 依赖 pod 已创建，etcd sts 可能晚于
+#     apisix pod 创建而被漏抓 → apisix-etcd-0 ErrImagePull）。宿主机已缓存，直接 kind load。
+for _img in apache/apisix:3.17.0-ubuntu bitnamilegacy/etcd:3.5.9 busybox:1.28; do
+  if docker image inspect "${_img}" >/dev/null 2>&1; then
+    kind load docker-image "${_img}" --name "${CLUSTER_NAME}" >/dev/null 2>&1 \
+      && say "explicit kind load ok: ${_img}" || say "WARN kind load failed: ${_img}"
+  else
+    say "WARN host missing image (需先 docker pull): ${_img}"
+  fi
+done
+
 # ---------------------------------------------------------------------------
 # 3) 预装镜像到 kind 节点（修正 #5：节点继承宿主机 localhost 代理，不可达 docker.io）
 # ---------------------------------------------------------------------------
@@ -130,8 +141,9 @@ cur_np=$(kubectl -n "${NS}" get svc apisix-gateway \
   -o jsonpath="{.spec.ports[?(@.name=='${pname}')].nodePort}" 2>/dev/null || true)
 if [ "${cur_np}" != "${GATEWAY_NODEPORT}" ]; then
   say "current nodePort=${cur_np:-<none>} (${pname}); patching -> ${GATEWAY_NODEPORT}"
-  kubectl -n "${NS}" patch svc apisix-gateway \
-    -p "{\"spec\":{\"ports\":[{\"name\":\"${pname}\",\"port\":80,\"nodePort\":${GATEWAY_NODEPORT}}]}"
+  # JSON patch 改第一个 port 的 nodePort（strategic-merge list patch 曾报 "unexpected end of JSON input"）
+  kubectl -n "${NS}" patch svc apisix-gateway --type=json \
+    -p "[{\"op\":\"replace\",\"path\":\"/spec/ports/0/nodePort\",\"value\":${GATEWAY_NODEPORT}}]"
 else
   say "nodePort already ${GATEWAY_NODEPORT}"
 fi
