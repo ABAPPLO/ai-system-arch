@@ -13,7 +13,7 @@ dependencies = [
   # 不声明会导致任何初始化 Kafka producer 的服务启动崩溃。codec lib，不属 4 个关键 pin 家族，用 floor。
   "cramjam>=2.7",
   "httpx>=0.27",
-  "clickhouse-connect==0.7.7",
+  "clickhouse-connect==1.5.0",
   "structlog>=24.1",
   # JWT：外部开发者「人」的登录态签发/验签（HS256）。与机器 API Key 分流。
   "PyJWT>=2.8,<3",
