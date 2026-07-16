@@ -9,7 +9,7 @@ import time
 
 import httpx
 from apihub_core import kafka
-from apihub_core.events import TaskRequest, TaskStatus
+from apihub_core.events import TaskFailure, TaskRequest, TaskStatus
 from apihub_core.logging import get_logger
 from apihub_core.tenant import TenantContext, clear_tenant_context, set_tenant_context
 
@@ -98,6 +98,23 @@ async def process_task(msg: TaskRequest) -> TaskResult:
                 request_id=msg.request_id or "",
             )
         )
+        if result.status != "succeeded":
+            await kafka.emit_event(
+                TaskFailure(
+                    task_id=msg.task_id,
+                    tenant_id=tenant_id,
+                    app_id=msg.app_id or "",
+                    api_id=msg.api_id,
+                    api_version_id=msg.api_version_id,
+                    backend_url=msg.backend_url,
+                    trace_id=msg.trace_id or msg.task_id,
+                    request_id=msg.request_id or "",
+                    payload=msg.payload,
+                    error_code=result.error_code or "unknown",
+                    error_msg=(result.error_msg or "")[:5000],
+                    timeout_seconds=msg.timeout_seconds,
+                )
+            )
 
     log.info(
         "task_processed",

@@ -160,6 +160,12 @@ class FailureConsumer:
             log.exception("create_retry_task_failed", error=str(e))
             return
 
+        if not retry_task_id:
+            # partial unique idx_retry_task_active_dedup 命中 → 该 task_instance_id 已有
+            # 活跃 retry_task（Kafka at-least-once 重投）。跳过入队，不重复调度。
+            log.info("retry_task_deduped", task_id=failure.task_id)
+            return
+
         await delay_queue.schedule(
             tenant_id=tenant_id,
             retry_task_id=retry_task_id,

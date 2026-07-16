@@ -38,11 +38,13 @@ async def create_retry_task(
     next_retry_at: datetime,
     env: str,
 ) -> int:
-    """INSERT 新 retry_task。返回新 id。
+    """INSERT 新 retry_task。返回新 id（>0）；返回 0 表示被去重跳过。
 
-    幂等：trace_id + tenant_id 唯一约束（如果有 idx_retry_tenant_status_next
-    之外的 unique index）；没有则 at-least-once 投递时由调用方保证。
-    这里假设 Kafka 投递不会重投同一条（executor commit 后不再发）。
+    幂等靠 partial unique index idx_retry_task_active_dedup
+    (UNIQUE(task_instance_id) WHERE status IN ('pending','running'))：
+    Kafka at-least-once 重投同一 TaskFailure 时，ON CONFLICT DO NOTHING 命中该索引
+    → INSERT 静默跳过 → fetchrow 返回 None → 这里返回 0，调用方据此跳过入队。
+    上次重试已 dead/succeeded/ignored 后再次失败可正常建新行（不在 active 集合内）。
     """
     async with db.admin_db_session() as conn:
         row = await conn.fetchrow(
@@ -60,6 +62,7 @@ async def create_retry_task(
                 $10, $11, $12,
                 'pending', $13
             )
+            ON CONFLICT DO NOTHING
             RETURNING id
             """,
             tenant_id,
@@ -76,7 +79,7 @@ async def create_retry_task(
             backoff_base_ms,
             env,
         )
-    return int(row["id"])
+    return int(row["id"]) if row else 0  # 0 = partial unique 命中去重
 
 
 async def mark_attempt_started(retry_task_id: int) -> bool:
