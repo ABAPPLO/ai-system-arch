@@ -599,6 +599,52 @@ class TestCreateApp:
         assert captured["app_type"] == "external"
         assert captured["app_id"].startswith("app_")
 
+    async def test_invalid_type_rejected_as_422(self, client, authed, monkeypatch):
+        """非法 type 在 Pydantic 边界即 422，不打 DB（app.type 有 CHECK 约束）。
+
+        name 必须合法（≥2），否则 422 会归因到 name 校验而非 type；
+        repo mock 确保若 Pydantic 漏放，请求会落到 mock 返回 200（而非打 DB），
+        这样 422 只能来自 type 的 Literal 校验。
+        """
+        async def _create(**kwargs):  # pragma: no cover - 不应被调用
+            return {"id": kwargs["app_id"], "name": kwargs["name"],
+                    "tenant_id": kwargs["tenant_id"], "type": kwargs["app_type"],
+                    "status": "active"}
+
+        from auth import repository as r
+
+        monkeypatch.setattr(r, "create_app", _create)
+        routes_mod.create_app = r.create_app
+
+        resp = await client.post(
+            "/v1/apps",
+            json={"name": "xx", "type": "bogus"},
+            headers={"Authorization": "Bearer eyJtest"},
+        )
+        assert resp.status_code == 422
+
+    async def test_type_defaults_to_external(self, client, authed, monkeypatch):
+        """不传 type → 默认 'external'。"""
+        captured = {}
+
+        async def _create(**kwargs):
+            captured.update(kwargs)
+            return {"id": kwargs["app_id"], "name": kwargs["name"],
+                    "tenant_id": kwargs["tenant_id"], "type": kwargs["app_type"],
+                    "status": "active"}
+
+        from auth import repository as r
+
+        monkeypatch.setattr(r, "create_app", _create)
+        routes_mod.create_app = r.create_app
+
+        resp = await client.post(
+            "/v1/apps", json={"name": "no type"},
+            headers={"Authorization": "Bearer eyJtest"},
+        )
+        assert resp.status_code == 200
+        assert captured["app_type"] == "external"
+
 
 class TestListApps:
     async def test_requires_auth(self, client):
