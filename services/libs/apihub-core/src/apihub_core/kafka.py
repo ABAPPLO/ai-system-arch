@@ -6,13 +6,15 @@ W3C traceparent 自动注入 / 提取（aiokafka 不在 OTel 自动 instrumentat
 详见 docs/04-data-model.md §6 Kafka topic 规范、docs/08-observability-security.md §5。
 """
 
+import asyncio
 import json
 from collections.abc import Awaitable, Callable
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from dataclasses import asdict
 from typing import Any
 
 import aiokafka
+from aiokafka.errors import KafkaConnectionError
 from opentelemetry import trace
 from opentelemetry.context import attach, detach
 from opentelemetry.propagators import composite
@@ -21,7 +23,10 @@ from opentelemetry.trace.propagation.tracecontext import TraceContextTextMapProp
 
 from apihub_core.config import Settings
 from apihub_core.events import CallEvent, TaskFailure, TaskRequest, TaskStatus
+from apihub_core.logging import get_logger
 from apihub_core.tenant import get_tenant_context
+
+log = get_logger(__name__)
 
 _producer: aiokafka.AIOKafkaProducer | None = None
 
@@ -34,17 +39,40 @@ _PROPAGATOR = composite.CompositePropagator(
 
 
 async def init_producer(settings: Settings) -> None:
+    """进程启动时调一次。带 DNS/连接退避重试（kind CNI/DNS 抢跑，同 init_pool）。"""
     global _producer
-    _producer = aiokafka.AIOKafkaProducer(
-        bootstrap_servers=settings.kafka_brokers,
-        value_serializer=lambda v: json.dumps(v).encode("utf-8"),
-        key_serializer=lambda k: k.encode("utf-8") if k else None,
-        acks="all",
-        enable_idempotence=True,
-        compression_type="lz4",
-        linger_ms=10,
-    )
-    await _producer.start()
+    last_exc: Exception | None = None
+    for attempt in range(1, settings.startup_connect_retries + 1):
+        # 每次重试用全新 producer（start 失败后实例可能脏）
+        producer = aiokafka.AIOKafkaProducer(
+            bootstrap_servers=settings.kafka_brokers,
+            value_serializer=lambda v: json.dumps(v).encode("utf-8"),
+            key_serializer=lambda k: k.encode("utf-8") if k else None,
+            acks="all",
+            enable_idempotence=True,
+            compression_type="lz4",
+            linger_ms=10,
+        )
+        try:
+            await producer.start()
+            _producer = producer
+            return
+        except (OSError, KafkaConnectionError) as e:
+            # OSError 覆盖 gaierror(EAI_AGAIN)；KafkaConnectionError 为 broker 握手失败
+            last_exc = e
+            with suppress(Exception):
+                await producer.stop()
+            log.warning(
+                "kafka_init_retry",
+                attempt=attempt,
+                of=settings.startup_connect_retries,
+                error=f"{type(e).__name__}: {e}",
+            )
+            if attempt >= settings.startup_connect_retries:
+                break
+            await asyncio.sleep(settings.startup_connect_backoff)
+    assert last_exc is not None
+    raise last_exc
 
 
 async def close_producer() -> None:
