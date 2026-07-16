@@ -33,6 +33,9 @@ data:
   # APISIX admin
   APISIX_ADMIN_URL: http://apisix-admin.apihub-ingress:9180
 
+  # dispatcher upstream（api-registry publish 下发路由时的 upstream 目标）
+  DISPATCHER_UPSTREAM: dispatcher.apihub-system:80
+
   # OTel
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.apihub-monitoring:4317
   OTEL_SERVICE_NAME: api-registry
@@ -47,4 +50,4 @@ type: Opaque
 # 真实环境用 Sealed Secrets 加密，这里只示意
 # stringData:
 #   PG_PASSWORD: ...
-#   APISIX_ADMIN_KEY: ...
+#   APISIX_ADMIN_KEY: <from sealed secret>

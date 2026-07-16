@@ -83,14 +83,17 @@ POST   /admin/apis/{id}/rollback    回滚到版本
 
 **依赖**：PostgreSQL、Redis（缓存）、APISIX Admin API（路由下发）
 
+**数据面路径（R1c）**：`publish` 时通过 **APISIX Admin API** 下发动态路由（upstream 指向 `DISPATCHER_UPSTREAM=dispatcher.apihub-system:8001`），由 APISIX 负责 path → version 解析并在请求头注入 `X-API-Version-Id`。`retire` **不**摘除 APISIX 路由，由 dispatcher 按 `status='retired'` 返回 `410 Gone`（避免启用 serverless 410 插件的 helm upgrade）。
+
 **部署特征**：3-10 副本，HPA。
 
 ---
 
 ### 3.2 dispatcher（调度分发器）
-**职责**：接收网关转发来的同步请求，按接口定义路由到业务后端，做参数转换、超时控制。
+**职责**：接收网关（APISIX）转发来的同步请求，按接口定义路由到业务后端，做参数转换、超时控制。
 
 **关键点**：
+- **纯转发**（R1c）：不做 path 解析、不维护路由表；依赖 APISIX 注入的 `X-API-Version-Id` 头取 upstream / 元数据后转发。`status='retired'` 的版本直接返 `410 Gone`。
 - 不持久化业务数据
 - 状态全部在 Redis（接口元数据缓存）
 - 长连接复用：对业务后端的 httpx.AsyncClient 连接池

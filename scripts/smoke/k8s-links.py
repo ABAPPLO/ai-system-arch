@@ -219,7 +219,7 @@ def link1_sync():
         st, body = http(
             "POST",
             f"http://127.0.0.1:18001{path}",
-            headers={"X-API-Key": ADMIN_KEY},
+            headers={"X-API-Key": ADMIN_KEY, "X-API-Version-Id": SMOKE_VER_ID},
             data={"hello": "world"},
         )
         assert st == 200, f"L1 HTTP {st}: {body}"

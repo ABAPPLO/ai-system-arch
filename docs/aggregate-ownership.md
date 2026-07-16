@@ -25,3 +25,12 @@
 - admin 直写 `audit` → 改走 admin 自身 API（后续轮次）。
 - quota / billing 从 ClickHouse 读用量算钱 → 明确为 trace-svc 只读聚合的消费者，不直连 CH 写状态。
 - 多 Region 写亲和（ADR-013）需尊重本表的区域写权。
+
+## 路由归属（R1c，2026-07-16）
+
+> **路由归属 = APISIX**：
+> - **APISIX** 拥有**动态路由** + 在请求头**注入 `X-API-Version-Id`**（网关侧做 path → version 的解析）。
+> - **dispatcher** 是**纯转发**：不做 path 解析、不维护路由表，仅依据 APISIX 已注入的 `X-API-Version-Id` 取 upstream / 元数据后转发。
+> - **api-registry** 在 `publish` 时通过 **APISIX Admin API** 下发路由（upstream 指向 `DISPATCHER_UPSTREAM`）；`retire` 不摘除路由，dispatcher 按 `status='retired'` 返 `410 Gone`。
+>
+> 这条边界排除了「dispatcher 自己解析 path 选 version」和「api-registry 手动静态写路由」两类过时设计。
