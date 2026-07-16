@@ -10,6 +10,7 @@ from apihub_core.errors import ApiError, ErrorCode
 from apihub_core.tenant import require_tenant
 from fastapi import FastAPI, Query
 
+from api_registry import apisix_client
 from api_registry import change_request as cr
 from api_registry.models import (
     ApiCreate,
@@ -138,15 +139,23 @@ def register_routes(app: FastAPI) -> None:
         require_tenant()
         async with db.db_session() as conn:
             row = await conn.fetchrow(
-                "SELECT * FROM api_version WHERE id = $1 AND status IN ('draft', 'reviewing')",
+                """
+                SELECT v.*, a.base_path
+                FROM api_version v JOIN api a ON a.id = v.api_id
+                WHERE v.id = $1 AND v.status IN ('draft', 'reviewing')
+                """,
                 version_id,
             )
             if not row:
                 raise ApiError(ErrorCode.API_NOT_PUBLISHED, "Version not publishable")
 
-            # TODO: 实际下发 APISIX 路由（通过 admin API 或 etcd）
-            # from api_registry.apisix_client import publish_route
-            # await publish_route(row)
+            # 先下发 APISIX 路由，成功才置 published（避免 DB published 但数据面无路由的窗口）
+            await apisix_client.publish_route(
+                version_id=version_id,
+                method=row["method"],
+                path=row["path"],
+                base_path=row["base_path"],
+            )
 
             await conn.execute(
                 "UPDATE api_version SET status = 'published', published_at = NOW() WHERE id = $1",
@@ -216,7 +225,8 @@ def register_routes(app: FastAPI) -> None:
                 http_status=409,
             )
 
-        # TODO: 摘除 APISIX 路由（调用方将收到 410 Gone）
+        # retire 不摘除 APISIX 路由：dispatcher 按 status='retired' 返 410 Gone
+        # （避免启用 APISIX serverless 410 插件的 helm upgrade）。stale 路由清理见 follow-up。
 
         await kafka.emit(
             "audit-events",
