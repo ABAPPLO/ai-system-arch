@@ -32,6 +32,7 @@ class ErrorCode(IntEnum):
     API_NOT_PUBLISHED = 30002
     API_DEPRECATED = 30003
     API_DOWN = 30004
+    API_RETIRED = 30005
 
     # 任务 4xxxx
     TASK_NOT_FOUND = 40001
@@ -54,6 +55,7 @@ _HTTP_STATUS_MAP = {
     ErrorCode.API_NOT_FOUND: 404,
     ErrorCode.API_NOT_PUBLISHED: 404,
     ErrorCode.API_DEPRECATED: 410,
+    ErrorCode.API_RETIRED: 410,
     ErrorCode.API_DOWN: 503,
     ErrorCode.TASK_NOT_FOUND: 404,
     ErrorCode.TASK_TIMEOUT: 504,

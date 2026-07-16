@@ -1,8 +1,7 @@
 """路由解析 —— 把 incoming 请求映射到 ApiVersionSnapshot。
 
-优先级：
-1. X-API-Version-Id header（APISIX 在 auth 阶段已注入，最快）
-2. Path + Method 匹配（开发直连 dispatcher 时回退）
+唯一入口：X-API-Version-Id header（APISIX 在 auth 阶段已注入）。
+路径反查（resolve_by_path）已移除：dispatcher 退纯转发，所有路由由 APISIX 下发。
 
 resolve 阶段使用 meta_db_session（绕 RLS）跨租户可见所有 published API/api_version
 元数据 —— 因为路由解析是平台网关职责，external-public caller 也要能 resolve 到
@@ -15,13 +14,15 @@ import json
 
 from apihub_core import db, redis
 from apihub_core.errors import ApiError, ErrorCode
-from apihub_core.tenant import require_tenant
 
 from dispatcher.models import ApiVersionSnapshot
 
 
 async def resolve_by_header(version_id: str) -> ApiVersionSnapshot:
-    """优先路径：APISIX 注入了 X-API-Version-Id，直接按 ID 查 + Redis 缓存。"""
+    """APISIX 注入的 X-API-Version-Id → 按 ID 查 + Redis 缓存。
+
+    生命周期：published/deprecated 可路由；retired → 410 Gone；其余 → 404。
+    """
     cache_key = f"snapshot:{version_id}"
     cached = await redis.t_get(cache_key)
     if cached:
@@ -33,45 +34,23 @@ async def resolve_by_header(version_id: str) -> ApiVersionSnapshot:
             SELECT id, api_id, tenant_id, version, backend_type, backend_url,
                    method, path, masking, rate_limit, retry_policy, cache_policy,
                    ai_model, ai_streaming, ai_params, sla_p99_ms, sla_availability
-            FROM api_version WHERE id = $1 AND status = 'published'
+            FROM api_version
+            WHERE id = $1 AND status IN ('published', 'deprecated')
             """,
             version_id,
         )
-
-    if not row:
-        raise ApiError(ErrorCode.API_NOT_PUBLISHED, f"version {version_id} not published")
+        if not row:
+            status = await conn.fetchval(
+                "SELECT status FROM api_version WHERE id = $1", version_id
+            )
+            if status == "retired":
+                raise ApiError(ErrorCode.API_RETIRED, f"version {version_id} retired")
+            raise ApiError(ErrorCode.API_NOT_PUBLISHED, f"version {version_id} not published")
 
     _, visibility = await _get_api_meta(row["api_id"])
     snapshot = _from_row(row, visibility=visibility)
     await redis.t_set(cache_key, json.dumps(dataclasses.asdict(snapshot)), ex=300)
     return snapshot
-
-
-async def resolve_by_path(method: str, full_path: str) -> ApiVersionSnapshot:
-    """回退路径：无 header 时按 path 反查。性能差，仅用于 dev / 直连。"""
-    require_tenant()
-
-    async with db.meta_db_session() as conn:
-        rows = await conn.fetch(
-            """
-            SELECT id, api_id, tenant_id, version, backend_type, backend_url,
-                   method, path, masking, rate_limit, retry_policy, cache_policy,
-                   ai_model, ai_streaming, ai_params, sla_p99_ms, sla_availability
-            FROM api_version
-            WHERE status = 'published' AND method = $1
-            """,
-            method.upper(),
-        )
-
-    for row in rows:
-        api_base, visibility = await _get_api_meta(row["api_id"])
-        if not api_base:
-            continue
-        full_pattern = f"{api_base}{row['path']}"
-        if _match_path(full_pattern, full_path):
-            return _from_row(row, visibility=visibility)
-
-    raise ApiError(ErrorCode.API_NOT_FOUND, f"no API matches {method} {full_path}")
 
 
 async def _get_api_meta(api_id: str) -> tuple[str | None, str]:
@@ -90,24 +69,6 @@ async def _get_api_meta(api_id: str) -> tuple[str | None, str]:
     if not row:
         return None, "private"
     return row["base_path"], row["visibility"]
-
-
-def _match_path(pattern: str, actual: str) -> bool:
-    """简单 path 匹配：{var} 通配一段。
-
-    /v1/users/{user_id}  匹配  /v1/users/u_001
-    /v1/users/{user_id}  不匹配 /v1/users/u_001/orders
-    """
-    pp = pattern.strip("/").split("/")
-    aa = actual.strip("/").split("/")
-    if len(pp) != len(aa):
-        return False
-    for p, a in zip(pp, aa, strict=True):
-        if p.startswith("{") and p.endswith("}"):
-            continue
-        if p != a:
-            return False
-    return True
 
 
 def _extract_path_params(pattern: str, actual: str) -> dict[str, str]:

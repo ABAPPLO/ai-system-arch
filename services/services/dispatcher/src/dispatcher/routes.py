@@ -1,7 +1,7 @@
 """dispatcher 路由 —— 单一 catch-all 入口。
 
 入口：ANY /dispatch/{rest:path}
-解析：优先 X-API-Version-Id header，回退 path 匹配
+解析：强制 X-API-Version-Id header（APISIX 注入），无 header → 400
 """
 
 import uuid
@@ -15,7 +15,7 @@ from opentelemetry import trace
 
 from dispatcher.forwarder import HttpForwarder
 from dispatcher.models import SubmitJobRequest
-from dispatcher.resolver import resolve_by_header, resolve_by_path
+from dispatcher.resolver import resolve_by_header
 from dispatcher.task_dispatcher import dispatch_async_task
 
 log = get_logger(__name__)
@@ -62,16 +62,15 @@ def register_routes(app: FastAPI) -> None:
         methods=["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"],
     )
     async def dispatch(request: Request):
-        rest = request.path_params["rest"]
-        method = request.method
-
-        # 解析接口元数据
         version_id = request.headers.get("X-API-Version-Id")
-        if version_id:
-            snap = await resolve_by_header(version_id)
-        else:
-            full_path = f"/{rest}"
-            snap = await resolve_by_path(method, full_path)
+        if not version_id:
+            raise ApiError(
+                ErrorCode.INVALID_PARAMS,
+                "missing X-API-Version-Id (must enter via APISIX)",
+                http_status=400,
+            )
+        rest = request.path_params["rest"]
+        snap = await resolve_by_header(version_id)
 
         # 应用层 visibility 授权（public / tenant / private 三级）。
         # resolve 用 meta_db_session 跨租户拿到 snap，这里按 caller TenantContext
