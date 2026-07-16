@@ -7,6 +7,7 @@
 import os
 
 _ENV_DEFAULTS = {
+    "AUTH_SERVICE_URL": "http://auth.apihub-system/v1/apikey/verify",
     "PG_HOST": "localhost",
     "PG_USER": "apihub",
     "PG_PASSWORD": "test",

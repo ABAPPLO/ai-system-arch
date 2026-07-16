@@ -1,8 +1,28 @@
 """请求 / 响应模型。"""
 
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, EmailStr, Field
+
+
+class AppCreate(BaseModel):
+    """创建 app 请求（portal 转发；调用方 tenant 来自中间件 JWT/APIKey ctx）。"""
+
+    name: str = Field(min_length=2, max_length=64)
+    # 与 app.type 的 DB CHECK 约束对齐（init-db/01-schema.sql）：
+    # 非法值在 Pydantic 边界即 422，避免 asyncpg CheckViolationError → 500。
+    type: Literal["internal", "external", "web", "mobile", "server"] = "external"
+
+
+class AppResponse(BaseModel):
+    """app 响应（字段对齐 portal 契约）。"""
+
+    id: str
+    name: str
+    tenant_id: str
+    type: str
+    status: str
 
 
 class ApiKeyCreate(BaseModel):

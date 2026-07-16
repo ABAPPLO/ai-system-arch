@@ -551,3 +551,132 @@ class TestDeleteAccount:
         assert body["user_id"] == "u_testuser"
         assert body["status"] == "deleted"
         assert captured["user_id"] == "u_testuser"
+
+
+# ========== /v1/apps (受保护端点，app 管理) ==========
+
+
+class TestCreateApp:
+    async def test_requires_auth(self, client):
+        """无凭证 → 中间件 401。"""
+        resp = await client.post("/v1/apps", json={"name": "my app"})
+        assert resp.status_code == 401
+
+    async def test_creates_app_with_caller_tenant(self, client, authed, monkeypatch):
+        """鉴权通过 → 建 app，tenant_id 来自 ctx（authed fixture 的 t1），不是请求体。"""
+        captured = {}
+
+        async def _create(**kwargs):
+            captured.update(kwargs)
+            return {
+                "id": kwargs["app_id"],
+                "name": kwargs["name"],
+                "tenant_id": kwargs["tenant_id"],
+                "type": kwargs["app_type"],
+                "status": "active",
+            }
+
+        from auth import repository as r
+
+        monkeypatch.setattr(r, "create_app", _create)
+        routes_mod.create_app = r.create_app
+
+        resp = await client.post(
+            "/v1/apps",
+            json={"name": "my app", "type": "external"},
+            headers={"Authorization": "Bearer eyJtest"},
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["name"] == "my app"
+        assert body["status"] == "active"
+        assert body["type"] == "external"
+        assert body["id"].startswith("app_")
+        # 关键：tenant_id 来自 ctx，不是请求体
+        assert captured["tenant_id"] == "t1"
+        assert captured["name"] == "my app"
+        assert captured["app_type"] == "external"
+        assert captured["app_id"].startswith("app_")
+
+    async def test_invalid_type_rejected_as_422(self, client, authed, monkeypatch):
+        """非法 type 在 Pydantic 边界即 422，不打 DB（app.type 有 CHECK 约束）。
+
+        name 必须合法（≥2），否则 422 会归因到 name 校验而非 type；
+        repo mock 确保若 Pydantic 漏放，请求会落到 mock 返回 200（而非打 DB），
+        这样 422 只能来自 type 的 Literal 校验。
+        """
+        async def _create(**kwargs):  # pragma: no cover - 不应被调用
+            return {"id": kwargs["app_id"], "name": kwargs["name"],
+                    "tenant_id": kwargs["tenant_id"], "type": kwargs["app_type"],
+                    "status": "active"}
+
+        from auth import repository as r
+
+        monkeypatch.setattr(r, "create_app", _create)
+        routes_mod.create_app = r.create_app
+
+        resp = await client.post(
+            "/v1/apps",
+            json={"name": "xx", "type": "bogus"},
+            headers={"Authorization": "Bearer eyJtest"},
+        )
+        assert resp.status_code == 422
+
+    async def test_type_defaults_to_external(self, client, authed, monkeypatch):
+        """不传 type → 默认 'external'。"""
+        captured = {}
+
+        async def _create(**kwargs):
+            captured.update(kwargs)
+            return {"id": kwargs["app_id"], "name": kwargs["name"],
+                    "tenant_id": kwargs["tenant_id"], "type": kwargs["app_type"],
+                    "status": "active"}
+
+        from auth import repository as r
+
+        monkeypatch.setattr(r, "create_app", _create)
+        routes_mod.create_app = r.create_app
+
+        resp = await client.post(
+            "/v1/apps", json={"name": "no type"},
+            headers={"Authorization": "Bearer eyJtest"},
+        )
+        assert resp.status_code == 200
+        assert captured["app_type"] == "external"
+
+
+class TestListApps:
+    async def test_requires_auth(self, client):
+        resp = await client.get("/v1/apps")
+        assert resp.status_code == 401
+
+    async def test_lists_only_caller_tenant(self, client, authed, monkeypatch):
+        captured = {}
+
+        async def _list(tenant_id):
+            captured["tenant_id"] = tenant_id
+            return [
+                {
+                    "id": "app_a",
+                    "name": "A",
+                    "tenant_id": tenant_id,
+                    "type": "external",
+                    "status": "active",
+                }
+            ]
+
+        from auth import repository as r
+
+        monkeypatch.setattr(r, "list_apps_for_tenant", _list)
+        routes_mod.list_apps_for_tenant = r.list_apps_for_tenant
+
+        resp = await client.get(
+            "/v1/apps", headers={"Authorization": "Bearer eyJtest"}
+        )
+
+        assert resp.status_code == 200
+        body = resp.json()
+        assert len(body) == 1
+        assert body[0]["id"] == "app_a"
+        assert captured["tenant_id"] == "t1"

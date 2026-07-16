@@ -1,70 +1,150 @@
-"""portal-bff 路由单测（mock repository，不触 DB 栈）。"""
+"""portal-bff 路由单测（app/key 走转发，mock httpx；其余 mock repository）。"""
 
 
-async def test_create_app_uses_caller_tenant(client, monkeypatch):
-    """POST /v1/portal/apps 必须用 JWT 上下文里的 tenant_id（而非请求体）。"""
+async def test_create_app_forwards_to_auth(client, monkeypatch):
+    """POST /v1/portal/apps 转发用户 JWT 到 auth /v1/apps，不再直写 PG。"""
+    import httpx as _httpx
+
     captured = {}
 
-    async def fake_create(*, tenant_id, name, app_type):
-        captured["tenant_id"] = tenant_id
-        return {
-            "id": "app_x",
-            "name": name,
-            "tenant_id": tenant_id,
-            "type": app_type,
-            "status": "active",
-        }
+    class _FakeResp:
+        status_code = 200  # auth POST /v1/apps 返回 200
 
-    monkeypatch.setattr("portal.routes.repository.create_app_for_user", fake_create)
+        def json(self):
+            return {
+                "id": "app_new",
+                "name": "my app",
+                "tenant_id": "external-public",
+                "type": "external",
+                "status": "active",
+            }
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def request(self, method, url, **kw):
+            captured["method"] = method
+            captured["url"] = url
+            captured["headers"] = kw.get("headers")
+            captured["json"] = kw.get("json")
+            return _FakeResp()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(_httpx, "AsyncClient", _FakeClient)
 
     r = await client.post(
         "/v1/portal/apps", json={"name": "my app", "type": "external"}
     )
-    assert r.status_code == 201
-    body = r.json()
-    assert body["id"] == "app_x"
-    assert body["tenant_id"] == "external-public"
-    # 关键断言：传给 repository 的 tenant_id 来自 JWT ctx，不是请求体
-    assert captured["tenant_id"] == "external-public"
+    assert r.status_code == 201  # portal 契约 201
+    assert r.json()["id"] == "app_new"
+    # 转发到 auth /v1/apps，无 /v1/v1/ 双前缀
+    assert captured["url"] == "http://auth.apihub-system/v1/apps", captured["url"]
+    assert captured["method"] == "POST"
+    # 用户 JWT 原样转发
+    assert captured["headers"]["Authorization"] == "Bearer eyJ.test.token"
+    assert captured["json"] == {"name": "my app", "type": "external"}
 
 
-async def test_list_apps(client, monkeypatch):
-    """GET /v1/portal/apps 返回当前租户的 app 列表。"""
-    async def fake_list(*, tenant_id):
-        return []
+async def test_list_apps_forwards_to_auth(client, monkeypatch):
+    """GET /v1/portal/apps 转发 auth /v1/apps。"""
+    import httpx as _httpx
 
-    monkeypatch.setattr("portal.routes.repository.list_apps_for_user", fake_list)
-    r = await client.get("/v1/portal/apps")
-    assert r.status_code == 200
-    assert r.json() == []
-
-
-async def test_create_api_key(client, monkeypatch):
-    """POST /v1/portal/apps/{id}/api-keys 走 repository 并返回明文 key（仅此一次）。"""
     captured = {}
 
-    async def fake_create_key(*, tenant_id, app_id, name):
-        captured.update(tenant_id=tenant_id, app_id=app_id, name=name)
-        return {
-            "id": "key_x",
-            "app_id": app_id,
-            "name": name,
-            "key_prefix": "ak_abcd12",
-            "api_key": "ak_supersecret",
-        }
+    class _FakeResp:
+        status_code = 200
 
-    monkeypatch.setattr(
-        "portal.routes.repository.create_api_key_for_app", fake_create_key
-    )
+        def json(self):
+            return [
+                {
+                    "id": "app_a",
+                    "name": "A",
+                    "tenant_id": "external-public",
+                    "type": "external",
+                    "status": "active",
+                }
+            ]
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def request(self, method, url, **kw):
+            captured["url"] = url
+            captured["method"] = method
+            return _FakeResp()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(_httpx, "AsyncClient", _FakeClient)
+
+    r = await client.get("/v1/portal/apps")
+    assert r.status_code == 200
+    body = r.json()
+    assert len(body) == 1
+    assert body[0]["id"] == "app_a"
+    assert captured["url"] == "http://auth.apihub-system/v1/apps"
+    assert captured["method"] == "GET"
+
+
+async def test_create_api_key_forwards_and_maps_prefix(client, monkeypatch):
+    """POST /v1/portal/apps/{id}/api-keys 转发 auth，并把 display_prefix→key_prefix。"""
+    import httpx as _httpx
+
+    captured = {}
+
+    class _FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {
+                "id": "key_new",
+                "app_id": "app_x",
+                "name": "prod key",
+                "scopes": [],
+                "api_key": "ak_supersecret",
+                "display_prefix": "ak_abcd12",
+                "expires_at": None,
+                "created_at": "2026-07-16T00:00:00",
+            }
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def request(self, method, url, **kw):
+            captured["url"] = url
+            captured["json"] = kw.get("json")
+            return _FakeResp()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(_httpx, "AsyncClient", _FakeClient)
 
     r = await client.post(
         "/v1/portal/apps/app_x/api-keys", json={"name": "prod key"}
     )
-    assert r.status_code == 201
+    assert r.status_code == 201  # portal 契约 201
     body = r.json()
     assert body["api_key"] == "ak_supersecret"
-    assert captured["app_id"] == "app_x"
-    assert captured["tenant_id"] == "external-public"
+    assert body["key_prefix"] == "ak_abcd12"  # 映射自 auth display_prefix
+    assert "display_prefix" not in body  # portal 不暴露 auth 原字段
+    assert captured["url"] == "http://auth.apihub-system/v1/apps/app_x/api-keys"
+    assert captured["json"] == {"name": "prod key"}
 
 
 async def test_auth_endpoints_skip_auth_paths(monkeypatch):
@@ -158,41 +238,6 @@ async def test_forward_composes_correct_auth_url(monkeypatch):
     assert "/v1/v1/" not in captured["url"], captured["url"]
     assert captured["url"] == "http://auth.apihub-system/v1/auth/login", captured["url"]
     assert captured["method"] == "POST"
-
-
-async def test_create_api_key_for_app_rejects_foreign_app(monkeypatch):
-    """repository.create_api_key_for_app 必须校验 app 归属（Task4 review Finding 2）。
-
-    db_session 已 SET LOCAL app.tenant_id=caller，RLS 自动过滤跨租户 app。
-    fetchval 返回 None（app 不在 caller 租户）→ 抛 ApiError NOT_FOUND，且不执行 INSERT。
-    """
-    import pytest
-    from apihub_core.errors import ApiError, ErrorCode
-    from portal import repository
-
-    class _FakeConn:
-        async def fetchval(self, query, *args):
-            # RLS 已过滤跨租户 app → 查不到
-            return None
-
-        async def execute(self, *a, **kw):
-            raise AssertionError("不得在归属校验失败时 INSERT api_key")
-
-    class _FakeCM:
-        async def __aenter__(self):
-            return _FakeConn()
-
-        async def __aexit__(self, *exc):
-            return False
-
-    monkeypatch.setattr(repository.db, "db_session", lambda: _FakeCM())
-
-    with pytest.raises(ApiError) as ei:
-        await repository.create_api_key_for_app(
-            tenant_id="t_foreign", app_id="app_other_tenant", name="leaked-key"
-        )
-    assert ei.value.code == ErrorCode.NOT_FOUND
-    assert ei.value.http_status == 404
 
 
 # ========== API 目录 + 在线调试（Task 4）==========

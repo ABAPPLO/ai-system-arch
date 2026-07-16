@@ -233,24 +233,52 @@ def register_routes(app: FastAPI) -> None:
 
     # ========== app/key 自助（需 JWT → require_tenant）==========
     @app.post("/v1/portal/apps", response_model=AppResponse, status_code=201)
-    async def create_app(payload: AppCreate):
-        ctx = require_tenant()
-        return await repository.create_app_for_user(
-            tenant_id=ctx.tenant_id, name=payload.name, app_type=payload.type
+    async def create_app(request: Request, payload: AppCreate):
+        """建 app —— 转发用户 JWT 到 auth /v1/apps（不再直写 app 表）。"""
+        require_tenant()
+        st, body = await _forward(
+            "POST",
+            "/v1/apps",
+            headers={"Authorization": request.headers.get("Authorization", "")},
+            json={"name": payload.name, "type": payload.type},
         )
+        if st >= 400:
+            raise ApiError(ErrorCode.INTERNAL, f"auth error: {body}", http_status=st)
+        return AppResponse(**body)
 
     @app.get("/v1/portal/apps", response_model=list[AppResponse])
-    async def list_apps():
-        ctx = require_tenant()
-        return await repository.list_apps_for_user(tenant_id=ctx.tenant_id)
+    async def list_apps(request: Request):
+        """列本租户 app —— 转发 auth /v1/apps。"""
+        require_tenant()
+        st, body = await _forward(
+            "GET",
+            "/v1/apps",
+            headers={"Authorization": request.headers.get("Authorization", "")},
+        )
+        if st >= 400:
+            raise ApiError(ErrorCode.INTERNAL, f"auth error: {body}", http_status=st)
+        return [AppResponse(**a) for a in body]
 
     @app.post(
         "/v1/portal/apps/{app_id}/api-keys",
         response_model=ApiKeyResponse,
         status_code=201,
     )
-    async def create_api_key(app_id: str, payload: ApiKeyCreate):
-        ctx = require_tenant()
-        return await repository.create_api_key_for_app(
-            tenant_id=ctx.tenant_id, app_id=app_id, name=payload.name
+    async def create_api_key(request: Request, app_id: str, payload: ApiKeyCreate):
+        """建 APIKey —— 转发 auth，明文 key 仅此次返回。"""
+        require_tenant()
+        st, body = await _forward(
+            "POST",
+            f"/v1/apps/{app_id}/api-keys",
+            headers={"Authorization": request.headers.get("Authorization", "")},
+            json={"name": payload.name},
+        )
+        if st >= 400:
+            raise ApiError(ErrorCode.INTERNAL, f"auth error: {body}", http_status=st)
+        return ApiKeyResponse(
+            id=body["id"],
+            app_id=body["app_id"],
+            name=body["name"],
+            key_prefix=body["display_prefix"],  # 映射 auth 字段
+            api_key=body["api_key"],
         )
