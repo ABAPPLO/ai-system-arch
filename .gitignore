@@ -51,3 +51,6 @@ target/
 # AI tooling / local-only artifacts（不提交）
 .codegraph/
 CLAUDE.md
+
+# superpowers SDD scratch (session reports/briefs/diffs)
+docs/superpowers/sdd/
