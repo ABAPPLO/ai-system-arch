@@ -8,6 +8,7 @@ from datetime import UTC, datetime
 
 from apihub_core.events import CallEvent
 from apihub_core.tenant import get_tenant_context
+from opentelemetry import trace
 
 
 def build_call_event(
@@ -52,7 +53,7 @@ def build_call_event(
         "app_id": app_id,
         "api_id": api_id,
         "api_version_id": api_version_id,
-        "trace_id": trace_id or _gen_trace_id(),
+        "trace_id": trace_id or _otel_trace_id(),
         "request_id": request_id or _gen_request_id(),
         "method": method.upper(),
         "path": path,
@@ -86,6 +87,19 @@ def _gen_request_id() -> str:
 
 def _gen_trace_id() -> str:
     return f"trc_{uuid.uuid4().hex[:16]}"
+
+
+def _otel_trace_id() -> str:
+    """优先用 OTel 当前 span 的 trace_id（= Jaeger 同一条 trace），无有效 span 才回落随机。
+
+    R1b §3.9：让 ClickHouse 调用日志的 trace_id 能 join Jaeger。
+    回落仍用 _gen_trace_id()（保留 trc_ 前缀，兼容 test_event 的断言）。
+    """
+    span = trace.get_current_span()
+    ctx = span.get_span_context() if span is not None else None
+    if ctx is not None and ctx.is_valid:
+        return f"{ctx.trace_id:032x}"
+    return _gen_trace_id()
 
 
 def _now_ch_ts() -> str:

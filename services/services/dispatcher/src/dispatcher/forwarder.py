@@ -281,7 +281,6 @@ async def _emit_success(
         token_completion=ai_usage.get("token_completion", 0) if ai_usage else 0,
         token_total=ai_usage.get("token_total", 0) if ai_usage else 0,
         request_id=request_id,
-        trace_id=request.headers.get("X-Trace-Id", ""),
     )
     await kafka.emit_event(payload)
 
@@ -306,7 +305,6 @@ async def _emit_failure(snap, request, exc, request_id, backend_latency_ms):
         user_agent=request.headers.get("user-agent", ""),
         client_ip=request.client.host if request.client else "0.0.0.0",
         request_id=request_id,
-        trace_id=request.headers.get("X-Trace-Id", ""),
     )
     await kafka.emit_event(payload)
 
@@ -344,7 +342,6 @@ async def _emit_stream_complete(
         user_agent=request.headers.get("user-agent", ""),
         client_ip=request.client.host if request.client else "0.0.0.0",
         request_id=request_id,
-        trace_id=request.headers.get("X-Trace-Id", ""),
     )
     await kafka.emit_event(payload)
 
