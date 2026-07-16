@@ -240,10 +240,13 @@ curl -s "${ADMIN}/consumers/smoke" -H "X-API-KEY: ${ADMIN_KEY}" -X PUT \
   -d "{\"username\":\"smoke\",\"plugins\":{\"key-auth\":{\"key\":\"${DEMO_KEY}\"}}}" \
   -o /dev/null -w "  consumer PUT -> %{http_code}\n"
 
-# 6b) route：/dispatch/* → dispatcher.apihub-system:80，key-auth 读 X-API-Key（修正 #4）
-say "upsert route 'dispatcher' (/dispatch/* -> dispatcher.apihub-system:80)"
+# 6b) route：/dispatch/* → dispatcher.apihub-system:80，key-auth 读 X-API-Key（修正 #4）。
+#     R1c 后 dispatcher /dispatch 强制要 X-API-Version-Id（否则 400）—— 这条 smoke 路由
+#     用 proxy-rewrite 注入 seed 的 smoke 版本 ver_smoke_sync_v1（published），让 §7 的
+#     good-key 调用能走通 APISIX key-auth → 注入 header → dispatcher resolve → mock-backend。
+say "upsert route 'dispatcher' (/dispatch/* -> dispatcher.apihub-system:80, inject X-API-Version-Id)"
 curl -s "${ADMIN}/routes/dispatcher" -H "X-API-KEY: ${ADMIN_KEY}" -X PUT \
-  -d '{"uri":"/dispatch/*","upstream":{"type":"roundrobin","nodes":{"dispatcher.apihub-system:80":1}},"plugins":{"key-auth":{"header":"X-API-Key"}}}' \
+  -d '{"uri":"/dispatch/*","upstream":{"type":"roundrobin","nodes":{"dispatcher.apihub-system:80":1}},"plugins":{"key-auth":{"header":"X-API-Key"},"proxy-rewrite":{"headers":{"set":{"X-API-Version-Id":"ver_smoke_sync_v1"}}}}}' \
   -o /dev/null -w "  route PUT -> %{http_code}\n"
 
 # 6c) route：/v1/jobs → dispatcher.apihub-system:80（workflow 入口，key-auth 同 /dispatch/*）
