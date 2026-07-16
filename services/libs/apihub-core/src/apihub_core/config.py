@@ -69,6 +69,7 @@ class Settings(BaseSettings):
     # APISIX admin
     apisix_admin_url: str | None = None
     apisix_admin_key: str | None = None
+    dispatcher_upstream: str = "dispatcher.apihub-system:8001"
 
     # Auth service（鉴权调用）
     # K8s 默认走集群内 DNS；本地 dev 通过 .env.dev 覆盖到 localhost:8002
