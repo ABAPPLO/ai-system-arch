@@ -204,7 +204,7 @@ def register_routes(app: FastAPI) -> None:
 
     @app.post("/v1/api-versions/{version_id}/retire")
     async def retire_version(version_id: str):
-        """下线 —— deprecated → retired（APISIX 路由摘除，调用返回 410 Gone）。
+        """下线 —— deprecated → retired（不摘除 APISIX 路由；dispatcher 按 status='retired' 返 410 Gone）。
 
         要求：必须先 deprecated（不能从 published 直接 retire，避免误下线）。
         """
