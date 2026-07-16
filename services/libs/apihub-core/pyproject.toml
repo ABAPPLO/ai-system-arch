@@ -25,7 +25,7 @@ dependencies = [
   "opentelemetry-instrumentation-httpx==0.61b0",
   "opentelemetry-instrumentation-asyncpg==0.61b0",
   "opentelemetry-instrumentation-redis==0.61b0",
-  "opentelemetry-exporter-otlp==1.40.0",
+  "opentelemetry-exporter-otlp==1.43.0",
   "pydantic>=2.6",
   "pydantic-settings>=2.2",
   "tenacity>=8.2",
