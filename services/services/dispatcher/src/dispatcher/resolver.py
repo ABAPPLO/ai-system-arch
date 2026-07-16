@@ -26,6 +26,20 @@ async def resolve_by_header(version_id: str) -> ApiVersionSnapshot:
     cache_key = f"snapshot:{version_id}"
     cached = await redis.t_get(cache_key)
     if cached:
+        # 防缓存陈旧：cached snapshot 无 status，retire 后最多 5 分钟仍命中。
+        # 命中时用一次 PK 状态查询兜底：retired→410，并清 stale 缓存。
+        async with db.meta_db_session() as conn:
+            status = await conn.fetchval(
+                "SELECT status FROM api_version WHERE id = $1", version_id
+            )
+        if status == "retired":
+            await redis.t_delete(cache_key)
+            raise ApiError(ErrorCode.API_RETIRED, f"version {version_id} retired")
+        if status not in ("published", "deprecated"):
+            await redis.t_delete(cache_key)
+            raise ApiError(
+                ErrorCode.API_NOT_PUBLISHED, f"version {version_id} not published"
+            )
         return _from_json(json.loads(cached))
 
     async with db.meta_db_session() as conn:
