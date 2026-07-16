@@ -8,15 +8,19 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextvars
 import json
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 
 import asyncpg
 
 from apihub_core.config import Settings
+from apihub_core.logging import get_logger
 from apihub_core.tenant import get_tenant_context
+
+log = get_logger(__name__)
 
 _pool: asyncpg.Pool | None = None
 
@@ -56,7 +60,13 @@ async def _init_jsonb_codec(conn: asyncpg.Connection) -> None:
 
 
 async def init_pool(settings: Settings) -> None:
-    """进程启动时调一次。"""
+    """进程启动时调一次。
+
+    启动建连带退避重试：kind 等 CNI/DNS 抢跑环境下，新 pod 首次解析 PG host 可能
+    EAI_AGAIN（socket.gaierror，OSError 子类）或连接被拒——退避重试而非首枪崩溃
+    （否则 startupProbe 期内起不来 → CrashLoopBackOff）。窗口 = retries × backoff
+    （默认 10 × 1.5s ≈ 15s，落在各服务 startupProbe 的 120s 内）。
+    """
     global _pool
     # asyncpg 接受 'disable'/'prefer'/'require'/'verify-ca'/'verify-full'/False/True
     # 这里直接透传 settings.pg_ssl 字符串；False 表示完全关闭。
@@ -64,29 +74,47 @@ async def init_pool(settings: Settings) -> None:
         False if settings.pg_ssl.lower() in ("false", "off", "no") else settings.pg_ssl
     )
 
-    _pool = await asyncpg.create_pool(
-        host=settings.pg_host,
-        port=settings.pg_port,
-        database=settings.pg_database,
-        user=settings.pg_user,
-        password=settings.pg_password,
-        min_size=settings.pg_pool_min,
-        max_size=settings.pg_pool_max,
-        ssl=ssl_value,
-        statement_cache_size=100,
-        init=_init_jsonb_codec,
-    )
-
-    # 预热：asyncpg create_pool 惰性建连，连接到首次 acquire 才真正建立。
-    # 进程刚起（如 ArgoCD resync 重启后）首个 auth verify 若是 cache-miss，
-    # 会付冷建连费 —— kind/host-compose 下实测 3-15s，直接撞调用方 httpx timeout
-    # → 503 "Auth service unreachable"。并发持有 min_size 条再释放，强制启动期建好，
-    # 让首个请求即走热连接（配合各服务 startupProbe 的 120s 窗口吸收建连耗时）。
-    held = []
-    for _ in range(settings.pg_pool_min):
-        held.append(await _pool.acquire())
-    for conn in held:
-        await _pool.release(conn)
+    last_exc: Exception | None = None
+    for attempt in range(1, settings.startup_connect_retries + 1):
+        pool: asyncpg.Pool | None = None
+        try:
+            pool = await asyncpg.create_pool(
+                host=settings.pg_host,
+                port=settings.pg_port,
+                database=settings.pg_database,
+                user=settings.pg_user,
+                password=settings.pg_password,
+                min_size=settings.pg_pool_min,
+                max_size=settings.pg_pool_max,
+                ssl=ssl_value,
+                statement_cache_size=100,
+                init=_init_jsonb_codec,
+            )
+            # 预热：asyncpg create_pool 惰性建连，连接到首次 acquire 才真正建立
+            # （host 解析也在此刻）。并发持有 min_size 条再释放，强制启动期建好，
+            # 让首个请求即走热连接。
+            held = [await pool.acquire() for _ in range(settings.pg_pool_min)]
+            for conn in held:
+                await pool.release(conn)
+            _pool = pool
+            return
+        except (OSError, asyncpg.PostgresError) as e:
+            # OSError 覆盖 socket.gaierror(EAI_AGAIN)/ConnectionRefusedError 等
+            last_exc = e
+            if pool is not None:
+                with suppress(Exception):
+                    await pool.close()
+            log.warning(
+                "db_init_retry",
+                attempt=attempt,
+                of=settings.startup_connect_retries,
+                error=f"{type(e).__name__}: {e}",
+            )
+            if attempt >= settings.startup_connect_retries:
+                break
+            await asyncio.sleep(settings.startup_connect_backoff)
+    assert last_exc is not None
+    raise last_exc
 
 
 async def close_pool() -> None:
