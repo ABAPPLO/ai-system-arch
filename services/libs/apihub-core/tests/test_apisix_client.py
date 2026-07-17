@@ -112,3 +112,97 @@ async def test_publish_route_non_2xx_raises_502(monkeypatch):
             version_id="ver_x", method="GET", path="/x", base_path="/v1"
         )
     assert ei.value.http_status == 502
+
+
+async def test_upsert_consumer_puts_admin_consumer(monkeypatch):
+    captured = {}
+
+    class _FakeResp:
+        status_code = 201
+
+        def json(self):
+            return {"ok": True}
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def request(self, method, url, **kw):
+            captured["method"] = method
+            captured["url"] = url
+            captured["json"] = kw.get("json")
+            return _FakeResp()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+    from apihub_core import apisix_client
+
+    await apisix_client.upsert_consumer(key_id="key_abc", key="ak_secret")
+
+    assert captured["method"] == "PUT"
+    assert (
+        captured["url"]
+        == "http://apisix-admin.apihub-ingress:9180/apisix/admin/consumers/key_abc"
+    )
+    assert captured["json"] == {
+        "username": "key_abc",
+        "plugins": {"key-auth": {"key": "ak_secret", "header": "X-API-Key"}},
+    }
+
+
+async def test_delete_consumer_deletes(monkeypatch):
+    captured = {}
+
+    class _FakeResp:
+        status_code = 200
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def request(self, method, url, **kw):
+            captured["method"] = method
+            captured["url"] = url
+            return _FakeResp()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+    from apihub_core import apisix_client
+
+    await apisix_client.delete_consumer("key_abc")  # 不抛即通过
+    assert captured["method"] == "DELETE"
+    assert captured["url"].endswith("/apisix/admin/consumers/key_abc")
+
+
+async def test_delete_consumer_404_is_silent(monkeypatch):
+    class _FakeResp:
+        status_code = 404
+        text = '{"error":"not found"}'
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def request(self, method, url, **kw):
+            return _FakeResp()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+    from apihub_core import apisix_client
+
+    await apisix_client.delete_consumer("key_abc")  # 404 不抛

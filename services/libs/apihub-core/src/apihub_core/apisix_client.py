@@ -68,6 +68,43 @@ async def publish_route(*, version_id: str, method: str, path: str, base_path: s
     )
 
 
+async def upsert_consumer(*, key_id: str, key: str) -> None:
+    """upsert APISIX consumer（username=key_id，per-key）—— 随 APIKey 生命周期。
+
+    consumer 持 key-auth 凭证（key=明文，header=X-API-Key），APISIX 在网关层秒级校验。
+    per-key（非 per-app）：APISIX key-auth consumer 只能持一个 key，per-app 会让同 app
+    第 2 个 key 覆盖第 1 个。consumer_name 对下游不透明（信任路径走 Redis，不读它）。
+    """
+    settings = get_settings()
+    if not settings.apisix_admin_url:
+        raise ApiError(ErrorCode.INTERNAL, "APISIX_ADMIN_URL not configured", http_status=500)
+    body = {
+        "username": key_id,
+        "plugins": {"key-auth": {"key": key, "header": "X-API-Key"}},
+    }
+    await _admin_request(
+        "PUT",
+        f"{settings.apisix_admin_url}/apisix/admin/consumers/{key_id}",
+        json=body,
+    )
+
+
+async def delete_consumer(key_id: str) -> None:
+    """删 APISIX consumer（随 key 吊销）。不存在静默（404 不当错）。"""
+    settings = get_settings()
+    if not settings.apisix_admin_url:
+        return  # 未配 APISIX（dev 无 APISIX 时 no-op）
+    try:
+        await _admin_request(
+            "DELETE",
+            f"{settings.apisix_admin_url}/apisix/admin/consumers/{key_id}",
+        )
+    except ApiError as e:
+        # 404 = consumer 本就不存在（revoke 幂等），静默；其余（5xx/网络）抛出
+        if "failed: 404" not in str(e):
+            raise
+
+
 async def retire_route(version_id: str) -> None:
     """占位 —— R1c 设计：retire 不删路由（dispatcher 按 retired 状态返 410）。
 
