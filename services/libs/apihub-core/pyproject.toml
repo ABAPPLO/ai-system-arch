@@ -19,6 +19,10 @@ dependencies = [
   "PyJWT>=2.8,<3",
   # bcrypt：外部开发者密码哈希（identity 注册/登录）。argon2 备选，当前用 bcrypt。
   "bcrypt>=4.0,<5",
+  # cryptography：PII 字段 AES-256-GCM 加解密（apihub_core/pii.py），identity 注册时
+  # encrypt_pii(phone/name) 强制依赖。ai-gateway/crypto.py 亦直接用。缺少会导致
+  # /v1/auth/register 在 create_user 内部 ModuleNotFoundError → 500。
+  "cryptography>=42,<46",
   "opentelemetry-api==1.40.0",
   "opentelemetry-sdk==1.40.0",
   "opentelemetry-instrumentation-fastapi==0.61b0",
