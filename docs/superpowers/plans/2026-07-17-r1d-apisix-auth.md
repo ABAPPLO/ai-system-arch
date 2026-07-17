@@ -1197,7 +1197,7 @@ Secret 注释段补：
 `scripts/kind/apisix-setup.sh`，§6b 的 `dispatcher` 路由 PUT payload（约 L248-250）。先在文件顶部（其他默认值附近）加：
 
 ```bash
-[ -z "${INGRESS_SHARED_SECRET}" ] && INGRESS_SHARED_SECRET="ingress-shared-dev"
+[ -z "${INGRESS_SHARED_SECRET:-}" ] && INGRESS_SHARED_SECRET="ingress-shared-dev"
 ```
 
 并把 §6b 路由 payload 改为：
