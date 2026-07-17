@@ -30,3 +30,39 @@ class WebhookTestResult(BaseModel):
     status_code: int | None = None
     latency_ms: int | None = None
     error: str | None = None
+
+
+class NotifyRequest(BaseModel):
+    template_code: str
+    channel_type: str
+    recipient: str = ""
+    variables: dict = Field(default_factory=dict)
+    locale: str = "zh-CN"
+
+
+class NotifyResult(BaseModel):
+    success: bool
+    error: str | None = None
+    provider_msg_id: str | None = None
+
+
+class ChannelConfigCreate(BaseModel):
+    channel_type: str
+    name: str = "default"
+    config: dict
+    status: str = "active"
+
+
+class ChannelConfigUpdate(BaseModel):
+    channel_type: str | None = None
+    name: str | None = None
+    config: dict | None = None
+    status: str | None = None
+
+
+class ChannelConfigResponse(BaseModel):
+    id: str
+    channel_type: str
+    name: str
+    config: dict
+    status: str
