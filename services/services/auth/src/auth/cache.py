@@ -1,18 +1,16 @@
-"""Redis 缓存读写 —— 用 raw_client（跨租户，因为 key 本身就是身份证明）。
+"""Redis 缓存读写 —— 委托 apihub_core.identity（单一真相源）。
 
 缓存策略：
   - 正缓存（合法 key）: 5 分钟
   - 负缓存（非法 key）: 1 分钟（防爆破）
   - 吊销时主动 DEL
 
-key 格式：ak:{sha256_of_plaintext}
-value 格式：JSON
+key/value 契约见 apihub_core.identity。
 """
 
-import json
 from typing import Any
 
-from apihub_core import redis
+from apihub_core import identity
 
 from auth.apikey import (
     NEGATIVE_CACHE_TTL,
@@ -22,38 +20,26 @@ from auth.apikey import (
 
 
 async def cache_positive(api_key_plaintext: str, data: dict[str, Any]) -> None:
-    """缓存合法 key 的解析结果。"""
-    key = cache_key(api_key_plaintext)
-    await redis.raw_client().setex(key, POSITIVE_CACHE_TTL, json.dumps(data))
+    await identity.write_identity(api_key_plaintext, data, ttl=POSITIVE_CACHE_TTL)
 
 
 async def cache_negative(api_key_plaintext: str) -> None:
-    """缓存非法 key 的负结果（避免反复打 DB）。"""
-    key = cache_key(api_key_plaintext)
-    await redis.raw_client().setex(key, NEGATIVE_CACHE_TTL, json.dumps({"invalid": True}))
+    await identity.write_identity(
+        api_key_plaintext, {"invalid": True}, ttl=NEGATIVE_CACHE_TTL
+    )
 
 
 async def get_cached(api_key_plaintext: str) -> dict[str, Any] | None:
-    """读缓存。返回 dict 或 None。
-
-    返回的 dict 可能包含 {"invalid": True}（负缓存），调用方应区分。
-    """
-    key = cache_key(api_key_plaintext)
-    raw = await redis.raw_client().get(key)
-    if raw is None:
-        return None
-    try:
-        return json.loads(raw)
-    except json.JSONDecodeError:
-        # 缓存损坏，删掉
-        await redis.raw_client().delete(key)
-        return None
+    return await identity.read_identity(api_key_plaintext)
 
 
 async def invalidate(api_key_plaintext_or_hash: str) -> None:
-    """吊销时主动清缓存。"""
-    key = cache_key(api_key_plaintext_or_hash)
-    await redis.raw_client().delete(key)
+    """吊销时主动清缓存。入参可为明文或 hash（cache_key 两者兼容）。"""
+    # revoke_key 传 key_hash（非明文），identity.delete_identity 用明文算 key —— 故此处
+    # 仍走 auth.apikey.cache_key（兼容明文/-hash），直接操作 raw_client，保持原行为。
+    from apihub_core import redis
+
+    await redis.raw_client().delete(cache_key(api_key_plaintext_or_hash))
 
 
 async def warmup(api_key_plaintext: str, data: dict[str, Any]) -> None:

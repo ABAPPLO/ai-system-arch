@@ -34,3 +34,17 @@
 > - **api-registry** 在 `publish` 时通过 **APISIX Admin API** 下发路由（upstream 指向 `DISPATCHER_UPSTREAM`）；`retire` 不摘除路由，dispatcher 按 `status='retired'` 返 `410 Gone`。
 >
 > 这条边界排除了「dispatcher 自己解析 path 选 version」和「api-registry 手动静态写路由」两类过时设计。
+
+## R1d：APISIX consumer / 路由 / 可信入口归属
+
+- **APISIX consumer** 由 **auth** 管（随 APIKey 生命周期）：`create_key` 建 consumer
+  （username=`key_id`，per-key）+ 预热 Redis 身份缓存；`revoke_key` 删 consumer + 清缓存。
+  auth 是 app/key 聚合的唯一拥有者（§9-B），故 consumer 归它。
+- **APISIX route** 由 **api-registry** 管（随 publish）：`publish_route` 下发（R1c），
+  带 key-auth + 条件 limit-count + 注入 X-API-Version-Id / X-Ingress-Auth。
+- **可信入口不变量（安全）**：dispatcher 的 `authenticate_request` 信任 `X-Ingress-Auth`
+  header 跳过 HTTP auth 回源（修 good-key 503）。此信任成立的前提是 **dispatcher 仅经
+  APISIX 可达（ClusterIP，无外部 ingress）**——APISIX proxy-rewrite 用 `set` 覆写调用方
+  提供的同名 header，故只有经 APISIX 的请求才带可信值。若 dispatcher 被外部直连暴露，
+  该 header 可伪造、绕过鉴权。任何新增 dispatcher 暴露面（额外 ingress/NodePort）前必须
+  重审此不变量。

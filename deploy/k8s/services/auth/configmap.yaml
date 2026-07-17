@@ -23,6 +23,10 @@ data:
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.apihub-monitoring:4317
   OTEL_SERVICE_NAME: auth
   OTEL_RESOURCE_ATTRIBUTES: deployment.environment=dev
+
+  # APISIX admin（auth 管 consumer 生命周期）+ 可信入口
+  APISIX_ADMIN_URL: http://apisix-admin.apihub-ingress:9180
+  INGRESS_SHARED_SECRET: ingress-shared-dev
 ---
 apiVersion: v1
 kind: Secret
@@ -31,3 +35,7 @@ metadata:
   namespace: apihub-system
 type: Opaque
 # 用 Sealed Secrets 加密，这里仅占位
+# stringData:
+#   PG_PASSWORD: ...
+#   APISIX_ADMIN_KEY: <from sealed secret>      # kind 用 edd1c9f034335f136f87ad84b625c8f1
+#   INGRESS_SHARED_SECRET: <strong random>      # 与 api-registry 一致

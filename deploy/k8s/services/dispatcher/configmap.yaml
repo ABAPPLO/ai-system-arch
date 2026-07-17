@@ -28,6 +28,10 @@ data:
   # workflow-svc（dispatcher /v1/jobs 代理目标，文档 §4）
   WORKFLOW_SERVICE_URL: http://workflow.apihub-system
 
+  # R1d 可信入口：dispatcher 的 authenticate_request 据此 header 跳过 HTTP auth 回源（修 good-key 503）。
+  # 值须与 APISIX proxy-rewrite 注入的 X-Ingress-Auth 一致（非敏，入 ConfigMap；prod 走强随机 Secret）。
+  INGRESS_SHARED_SECRET: ingress-shared-dev
+
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.apihub-monitoring:4317
   OTEL_SERVICE_NAME: dispatcher
   OTEL_RESOURCE_ATTRIBUTES: deployment.environment=dev

@@ -24,6 +24,7 @@ DEMO_KEY="ak_test_a_demo001"          # tenant_a/app_trading（02-seed.sql）
 LOCAL_ADMIN_PORT=19180
 GATEWAY_NODEPORT=30080
 CLUSTER_NAME="${KIND_CLUSTER_NAME:-apihub}"
+[ -z "${INGRESS_SHARED_SECRET:-}" ] && INGRESS_SHARED_SECRET="ingress-shared-dev"
 
 log() { printf '\n\033[1m== %s ==\033[0m\n' "$*"; }
 say() { printf '  %s\n' "$*"; }
@@ -244,10 +245,12 @@ curl -s "${ADMIN}/consumers/smoke" -H "X-API-KEY: ${ADMIN_KEY}" -X PUT \
 #     R1c 后 dispatcher /dispatch 强制要 X-API-Version-Id（否则 400）—— 这条 smoke 路由
 #     用 proxy-rewrite 注入 seed 的 smoke 版本 ver_smoke_sync_v1（published），让 §7 的
 #     good-key 调用能走通 APISIX key-auth → 注入 header → dispatcher resolve → mock-backend。
-say "upsert route 'dispatcher' (/dispatch/* -> dispatcher.apihub-system:80, inject X-API-Version-Id)"
+#     R1d：同时注入 X-Ingress-Auth=<INGRESS_SHARED_SECRET> —— dispatcher 信任入口快路径
+#     （dispatcher 走 trusted-ingress fast path，跳过自身 API-key/identity 校验）。
+say "upsert route 'dispatcher' (/dispatch/* -> dispatcher.apihub-system:80, inject X-API-Version-Id + X-Ingress-Auth)"
 curl -s "${ADMIN}/routes/dispatcher" -H "X-API-KEY: ${ADMIN_KEY}" -X PUT \
-  -d '{"uri":"/dispatch/*","upstream":{"type":"roundrobin","nodes":{"dispatcher.apihub-system:80":1}},"plugins":{"key-auth":{"header":"X-API-Key"},"proxy-rewrite":{"headers":{"set":{"X-API-Version-Id":"ver_smoke_sync_v1"}}}}}' \
-  -o /dev/null -w "  route PUT -> %{http_code}\n"
+  -d '{"uri":"/dispatch/*","upstream":{"type":"roundrobin","nodes":{"dispatcher.apihub-system:80":1}},"plugins":{"key-auth":{"header":"X-API-Key"},"proxy-rewrite":{"headers":{"set":{"X-API-Version-Id":"ver_smoke_sync_v1","X-Ingress-Auth":"'"${INGRESS_SHARED_SECRET}"'"}}}}}' \
+  -o /dev/null -w "  route dispatcher PUT -> %{http_code}\n"
 
 # 6c) route：/v1/jobs → dispatcher.apihub-system:80（workflow 入口，key-auth 同 /dispatch/*）
 # uris 数组同时覆盖 POST /v1/jobs（精确）与 GET /v1/jobs/{id}（通配），

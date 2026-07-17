@@ -73,6 +73,9 @@ class Settings(BaseSettings):
     # APISIX admin
     apisix_admin_url: str | None = None
     apisix_admin_key: str | None = None
+    # 可信入口共享密钥：APISIX proxy-rewrite 注入 X-Ingress-Auth=<本值>，dispatcher 信任路径据此
+    # 跳过 HTTP auth 回源。安全前提：dispatcher 仅经 APISIX 可达（ClusterIP，无外部 ingress）。
+    ingress_shared_secret: str | None = None
     dispatcher_upstream: str = "dispatcher.apihub-system:80"
 
     # Auth service（鉴权调用）

@@ -5,12 +5,11 @@
 
 import uuid
 
-from apihub_core import db, kafka
+from apihub_core import apisix_client, db, kafka
 from apihub_core.errors import ApiError, ErrorCode
 from apihub_core.tenant import require_tenant
 from fastapi import FastAPI, Query
 
-from api_registry import apisix_client
 from api_registry import change_request as cr
 from api_registry.models import (
     ApiCreate,
@@ -155,6 +154,7 @@ def register_routes(app: FastAPI) -> None:
                 method=row["method"],
                 path=row["path"],
                 base_path=row["base_path"],
+                rate_limit=row["rate_limit"],
             )
 
             await conn.execute(
