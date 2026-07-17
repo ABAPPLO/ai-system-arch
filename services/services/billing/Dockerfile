@@ -8,8 +8,10 @@ RUN pip install --user /tmp/apihub-core
 COPY --chown=apihub:apihub services/services/billing /tmp/billing
 RUN pip install --user /tmp/billing
 FROM python:3.11-slim
+RUN useradd -m -u 1000 apihub
+USER apihub
 WORKDIR /app
-COPY --from=builder /home/apihub/.local /root/.local
-ENV PATH=/root/.local/bin:$PATH
+COPY --from=builder --chown=apihub:apihub /home/apihub/.local /home/apihub/.local
+ENV PATH="/home/apihub/.local/bin:${PATH}"
 EXPOSE 8014
 CMD ["uvicorn", "billing.main:app", "--host", "0.0.0.0", "--port", "8014", "--workers", "1"]

@@ -8,8 +8,10 @@ RUN pip install --user /tmp/apihub-core
 COPY --chown=apihub:apihub services/services/notification /tmp/notification
 RUN pip install --user /tmp/notification
 FROM python:3.11-slim
+RUN useradd -m -u 1000 apihub
+USER apihub
 WORKDIR /app
-COPY --from=builder /home/apihub/.local /root/.local
-ENV PATH=/root/.local/bin:$PATH
+COPY --from=builder --chown=apihub:apihub /home/apihub/.local /home/apihub/.local
+ENV PATH="/home/apihub/.local/bin:${PATH}"
 EXPOSE 8012
 CMD ["uvicorn", "notification.main:app", "--host", "0.0.0.0", "--port", "8012", "--workers", "2"]
