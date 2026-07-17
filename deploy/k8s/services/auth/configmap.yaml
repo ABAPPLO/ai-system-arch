@@ -27,6 +27,11 @@ data:
   # APISIX admin（auth 管 consumer 生命周期）+ 可信入口
   APISIX_ADMIN_URL: http://apisix-admin.apihub-ingress:9180
   INGRESS_SHARED_SECRET: ingress-shared-dev
+
+  # auth 自验 caller 走 loopback（同 pod 127.0.0.1:8002），免集群 DNS 自调慢/超时
+  # （否则 create_key 等带 APIKey 的 auth 端点中间件自调 auth.apihub-system → DNS 抖 ~37s → 503）。
+  # /v1/apikey/verify 在 skip_auth_paths 里，无递归。
+  AUTH_SERVICE_URL: http://127.0.0.1:8002/v1/apikey/verify
 ---
 apiVersion: v1
 kind: Secret
