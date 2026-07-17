@@ -58,8 +58,12 @@ DROP POLICY IF EXISTS tenant_isolation_select ON notification_log;
 CREATE POLICY tenant_isolation_select ON notification_log
     FOR SELECT USING (tenant_id = rls_tenant_filter() OR rls_is_platform_admin());
 DROP POLICY IF EXISTS tenant_isolation_modify ON notification_log;
+-- 服务在 tenant context（db_session）写投递日志：modify 须 tenant-self（与 channel_config 一致），
+-- 否则 admin-only policy 拒绝 tenant-context INSERT → /notify/send 500。
+-- tenant_id 来自可信 TenantContext（非用户输入），正确归因；delivery log 非计费/授权记录。
 CREATE POLICY tenant_isolation_modify ON notification_log
-    FOR ALL USING (rls_is_platform_admin()) WITH CHECK (rls_is_platform_admin());
+    FOR ALL USING (tenant_id = rls_tenant_filter() OR rls_is_platform_admin())
+    WITH CHECK (tenant_id = rls_tenant_filter() OR rls_is_platform_admin());
 
 -- ===== seed 模板（幂等）=====
 INSERT INTO notification_template (code, channel_type, locale, subject_tpl, body_tpl, variables_schema) VALUES
