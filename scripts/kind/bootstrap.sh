@@ -144,7 +144,7 @@ if [ "${REDIS_HP:-}" != "6379" ] || [ "${PG_HP:-}" != "5432" ]; then
 fi
 
 # 4) 构建 11 镜像 + load 进 kind
-SVC=(api-registry dispatcher auth executor quota tenant admin docs trace retry workflow portal)
+SVC=(api-registry dispatcher auth executor quota tenant admin docs trace retry workflow portal notification ai-gateway billing)
 for s in "${SVC[@]}"; do
   echo "=== build+load $s ==="
   docker build -f "services/services/$s/Dockerfile" \
