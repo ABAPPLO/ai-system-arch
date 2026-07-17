@@ -206,3 +206,83 @@ async def test_delete_consumer_404_is_silent(monkeypatch):
     from apihub_core import apisix_client
 
     await apisix_client.delete_consumer("key_abc")  # 404 不抛
+
+
+async def test_publish_route_includes_keyauth_and_ingress_header(monkeypatch):
+    from apihub_core.config import get_settings
+
+    monkeypatch.setenv("INGRESS_SHARED_SECRET", "s3cr3t-ingress")
+    get_settings.cache_clear()
+    captured = {}
+
+    class _FakeResp:
+        status_code = 201
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def request(self, method, url, **kw):
+            captured["json"] = kw.get("json")
+            return _FakeResp()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+    from apihub_core import apisix_client
+
+    await apisix_client.publish_route(
+        version_id="ver_abc", method="GET", path="/u", base_path="/v1"
+    )
+    plugins = captured["json"]["plugins"]
+    assert plugins["key-auth"] == {"header": "X-API-Key"}
+    assert plugins["proxy-rewrite"]["headers"]["set"] == {
+        "X-API-Version-Id": "ver_abc",
+        "X-Ingress-Auth": "s3cr3t-ingress",
+    }
+    assert "limit-count" not in plugins  # 无 rate_limit
+    get_settings.cache_clear()
+
+
+async def test_publish_route_includes_limit_count_when_rate_limit_set(monkeypatch):
+    captured = {}
+
+    class _FakeResp:
+        status_code = 201
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def request(self, method, url, **kw):
+            captured["json"] = kw.get("json")
+            return _FakeResp()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+    from apihub_core import apisix_client
+
+    await apisix_client.publish_route(
+        version_id="ver_abc",
+        method="GET",
+        path="/u",
+        base_path="/v1",
+        rate_limit={"count": 10, "window_seconds": 60},
+    )
+    lc = captured["json"]["plugins"]["limit-count"]
+    assert lc == {
+        "count": 10,
+        "time_window": 60,
+        "key": "consumer_name",
+        "policy": "local",
+        "rejected_code": 429,
+    }

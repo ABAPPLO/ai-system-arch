@@ -154,6 +154,7 @@ def register_routes(app: FastAPI) -> None:
                 method=row["method"],
                 path=row["path"],
                 base_path=row["base_path"],
+                rate_limit=row["rate_limit"],
             )
 
             await conn.execute(

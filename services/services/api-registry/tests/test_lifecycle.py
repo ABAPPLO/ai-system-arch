@@ -47,6 +47,7 @@ def stub_db(monkeypatch):
                         "method": overrides.get("method", "GET"),
                         "path": overrides.get("path", "/test"),
                         "base_path": overrides.get("base_path", "/api/test"),
+                        "rate_limit": overrides.get("rate_limit"),
                         "status": cur,
                     }
             return None
@@ -119,7 +120,7 @@ class TestPublish:
 
         captured: dict = {}
 
-        async def _fake_publish(*, version_id, method, path, base_path):
+        async def _fake_publish(*, version_id, method, path, base_path, rate_limit=None):
             # publish_route 必须在 status UPDATE 之前调用 —— 此刻状态应仍为 draft
             captured["state_at_call"] = stub_db["version_states"].get(version_id)
             captured.update(
@@ -127,6 +128,7 @@ class TestPublish:
                 method=method,
                 path=path,
                 base_path=base_path,
+                rate_limit=rate_limit,
             )
 
         from apihub_core import apisix_client

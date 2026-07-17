@@ -43,23 +43,51 @@ async def _admin_request(method: str, url: str, **kw) -> httpx.Response:
     return resp
 
 
-async def publish_route(*, version_id: str, method: str, path: str, base_path: str) -> None:
-    """upsert 一条 APISIX 路由（id=version_id）→ dispatcher + 注入 X-API-Version-Id。"""
+async def publish_route(
+    *,
+    version_id: str,
+    method: str,
+    path: str,
+    base_path: str,
+    rate_limit: dict | None = None,
+) -> None:
+    """upsert 一条 APISIX 路由（id=version_id）→ dispatcher + key-auth + 限流 + 注入 header。
+
+    - key-auth：edge 校验 X-API-Key（无效→401，不到 dispatcher）。
+    - limit-count：仅当 rate_limit（{count, window_seconds}）有 count 时加。
+    - proxy-rewrite：注入 X-API-Version-Id（dispatcher 强制）；若 ingress_shared_secret 配置，
+      同步注入 X-Ingress-Auth（dispatcher 据此走信任路径，跳过 HTTP auth 回源）。
+    """
     settings = get_settings()
     if not settings.apisix_admin_url:
         raise ApiError(ErrorCode.INTERNAL, "APISIX_ADMIN_URL not configured", http_status=500)
 
     uri = (base_path.rstrip("/") + _normalize_path(path)) if base_path else _normalize_path(path)
+    set_headers = {"X-API-Version-Id": version_id}
+    if settings.ingress_shared_secret:
+        set_headers["X-Ingress-Auth"] = settings.ingress_shared_secret
+
+    plugins: dict = {
+        "key-auth": {"header": "X-API-Key"},
+        "proxy-rewrite": {
+            "regex_uri": ["^/(.*)$", "/dispatch/$1"],
+            "headers": {"set": set_headers},
+        },
+    }
+    if rate_limit and rate_limit.get("count"):
+        plugins["limit-count"] = {
+            "count": int(rate_limit["count"]),
+            "time_window": int(rate_limit.get("window_seconds", 60)),
+            "key": "consumer_name",
+            "policy": "local",
+            "rejected_code": 429,
+        }
+
     body = {
         "uri": uri,
         "methods": [method.upper()],
         "upstream": {"type": "roundrobin", "nodes": {settings.dispatcher_upstream: 1}},
-        "plugins": {
-            "proxy-rewrite": {
-                "regex_uri": ["^/(.*)$", "/dispatch/$1"],
-                "headers": {"set": {"X-API-Version-Id": version_id}},
-            }
-        },
+        "plugins": plugins,
     }
     await _admin_request(
         "PUT",
