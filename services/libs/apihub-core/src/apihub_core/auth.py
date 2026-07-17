@@ -6,6 +6,8 @@
 详见 docs/08-observability-security.md §7
 """
 
+import secrets
+
 import httpx
 from fastapi import Request
 
@@ -33,7 +35,9 @@ async def authenticate_request(
     # （消除 dispatcher→auth 冷启动 503）。安全前提：dispatcher 仅经 APISIX 可达（见 docs）。
     if (
         settings.ingress_shared_secret
-        and request.headers.get("X-Ingress-Auth") == settings.ingress_shared_secret
+        and secrets.compare_digest(
+            request.headers.get("X-Ingress-Auth") or "", settings.ingress_shared_secret
+        )
     ):
         from apihub_core import identity
 

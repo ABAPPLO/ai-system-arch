@@ -180,3 +180,63 @@ async def test_authenticate_request_trust_path_miss_falls_back_to_http(monkeypat
     ctx = await authenticate_request(_FakeRequest(), get_settings(), "ak_real")
     assert ctx.tenant_id == "t2"  # 来自 HTTP 回落
     get_settings.cache_clear()
+
+
+async def test_authenticate_request_trust_path_negative_cache_rejects(monkeypatch):
+    """X-Ingress-Auth 匹配 + Redis 命中负缓存 {"invalid": True} → UNAUTHORIZED 401。"""
+    from apihub_core.config import get_settings
+    from apihub_core.errors import ApiError, ErrorCode
+
+    monkeypatch.setenv("INGRESS_SHARED_SECRET", "s3cr3t")
+    get_settings.cache_clear()
+
+    cached = {"invalid": True}
+
+    class _FakeRedis:
+        async def get(self, key):
+            return json.dumps(cached)
+
+    from apihub_core import redis as redis_mod
+    from apihub_core.auth import authenticate_request
+
+    monkeypatch.setattr(redis_mod, "raw_client", lambda: _FakeRedis())
+
+    class _FakeRequest:
+        def __init__(self):
+            self.headers = {"X-API-Key": "ak_real", "X-Ingress-Auth": "s3cr3t"}
+
+    with pytest.raises(ApiError) as exc_info:
+        await authenticate_request(_FakeRequest(), get_settings(), "ak_real")
+    assert exc_info.value.code == ErrorCode.UNAUTHORIZED
+    assert exc_info.value.http_status == 401
+    get_settings.cache_clear()
+
+
+async def test_authenticate_request_trust_path_inactive_rejects(monkeypatch):
+    """X-Ingress-Auth 匹配 + Redis 命中 {"is_active": False, ...} → UNAUTHORIZED 401。"""
+    from apihub_core.config import get_settings
+    from apihub_core.errors import ApiError, ErrorCode
+
+    monkeypatch.setenv("INGRESS_SHARED_SECRET", "s3cr3t")
+    get_settings.cache_clear()
+
+    cached = {"is_active": False, "tenant_id": "t1", "app_id": "a1"}
+
+    class _FakeRedis:
+        async def get(self, key):
+            return json.dumps(cached)
+
+    from apihub_core import redis as redis_mod
+    from apihub_core.auth import authenticate_request
+
+    monkeypatch.setattr(redis_mod, "raw_client", lambda: _FakeRedis())
+
+    class _FakeRequest:
+        def __init__(self):
+            self.headers = {"X-API-Key": "ak_real", "X-Ingress-Auth": "s3cr3t"}
+
+    with pytest.raises(ApiError) as exc_info:
+        await authenticate_request(_FakeRequest(), get_settings(), "ak_real")
+    assert exc_info.value.code == ErrorCode.UNAUTHORIZED
+    assert exc_info.value.http_status == 401
+    get_settings.cache_clear()

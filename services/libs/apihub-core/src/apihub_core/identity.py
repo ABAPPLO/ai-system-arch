@@ -24,10 +24,15 @@ async def read_identity(api_key: str) -> dict[str, Any] | None:
     if raw is None:
         return None
     try:
-        return json.loads(raw)
+        data = json.loads(raw)
     except (json.JSONDecodeError, TypeError):
         await redis.raw_client().delete(identity_cache_key(api_key))
         return None
+    if not isinstance(data, dict):
+        # 非字典（如 "42"、[1,2]）——视同损坏，清除并 miss，避免调用方 .get 抛 AttributeError/500
+        await redis.raw_client().delete(identity_cache_key(api_key))
+        return None
+    return data
 
 
 async def write_identity(api_key: str, data: dict[str, Any], ttl: int) -> None:
