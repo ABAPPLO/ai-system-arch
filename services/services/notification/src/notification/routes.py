@@ -18,6 +18,7 @@ from notification.models import (
 async def _test_webhook(url: str, secret: str | None) -> WebhookTestResult:
     """发送测试事件到 Webhook URL。"""
     import time
+
     import httpx
     try:
         start = time.perf_counter()

@@ -1,12 +1,11 @@
 """notification 数据访问 —— webhook_subscription 表 CRUD。"""
 
 import secrets
-from typing import Any
 
 from apihub_core import db
 from apihub_core.errors import ApiError, ErrorCode
 
-from notification.models import WebhookResponse
+from notification import renderer as renderer_mod
 
 
 async def list_webhooks(*, tenant_id: str) -> list[dict]:
@@ -35,7 +34,8 @@ async def update_webhook(*, tenant_id: str, webhook_id: str, updates: dict) -> d
     values = list(updates.values())
     async with db.db_session() as conn:
         row = await conn.fetchrow(
-            f"UPDATE webhook_subscription SET {sets} WHERE id = $1 AND tenant_id = ${len(values)+2}"
+            # column names come from a Pydantic-validated allowlist (model_dump), not user input
+            f"UPDATE webhook_subscription SET {sets} WHERE id = $1 AND tenant_id = ${len(values)+2}"  # noqa: S608
             " RETURNING id, url, events, status, created_at",
             webhook_id, *values, tenant_id,
         )
@@ -52,9 +52,6 @@ async def delete_webhook(*, tenant_id: str, webhook_id: str) -> None:
         )
     if "DELETE 0" in result:
         raise ApiError(ErrorCode.NOT_FOUND, "webhook not found")
-
-
-from notification import renderer as renderer_mod
 
 
 async def list_channel_configs(*, tenant_id: str) -> list[dict]:
@@ -86,7 +83,8 @@ async def update_channel_config(*, tenant_id: str, config_id: str, updates: dict
     values = list(updates.values())
     async with db.db_session() as conn:
         row = await conn.fetchrow(
-            f"UPDATE notification_channel_config SET {sets} WHERE id = $1 AND tenant_id = ${len(values)+2}"
+            # column names come from a Pydantic-validated allowlist (model_dump), not user input
+            f"UPDATE notification_channel_config SET {sets} WHERE id = $1 AND tenant_id = ${len(values)+2}"  # noqa: S608
             " RETURNING id, channel_type, name, config, status, created_at",
             config_id, *values, tenant_id,
         )

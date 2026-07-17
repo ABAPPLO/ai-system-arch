@@ -5,7 +5,6 @@ import hashlib
 import hmac
 import urllib.parse
 
-
 # ---------- EmailChannel ----------
 
 class _FakeSMTP:
@@ -93,7 +92,7 @@ class _FakeHttpxClient:
     def __init__(self, *a, **kw): pass
     async def __aenter__(self): return self
     async def __aexit__(self, *e): return False
-    async def post(self, url, json=None, timeout=None):
+    async def post(self, url, json=None, timeout=None):  # noqa: ASYNC109 -- mock matches httpx AsyncClient.post signature
         self.url = url
         return _FakeResp({"errcode": 0, "msgid": "mid_123"})
 
@@ -110,7 +109,7 @@ class TestDingTalkChannel:
             config={"webhook_url": "https://oapi.dingtalk.com/robot/send?access_token=T",
                     "secret": "SECtest"}))
         assert "timestamp=" in fake.url and "sign=" in fake.url
-        from urllib.parse import urlparse, parse_qs
+        from urllib.parse import parse_qs, urlparse
         q = parse_qs(urlparse(fake.url).query)
         ts = int(q["timestamp"][0])
         # parse_qs URL-decodes values; pull the raw (still percent-encoded) sign
@@ -135,7 +134,7 @@ class TestDingTalkChannel:
         from notification.channels import dingtalk as dt_mod
 
         class _Err(_FakeHttpxClient):
-            async def post(self, url, json=None, timeout=None):
+            async def post(self, url, json=None, timeout=None):  # noqa: ASYNC109 -- mock matches httpx AsyncClient.post signature
                 self.url = url
                 return _FakeResp({"errcode": 310000, "errmsg": "sign not match"})
 

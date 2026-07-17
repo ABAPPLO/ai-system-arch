@@ -1,7 +1,5 @@
 """HTTP 端点测试 —— httpx ASGITransport 直打 app。"""
 
-import json
-
 from notification import repository as repo_mod
 
 
@@ -14,7 +12,7 @@ class _MockAsyncClient:
     def set_post(self, fn):
         self._post_fn = fn
 
-    async def post(self, url, *, json, headers, timeout=None):
+    async def post(self, url, *, json, headers, timeout=None):  # noqa: ASYNC109 -- mock matches httpx AsyncClient.post signature
         assert self._post_fn is not None
         return await self._post_fn(url, json=json, headers=headers, timeout=timeout)
 
@@ -271,7 +269,7 @@ class TestTestWebhook:
 
         monkeypatch.setattr(repo_mod, "list_webhooks", _list)
 
-        async def _post(url, *, json, headers, timeout=None):
+        async def _post(url, *, json, headers, timeout=None):  # noqa: ASYNC109 -- mock matches httpx post signature
             return _FakeHttpxResponse(200, json={"ok": True})
 
         self._patch_httpx_post(monkeypatch, _post)
@@ -293,7 +291,7 @@ class TestTestWebhook:
 
         monkeypatch.setattr(repo_mod, "list_webhooks", _list)
 
-        async def _post(url, *, json, headers, timeout=None):
+        async def _post(url, *, json, headers, timeout=None):  # noqa: ASYNC109 -- mock matches httpx post signature
             return _FakeHttpxResponse(500)
 
         self._patch_httpx_post(monkeypatch, _post)
@@ -317,7 +315,7 @@ class TestTestWebhook:
         monkeypatch.setattr(repo_mod, "list_webhooks", _list)
         import httpx
 
-        async def _post(url, *, json, headers, timeout=None):
+        async def _post(url, *, json, headers, timeout=None):  # noqa: ASYNC109 -- mock matches httpx post signature
             raise httpx.RequestError("connection refused")
 
         self._patch_httpx_post(monkeypatch, _post)
