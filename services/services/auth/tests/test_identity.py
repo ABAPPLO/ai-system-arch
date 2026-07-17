@@ -17,7 +17,7 @@ TEST_PG_DSN = os.environ.get(
     "postgresql://apihub:apihub_dev_pwd@localhost:15433/apihub",
 )
 # 测试用固定邮箱 —— 每个测试前后清理，保证可重跑。
-_TEST_EMAILS = ("new@example.com", "dup@example.com", "v@example.com", "l@example.com")
+_TEST_EMAILS = ("new@example.com", "dup@example.com", "v@example.com", "l@example.com", "scrub@example.com")
 
 
 async def _pg_available() -> bool:

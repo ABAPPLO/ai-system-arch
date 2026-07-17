@@ -145,7 +145,9 @@ async def anonymize_user(*, user_id: str) -> None:
     """匿名化用户账号（GDPR Right to erasure）。
 
     匿名化而非物理删除，保护外键完整性。
-    操作：user_account 匿名化 → tenant_member 删除 → API key 吊销 → Redis 清理。
+    操作：user_account 匿名化 → tenant_member 删除 → user_consent 删除 →
+    notification_log 投递日志清理（按旧 recipient=email）→ API key 吊销 → Redis 清理。
+    全程在同一 admin_db_session 事务内（任一失败回滚，不残留半擦除状态）。
     """
     async with db.admin_db_session() as conn:
         row = await conn.fetchrow(
