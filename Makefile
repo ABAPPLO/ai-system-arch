@@ -2,7 +2,7 @@
         k8s-apply-dev k8s-apply-staging k8s-apply-prod argocd-sync \
         run-registry run-dispatcher run-auth run-executor run-quota run-tenant run-admin run-docs run-trace run-retry run-workflow run-notification run-portal run-ai-gateway run-billing \
         run-admin-frontend admin-frontend-install admin-frontend-typecheck admin-frontend-build portal-frontend-install portal-frontend-typecheck portal-frontend-build run-portal-frontend \
-        dev-up dev-down dev-logs dev-ps dev-reset dev-psql dev-redis-cli \
+        dev-up dev-down dev-logs dev-ps dev-reset dev-psql dev-redis-cli db-apply \
         cli-install cli-validate cli-apply-dev cli-apply-staging cli-apply-prod \
         alerts-validate \
         rollout-status rollout-promote rollout-pause rollout-abort rollout-undo
@@ -233,3 +233,6 @@ dev-psql:  ## 进 PG psql
 
 dev-redis-cli:  ## 进 Redis CLI
 	redis-cli -h localhost -p 6379 -a $$(grep REDIS_PASSWORD .env.dev | cut -d= -f2)
+
+db-apply:  ## 幂等回放 init-db/*.sql 到运行中的 apihub-pg（dev/kind）
+	bash scripts/k8s/apply-db.sh

@@ -99,6 +99,10 @@ echo "=== pg / redis readiness ==="
 wait_ready "postgres" docker exec apihub-pg pg_isready -U apihub_app -d apihub
 wait_ready "redis" docker exec apihub-redis redis-cli -a "${REDIS_PASSWORD:-apihub_dev_pwd}" ping
 
+# 1f) 幂等回放 init-db（pg-data 卷可能旧，首启未含后加脚本；脚本全幂等可安全回放）
+echo "=== apply-db (idempotent init-db replay) ==="
+bash scripts/k8s/apply-db.sh
+
 # 1e) ClickHouse 仅 trace 依赖：探测但不致命（trace 的 ready 会因此 fail，单列记录）
 if docker exec apihub-clickhouse wget -qO- http://localhost:8123/ping >/dev/null 2>&1; then
   echo "clickhouse OK"

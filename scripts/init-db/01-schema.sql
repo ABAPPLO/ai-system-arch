@@ -26,7 +26,7 @@ CREATE TABLE IF NOT EXISTS tenant (
     created_at      timestamptz NOT NULL DEFAULT NOW(),
     updated_at      timestamptz NOT NULL DEFAULT NOW()
 );
-CREATE INDEX idx_tenant_parent ON tenant(parent_id) WHERE parent_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_tenant_parent ON tenant(parent_id) WHERE parent_id IS NOT NULL;
 -- 租户表本身不做 RLS（无 tenant_id 列），由应用层超管管理
 
 CREATE TABLE IF NOT EXISTS user_account (
@@ -53,7 +53,7 @@ CREATE TABLE IF NOT EXISTS tenant_member (
     created_at      timestamptz NOT NULL DEFAULT NOW(),
     UNIQUE (tenant_id, user_id)
 );
-CREATE INDEX idx_tenant_member_user ON tenant_member(user_id);
+CREATE INDEX IF NOT EXISTS idx_tenant_member_user ON tenant_member(user_id);
 
 -- ============================================================
 -- 2. 应用 + API Key（调用方凭证）
@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS app (
     created_at      timestamptz NOT NULL DEFAULT NOW(),
     updated_at      timestamptz NOT NULL DEFAULT NOW()
 );
-CREATE INDEX idx_app_tenant ON app(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_app_tenant ON app(tenant_id);
 
 CREATE TABLE IF NOT EXISTS api_key (
     id              text PRIMARY KEY,
@@ -88,8 +88,8 @@ CREATE TABLE IF NOT EXISTS api_key (
     revoked_at      timestamptz,
     revoked_reason  text
 );
-CREATE INDEX idx_api_key_tenant ON api_key(tenant_id);
-CREATE INDEX idx_api_key_hash ON api_key(key_hash);
+CREATE INDEX IF NOT EXISTS idx_api_key_tenant ON api_key(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_api_key_hash ON api_key(key_hash);
 
 -- ============================================================
 -- 3. 接口元数据
@@ -113,9 +113,9 @@ CREATE TABLE IF NOT EXISTS api (
     updated_at      timestamptz NOT NULL DEFAULT NOW(),
     UNIQUE (tenant_id, base_path)
 );
-CREATE INDEX idx_api_tenant ON api(tenant_id);
-CREATE INDEX idx_api_category ON api(category);
-CREATE INDEX idx_api_name_trgm ON api USING gin (name gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS idx_api_tenant ON api(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_api_category ON api(category);
+CREATE INDEX IF NOT EXISTS idx_api_name_trgm ON api USING gin (name gin_trgm_ops);
 
 CREATE TABLE IF NOT EXISTS api_version (
     id              text PRIMARY KEY,
@@ -150,9 +150,9 @@ CREATE TABLE IF NOT EXISTS api_version (
     updated_at      timestamptz NOT NULL DEFAULT NOW(),
     UNIQUE (tenant_id, api_id, version)
 );
-CREATE INDEX idx_api_version_tenant ON api_version(tenant_id);
-CREATE INDEX idx_api_version_api ON api_version(api_id);
-CREATE INDEX idx_api_version_status ON api_version(status);
+CREATE INDEX IF NOT EXISTS idx_api_version_tenant ON api_version(tenant_id);
+CREATE INDEX IF NOT EXISTS idx_api_version_api ON api_version(api_id);
+CREATE INDEX IF NOT EXISTS idx_api_version_status ON api_version(status);
 
 -- ============================================================
 -- 4. 异步任务实例（dispatcher 写，executor 改，调用方查）
@@ -183,10 +183,10 @@ CREATE TABLE IF NOT EXISTS task (
     created_at      timestamptz NOT NULL DEFAULT NOW(),
     updated_at      timestamptz NOT NULL DEFAULT NOW()
 );
-CREATE INDEX idx_task_tenant_status ON task(tenant_id, status);
-CREATE INDEX idx_task_tenant_app_created ON task(tenant_id, app_id, created_at DESC);
-CREATE INDEX idx_task_status_created ON task(status, created_at) WHERE status IN ('pending', 'running');
-CREATE INDEX idx_task_request_id ON task(request_id);
+CREATE INDEX IF NOT EXISTS idx_task_tenant_status ON task(tenant_id, status);
+CREATE INDEX IF NOT EXISTS idx_task_tenant_app_created ON task(tenant_id, app_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_task_status_created ON task(status, created_at) WHERE status IN ('pending', 'running');
+CREATE INDEX IF NOT EXISTS idx_task_request_id ON task(request_id);
 
 -- ============================================================
 -- 5. 审计日志（合规底线：在线 6 月 + OSS 永久）
@@ -211,10 +211,10 @@ CREATE TABLE IF NOT EXISTS audit_log (
     trace_id        text,
     created_at      timestamptz NOT NULL DEFAULT NOW()
 );
-CREATE INDEX idx_audit_tenant_time ON audit_log(tenant_id, created_at DESC);
-CREATE INDEX idx_audit_actor ON audit_log(actor_id, created_at DESC);
-CREATE INDEX idx_audit_resource ON audit_log(resource_type, resource_id, created_at DESC);
-CREATE INDEX idx_audit_action ON audit_log(action);
+CREATE INDEX IF NOT EXISTS idx_audit_tenant_time ON audit_log(tenant_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_actor ON audit_log(actor_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_resource ON audit_log(resource_type, resource_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action);
 
 -- ============================================================
 -- 6. RLS 策略 —— 所有带 tenant_id 的表强制隔离
@@ -339,9 +339,10 @@ BEGIN
     ])
     LOOP
         EXECUTE format($f$
+            DROP TRIGGER IF EXISTS set_updated_at ON %I;
             CREATE TRIGGER set_updated_at BEFORE UPDATE ON %I
             FOR EACH ROW EXECUTE FUNCTION trigger_set_updated_at()
-        $f$, t);
+        $f$, t, t);
     END LOOP;
 END $$;
 

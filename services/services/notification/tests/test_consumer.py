@@ -12,7 +12,7 @@ class _MockAsyncClient:
     def set_post(self, fn):
         self._post_fn = fn
 
-    async def post(self, url, *, content, headers, timeout=None):
+    async def post(self, url, *, content, headers, timeout=None):  # noqa: ASYNC109 -- mock matches httpx AsyncClient.post signature
         assert self._post_fn is not None, "call set_post() before test"
         return await self._post_fn(url, content=content, headers=headers, timeout=timeout)
 
@@ -46,7 +46,7 @@ class TestDeliver:
     async def test_deliver_success(self, monkeypatch):
         captured = {}
 
-        async def _post(url, *, content, headers, timeout=None):
+        async def _post(url, *, content, headers, timeout=None):  # noqa: ASYNC109 -- mock matches httpx post signature
             captured["url"] = url
             captured["content"] = content
             captured["headers"] = headers
@@ -59,7 +59,7 @@ class TestDeliver:
     async def test_deliver_no_secret(self, monkeypatch):
         captured = {}
 
-        async def _post(url, *, content, headers, timeout=None):
+        async def _post(url, *, content, headers, timeout=None):  # noqa: ASYNC109 -- mock matches httpx post signature
             captured["headers"] = headers
             return _FakeResponse(200)
 
@@ -67,7 +67,7 @@ class TestDeliver:
         assert captured["headers"]["X-Webhook-Signature"] == ""
 
     async def test_deliver_server_error(self, monkeypatch):
-        async def _post(url, *, content, headers, timeout=None):
+        async def _post(url, *, content, headers, timeout=None):  # noqa: ASYNC109 -- mock matches httpx post signature
             return _FakeResponse(503)
 
         ok = await self._run_deliver(monkeypatch, _post)
@@ -75,7 +75,7 @@ class TestDeliver:
 
     async def test_deliver_client_error_still_ok(self, monkeypatch):
         """4xx 不看作投递失败（调用方明确拒绝），和 2xx 一样视为成功。"""
-        async def _post(url, *, content, headers, timeout=None):
+        async def _post(url, *, content, headers, timeout=None):  # noqa: ASYNC109 -- mock matches httpx post signature
             return _FakeResponse(404)
 
         ok = await self._run_deliver(monkeypatch, _post)
@@ -84,7 +84,7 @@ class TestDeliver:
     async def test_deliver_network_error(self, monkeypatch):
         import httpx
 
-        async def _post(url, *, content, headers, timeout=None):
+        async def _post(url, *, content, headers, timeout=None):  # noqa: ASYNC109 -- mock matches httpx post signature
             raise httpx.RequestError("timeout")
 
         ok = await self._run_deliver(monkeypatch, _post)
@@ -98,7 +98,7 @@ class TestDeliver:
         captured = {}
         secret = "my-secret-123"
 
-        async def _post(url, *, content, headers, timeout=None):
+        async def _post(url, *, content, headers, timeout=None):  # noqa: ASYNC109 -- mock matches httpx post signature
             captured["content"] = content
             captured["sig"] = headers.get("X-Webhook-Signature", "")
             return _FakeResponse(200)
@@ -166,7 +166,7 @@ class TestGetActiveWebhooks:
     async def test_returns_empty_list(self, monkeypatch):
         from notification import consumer as consumer_mod
 
-        conn = self._patch_db(monkeypatch, [])
+        self._patch_db(monkeypatch, [])
 
         result = await consumer_mod._get_active_webhooks()
         assert result == []
