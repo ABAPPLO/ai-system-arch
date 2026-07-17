@@ -129,7 +129,7 @@ class TestPublish:
                 base_path=base_path,
             )
 
-        from api_registry import apisix_client
+        from apihub_core import apisix_client
 
         monkeypatch.setattr(apisix_client, "publish_route", _fake_publish)
 

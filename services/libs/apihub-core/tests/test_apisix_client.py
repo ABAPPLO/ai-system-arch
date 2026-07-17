@@ -9,7 +9,11 @@ from apihub_core.errors import ApiError
 def _settings(monkeypatch):
     from apihub_core.config import get_settings
 
-    get_settings.cache_clear()
+    # core conftest 不注入必填 env，这里自给（Settings 构造需要 PG/REDIS）
+    monkeypatch.setenv("PG_HOST", "localhost")
+    monkeypatch.setenv("PG_USER", "apihub")
+    monkeypatch.setenv("PG_PASSWORD", "test")
+    monkeypatch.setenv("REDIS_HOST", "localhost")
     monkeypatch.setenv("APISIX_ADMIN_URL", "http://apisix-admin.apihub-ingress:9180")
     monkeypatch.setenv("APISIX_ADMIN_KEY", "edd1c9f034335f136f87ad84b625c8f1")
     monkeypatch.setenv("DISPATCHER_UPSTREAM", "dispatcher.apihub-system:8001")
@@ -45,7 +49,7 @@ async def test_publish_route_puts_admin_route(monkeypatch):
             return False
 
     monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
-    from api_registry import apisix_client
+    from apihub_core import apisix_client
 
     await apisix_client.publish_route(
         version_id="ver_abc",
@@ -72,7 +76,7 @@ async def test_publish_route_puts_admin_route(monkeypatch):
 
 async def test_publish_route_normalizes_path_vars(monkeypatch):
     """{var} → :var（APISIX radixtree 段匹配）。"""
-    from api_registry import apisix_client
+    from apihub_core import apisix_client
 
     assert apisix_client._normalize_path("/v1/users/{user_id}/orders/{order_id}") == (
         "/v1/users/:user_id/orders/:order_id"
@@ -101,7 +105,7 @@ async def test_publish_route_non_2xx_raises_502(monkeypatch):
             return False
 
     monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
-    from api_registry import apisix_client
+    from apihub_core import apisix_client
 
     with pytest.raises(ApiError) as ei:
         await apisix_client.publish_route(
