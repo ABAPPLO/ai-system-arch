@@ -5,7 +5,7 @@ ALTER TABLE tenant
 
 -- Migrate ~1/3 active tenants to bj for geographic distribution
 UPDATE tenant SET home_region = 'bj'
-WHERE id % 3 = 0 AND status = 'active';
+WHERE hashtext(id) % 3 = 0 AND status = 'active';
 
 CREATE INDEX IF NOT EXISTS idx_tenant_home_region ON tenant(home_region);
 COMMENT ON COLUMN tenant.home_region IS 'Home region (sh=cn-shanghai, bj=cn-beijing)';
