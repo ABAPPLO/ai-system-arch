@@ -36,6 +36,9 @@ data:
   # dispatcher upstream（api-registry publish 下发路由时的 upstream 目标）
   DISPATCHER_UPSTREAM: dispatcher.apihub-system:80
 
+  # 可信入口共享密钥（非敏值可入 ConfigMap；prod 用强随机值，最好走 Secret）
+  INGRESS_SHARED_SECRET: ingress-shared-dev
+
   # OTel
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.apihub-monitoring:4317
   OTEL_SERVICE_NAME: api-registry
@@ -50,4 +53,5 @@ type: Opaque
 # 真实环境用 Sealed Secrets 加密，这里只示意
 # stringData:
 #   PG_PASSWORD: ...
-#   APISIX_ADMIN_KEY: <from sealed secret>
+#   APISIX_ADMIN_KEY: <from sealed secret>   # kind 用 edd1c9f034335f136f87ad84b625c8f1
+#   INGRESS_SHARED_SECRET: <strong random>   # prod 强随机；须与 APISIX proxy-rewrite 注入值一致
