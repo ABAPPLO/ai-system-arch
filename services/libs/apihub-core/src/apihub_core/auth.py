@@ -28,6 +28,29 @@ async def authenticate_request(
     if not api_key:
         raise ApiError(ErrorCode.UNAUTHORIZED, "Missing API Key")
 
+    # 可信入口快速路径（R1d）：经 APISIX 入口的请求带 X-Ingress-Auth=<ingress_shared_secret>。
+    # APISIX key-auth 已校验 key，本地读 auth 的 Redis 身份缓存回填 ctx，跳过 HTTP auth 回源
+    # （消除 dispatcher→auth 冷启动 503）。安全前提：dispatcher 仅经 APISIX 可达（见 docs）。
+    if (
+        settings.ingress_shared_secret
+        and request.headers.get("X-Ingress-Auth") == settings.ingress_shared_secret
+    ):
+        from apihub_core import identity
+
+        cached = await identity.read_identity(api_key)
+        if cached is not None:
+            if cached.get("invalid") or not cached.get("is_active"):
+                raise ApiError(ErrorCode.UNAUTHORIZED, "Invalid API Key")
+            ctx = TenantContext(
+                tenant_id=cached["tenant_id"],
+                tenant_type=cached.get("tenant_type", "internal"),
+                app_id=cached.get("app_id"),
+                is_platform_admin=cached.get("is_platform_admin", False),
+            )
+            set_tenant_context(ctx)
+            return ctx
+        # miss → 回落下方 HTTP auth（会预热缓存）
+
     # JWT 分流：外部开发者「人」的 token（eyJ 开头）本地验签，
     # 不走 auth /v1/apikey/verify（那是机器 API Key 流程）。
     from apihub_core import jwt_utils

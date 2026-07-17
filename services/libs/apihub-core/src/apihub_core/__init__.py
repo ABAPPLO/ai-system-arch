@@ -27,6 +27,12 @@ from apihub_core.errors import (
     ErrorResponse,
     api_error_handler,
 )
+from apihub_core.identity import (  # noqa: E402
+    delete_identity,
+    identity_cache_key,
+    read_identity,
+    write_identity,
+)
 from apihub_core.middleware import create_app
 from apihub_core.tenant import (
     TenantContext,
@@ -50,6 +56,10 @@ __all__ = [
     "ErrorCode",
     "ErrorResponse",
     "api_error_handler",
+    "identity_cache_key",
+    "read_identity",
+    "write_identity",
+    "delete_identity",
     "db_session",
     "admin_db_session",
     "ch_session",
