@@ -193,6 +193,50 @@ async def test_auth_endpoints_skip_auth_paths(monkeypatch):
     assert r.json() == {"ok": True}
 
 
+async def test_portal_account_endpoints_forward_with_v1(client, monkeypatch):
+    """M4 回归：4 个 account/consent handler 必须转发到 /v1/auth/...（旧实现缺 /v1 → 404）。"""
+    import httpx as _httpx
+
+    captured = {}
+
+    class _FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"ok": True}
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def request(self, method, url, **kw):
+            captured.setdefault("calls", []).append((method, url))
+            return _FakeResp()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(_httpx, "AsyncClient", _FakeClient)
+
+    await client.delete("/v1/portal/auth/account")
+    await client.get("/v1/portal/auth/account/export")
+    await client.get("/v1/portal/auth/consent")
+    await client.post("/v1/portal/auth/consent/withdraw")
+
+    methods_paths = captured["calls"]
+    expected = [
+        ("DELETE", "http://auth.apihub-system/v1/auth/account"),
+        ("GET", "http://auth.apihub-system/v1/auth/account/export"),
+        ("GET", "http://auth.apihub-system/v1/auth/consent"),
+        ("POST", "http://auth.apihub-system/v1/auth/consent/withdraw"),
+    ]
+    assert methods_paths == expected, methods_paths
+    assert all("/v1/v1/" not in u for _, u in methods_paths)
+
+
 async def test_forward_composes_correct_auth_url(monkeypatch):
     """_forward 必须拼出正确的 absolute URL，不能出现 /v1/v1/（Task4 review Finding 1）。
 
