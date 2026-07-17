@@ -128,7 +128,7 @@ services:
       - clickhouse-data:/var/lib/clickhouse
       - ./scripts/init-clickhouse:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "wget -qO- http://localhost:8123/ping >/dev/null"]
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:8123/ping >/dev/null"]
       interval: 5s
       timeout: 5s
       retries: 20
