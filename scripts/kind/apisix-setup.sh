@@ -24,7 +24,7 @@ DEMO_KEY="ak_test_a_demo001"          # tenant_a/app_trading（02-seed.sql）
 LOCAL_ADMIN_PORT=19180
 GATEWAY_NODEPORT=30080
 CLUSTER_NAME="${KIND_CLUSTER_NAME:-apihub}"
-[ -z "${INGRESS_SHARED_SECRET}" ] && INGRESS_SHARED_SECRET="ingress-shared-dev"
+[ -z "${INGRESS_SHARED_SECRET:-}" ] && INGRESS_SHARED_SECRET="ingress-shared-dev"
 
 log() { printf '\n\033[1m== %s ==\033[0m\n' "$*"; }
 say() { printf '  %s\n' "$*"; }
