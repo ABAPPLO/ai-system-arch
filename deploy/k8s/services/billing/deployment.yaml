@@ -1,13 +1,13 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: notification
+  name: billing
   namespace: apihub-system
   labels:
-    app.kubernetes.io/name: notification
+    app.kubernetes.io/name: billing
     app.kubernetes.io/part-of: apihub
 spec:
-  replicas: 2
+  replicas: 1
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -15,19 +15,18 @@ spec:
       maxUnavailable: 0
   selector:
     matchLabels:
-      app.kubernetes.io/name: notification
+      app.kubernetes.io/name: billing
   template:
     metadata:
       labels:
-        app.kubernetes.io/name: notification
+        app.kubernetes.io/name: billing
         app.kubernetes.io/part-of: apihub
       annotations:
         prometheus.io/scrape: "true"
         prometheus.io/port: "9090"
         prometheus.io/path: /metrics
     spec:
-      serviceAccountName: notification
-      terminationGracePeriodSeconds: 60   # 给 Kafka consumer 优雅退出留时间
+      serviceAccountName: billing
       securityContext:
         runAsNonRoot: true
         runAsUser: 1000
@@ -36,25 +35,25 @@ spec:
           type: RuntimeDefault
       containers:
         - name: app
-          image: registry.apihub.internal/apihub/notification:0.1.0-dev
+          image: registry.apihub.internal/apihub/billing:0.1.0-dev
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
-              containerPort: 8012
+              containerPort: 8014
             - name: metrics
               containerPort: 9090
           envFrom:
             - configMapRef:
-                name: notification-config
+                name: billing-config
             - secretRef:
-                name: notification-secret
+                name: billing-secret
           resources:
             requests:
-              cpu: 250m
-              memory: 256Mi
+              cpu: 500m
+              memory: 512Mi
             limits:
-              cpu: 1000m
-              memory: 1Gi
+              cpu: 2000m
+              memory: 2Gi
           securityContext:
             readOnlyRootFilesystem: true
             allowPrivilegeEscalation: false
@@ -88,11 +87,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: notification
+  name: billing
   namespace: apihub-system
 spec:
   selector:
-    app.kubernetes.io/name: notification
+    app.kubernetes.io/name: billing
   ports:
     - name: http
       port: 80
@@ -101,5 +100,5 @@ spec:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
-  name: notification
+  name: billing
   namespace: apihub-system

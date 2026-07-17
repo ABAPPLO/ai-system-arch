@@ -33,6 +33,12 @@ resources:
   - ../../services/workflow/deployment.yaml
   - ../../services/portal/configmap.yaml
   - ../../services/portal/deployment.yaml
+  - ../../services/notification/configmap.yaml
+  - ../../services/notification/deployment.yaml
+  - ../../services/ai-gateway/configmap.yaml
+  - ../../services/ai-gateway/deployment.yaml
+  - ../../services/billing/configmap.yaml
+  - ../../services/billing/deployment.yaml
   - ../../base/argo/argo-exec-rbac.yaml
   # CronJobs（audit-archive / data-cleanup）+ 其挂载的 admin API-key Secret
   - ../../base/shared/audit-archive-cronjob.yaml
@@ -68,6 +74,12 @@ patches:
     target: { kind: ConfigMap, name: workflow-config }
   - path: patches/portal-envfrom.yaml
     target: { kind: Deployment, name: portal }
+  - path: patches/notification-envfrom.yaml
+    target: { kind: Deployment, name: notification }
+  - path: patches/ai-gateway-envfrom.yaml
+    target: { kind: Deployment, name: ai-gateway }
+  - path: patches/billing-envfrom.yaml
+    target: { kind: Deployment, name: billing }
   # kind/dev：把 admin-cron-apikey Secret patch 成 seed 的 tenant_a key
   # （cron 专用 admin app + key 尚未建，见 PR follow-up；走通 mount/transport 即可）
   - path: patches/admin-cron-apikey.yaml

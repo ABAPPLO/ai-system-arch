@@ -32,6 +32,14 @@ resources:
   - ../../services/retry/deployment.yaml
   - ../../services/workflow/configmap.yaml
   - ../../services/workflow/deployment.yaml
+  - ../../services/notification/configmap.yaml
+  - ../../services/notification/deployment.yaml
+  - ../../services/ai-gateway/configmap.yaml
+  - ../../services/ai-gateway/deployment.yaml
+  - ../../services/billing/configmap.yaml
+  - ../../services/billing/deployment.yaml
+  - ../../services/portal/configmap.yaml
+  - ../../services/portal/deployment.yaml
   # prod-bj 数据层 CM/Secret + HPA + Ingress
   - shared-infra-bj.yaml
   - hpa.yaml

@@ -1,0 +1,30 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ai-gateway-config
+  namespace: apihub-system
+  labels:
+    app.kubernetes.io/name: ai-gateway
+    app.kubernetes.io/part-of: apihub
+data:
+  APP_NAME: ai-gateway
+  ENV: dev
+  LOG_LEVEL: INFO
+  PG_HOST: apihub-rds.internal
+  PG_PORT: "5432"
+  PG_DATABASE: apihub
+  PG_POOL_MIN: "5"
+  PG_POOL_MAX: "20"
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.apihub-monitoring:4317
+  OTEL_SERVICE_NAME: ai-gateway
+  OTEL_RESOURCE_ATTRIBUTES: deployment.environment=dev
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ai-gateway-secret
+  namespace: apihub-system
+type: Opaque
+# stringData:
+#   PG_PASSWORD: ...
+#   AI_GATEWAY_ENCRYPTION_KEY: <32-byte hex>

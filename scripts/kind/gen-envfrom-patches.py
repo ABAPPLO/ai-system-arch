@@ -22,6 +22,9 @@ SERVICES = [
     "trace",
     "retry",
     "workflow",
+    "notification",
+    "ai-gateway",
+    "billing",
 ]
 OUT = pathlib.Path("deploy/k8s/overlays/kind/patches")
 OUT.mkdir(parents=True, exist_ok=True)
