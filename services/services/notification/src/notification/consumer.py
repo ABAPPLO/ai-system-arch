@@ -1,12 +1,15 @@
 """Kafka 消费者 —— 从 api-call-events topic 消费 → 推 Webhook。"""
 
 import asyncio
-import hmac
 import hashlib
+import hmac
 import json
+from contextlib import asynccontextmanager, suppress
 
+import aiokafka
 import httpx
-from apihub_core import db, kafka
+from apihub_core import db
+from apihub_core.config import get_settings
 from apihub_core.logging import get_logger
 
 log = get_logger(__name__)
@@ -58,20 +61,53 @@ async def process_event(event: dict) -> None:
                 await asyncio.sleep(BACKOFF_SECONDS[attempt])
 
 
-async def start_consumer(settings):
-    """启动 Webhook Kafka 消费者（在 extra_lifespan 中注册）。"""
-    loop = asyncio.get_event_loop()
-    _client = None
+@asynccontextmanager
+async def start_consumer(app):
+    """作 extra_lifespan 传给 create_app：起后台消费 task，app 退出时取消。
+
+    middleware 用 `async with extra_lifespan(app)`，故须是异步上下文管理器
+    （@asynccontextmanager），不能是裸协程。消费循环放后台 task，避免阻塞 startup。
+    """
+    task = asyncio.create_task(_consume_loop())
+    log.info("notification_consumer_started", topic="api-call-events", group="notification-svc")
     try:
-        _client = kafka._get_client()
-        async for msg in _client.consumer("api-call-events", group="notification-svc"):
+        yield
+    finally:
+        task.cancel()
+        with suppress(asyncio.CancelledError, Exception):
+            await task
+
+
+async def _consume_loop() -> None:
+    """后台消费 api-call-events → 匹配 webhook → 推送（aiokafka 直连）。"""
+    settings = get_settings()
+    consumer = aiokafka.AIOKafkaConsumer(
+        "api-call-events",
+        bootstrap_servers=settings.kafka_brokers,
+        group_id="notification-svc",
+        enable_auto_commit=False,
+        auto_offset_reset="earliest",
+        value_deserializer=lambda v: json.loads(v.decode("utf-8")) if v else None,
+    )
+    try:
+        await consumer.start()
+        log.info(
+            "notification_consumer_connected",
+            topic="api-call-events",
+            brokers=settings.kafka_brokers,
+        )
+        async for msg in consumer:
             try:
-                event = json.loads(msg.value)
-                asyncio.ensure_future(process_event(event))
+                await process_event(msg.value or {})
             except Exception:
                 log.exception("webhook_process_error")
+            finally:
+                with suppress(Exception):
+                    await consumer.commit()
     except asyncio.CancelledError:
         pass
+    except Exception:
+        log.exception("notification_consumer_crashed")
     finally:
-        if _client:
-            await _client.close()
+        with suppress(Exception):
+            await consumer.stop()
