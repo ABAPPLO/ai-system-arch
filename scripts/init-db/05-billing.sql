@@ -18,7 +18,8 @@ INSERT INTO plan (code, name, description, price_cents, quota_included, rate_lim
 ('free',        'Free',        '个人开发者免费计划',   0,       '{"calls_per_day": 1000, "tokens_per_month": 100000}',        '{"second": 10, "minute": 100}',    '{"api_catalog": true, "try_it": true, "sdk": false}',        1),
 ('starter',     'Starter',     '小团队入门计划',       99900,  '{"calls_per_day": 50000, "tokens_per_month": 5000000}',      '{"second": 100, "minute": 5000}',  '{"api_catalog": true, "try_it": true, "sdk": true}',         2),
 ('pro',         'Pro',         '中型团队专业计划',     499900, '{"calls_per_day": 500000, "tokens_per_month": 50000000}',    '{"second": 500, "minute": 25000}', '{"api_catalog": true, "try_it": true, "sdk": true}',         3),
-('enterprise',  'Enterprise',  '大客户定制计划',       0,      '{"calls_per_day": 999999999, "tokens_per_month": 999999999}','{"second": 5000, "minute": 250000}','{"api_catalog": true, "try_it": true, "sdk": true}',         4);
+('enterprise',  'Enterprise',  '大客户定制计划',       0,      '{"calls_per_day": 999999999, "tokens_per_month": 999999999}','{"second": 5000, "minute": 250000}','{"api_catalog": true, "try_it": true, "sdk": true}',         4)
+ON CONFLICT DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS subscription (
     tenant_id       BIGINT NOT NULL,
@@ -38,7 +39,8 @@ CREATE INDEX IF NOT EXISTS idx_sub_tenant ON subscription(tenant_id, status);
 INSERT INTO subscription (tenant_id, plan_code, period_start, period_end, quota_included, price_cents)
 SELECT id, 'free', NOW(), '2999-12-31', '{"calls_per_day": 1000, "tokens_per_month": 100000}', 0
 FROM tenant
-WHERE id NOT IN (SELECT tenant_id FROM subscription WHERE status = 'active');
+WHERE id NOT IN (SELECT tenant_id FROM subscription WHERE status = 'active')
+ON CONFLICT DO NOTHING;
 
 CREATE TABLE IF NOT EXISTS billing_record (
     tenant_id            BIGINT NOT NULL,
