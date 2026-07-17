@@ -6,6 +6,7 @@
 #     -t registry.apihub.internal/apihub/api-registry:0.1.0-dev .
 
 FROM python:3.11-slim AS builder
+RUN sed -i "s|deb.debian.org|mirrors.tuna.tsinghua.edu.cn|g; s|security.debian.org|mirrors.tuna.tsinghua.edu.cn|g" /etc/apt/sources.list.d/debian.sources || true
 
 WORKDIR /app
 ENV PIP_INDEX_URL=https://pypi.tuna.tsinghua.edu.cn/simple PIP_TRUSTED_HOST=pypi.tuna.tsinghua.edu.cn
