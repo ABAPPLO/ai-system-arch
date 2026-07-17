@@ -152,6 +152,33 @@ def register_routes(app: FastAPI) -> None:
             expires_at=payload.expires_at,
         )
 
+        # R1d：随 key 生命周期同步 APISIX consumer（edge 校验）+ 预热 Redis 身份缓存
+        # （dispatcher 信任路径命中即不回源 auth）。best-effort：失败仅记日志，不回滚 key
+        # （key 仍可用——dispatcher 回落 HTTP auth）。
+        try:
+            from apihub_core import apisix_client, identity
+
+            from auth.apikey import POSITIVE_CACHE_TTL
+
+            await apisix_client.upsert_consumer(key_id=key_id, key=plaintext)
+            await identity.write_identity(
+                plaintext,
+                {
+                    "is_active": True,
+                    "tenant_id": ctx.tenant_id,
+                    "tenant_type": ctx.tenant_type,
+                    "app_id": app_id,
+                    "is_platform_admin": ctx.is_platform_admin,
+                    "scopes": payload.scopes,
+                    "expires_at": payload.expires_at.isoformat()
+                    if payload.expires_at
+                    else None,
+                },
+                ttl=POSITIVE_CACHE_TTL,
+            )
+        except Exception:  # noqa: BLE001
+            log.warning("apisix_consumer_upsert_failed", key_id=key_id, app_id=app_id)
+
         log.info(
             "apikey_created",
             key_id=key_id,
@@ -181,6 +208,14 @@ def register_routes(app: FastAPI) -> None:
 
         # 清缓存（用 key_hash）
         await invalidate(revoked["key_hash"])
+
+        # R1d：删 APISIX consumer（best-effort）
+        try:
+            from apihub_core import apisix_client
+
+            await apisix_client.delete_consumer(key_id)
+        except Exception:  # noqa: BLE001
+            log.warning("apisix_consumer_delete_failed", key_id=key_id)
 
         log.info(
             "apikey_revoked",
