@@ -177,7 +177,7 @@ def register_routes(app: FastAPI) -> None:
                 ttl=POSITIVE_CACHE_TTL,
             )
         except Exception:  # noqa: BLE001
-            log.warning("apisix_consumer_upsert_failed", key_id=key_id, app_id=app_id)
+            log.warning("apisix_consumer_upsert_failed", key_id=key_id, app_id=app_id, exc_info=True)
 
         log.info(
             "apikey_created",
@@ -215,7 +215,7 @@ def register_routes(app: FastAPI) -> None:
 
             await apisix_client.delete_consumer(key_id)
         except Exception:  # noqa: BLE001
-            log.warning("apisix_consumer_delete_failed", key_id=key_id)
+            log.warning("apisix_consumer_delete_failed", key_id=key_id, exc_info=True)
 
         log.info(
             "apikey_revoked",
