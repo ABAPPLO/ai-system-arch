@@ -146,8 +146,10 @@ async def anonymize_user(*, user_id: str) -> None:
 
     匿名化而非物理删除，保护外键完整性。
     操作：user_account 匿名化 → tenant_member 删除 → user_consent 删除 →
-    notification_log 投递日志清理（按旧 recipient=email）→ API key 吊销 → Redis 清理。
-    全程在同一 admin_db_session 事务内（任一失败回滚，不残留半擦除状态）。
+    notification_log 投递日志清理（按旧 recipient=email）→ Redis 清理。
+    租户级 api_key 不动（external-public 共享租户，app/api_key 无 user 归属字段，
+    erasure 仅清该用户本人 PII）。全程在同一 admin_db_session 事务内
+    （任一失败回滚，不残留半擦除状态），并写一条 audit_log(reason=gdpr_erasure)。
     """
     async with db.admin_db_session(audit_reason="gdpr_erasure") as conn:
         row = await conn.fetchrow(
@@ -169,16 +171,6 @@ async def anonymize_user(*, user_id: str) -> None:
         if old_email:
             await conn.execute(
                 "DELETE FROM notification_log WHERE recipient = $1", old_email,
-            )
-
-        apps = await conn.fetch(
-            "SELECT id FROM app WHERE tenant_id = $1", EXTERNAL_PUBLIC_TENANT,
-        )
-        for app in apps:
-            await conn.execute(
-                "UPDATE api_key SET status='revoked', revoked_at=NOW()"
-                " WHERE app_id=$1 AND status='active'",
-                app["id"],
             )
 
     try:

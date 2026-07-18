@@ -313,3 +313,43 @@ async def test_anonymize_writes_audit_log(fake_redis):
         )
     assert after == before + 1
 
+
+@pytest.mark.asyncio
+async def test_anonymize_does_not_revoke_api_keys(fake_redis):
+    """erasure 不吊销租户级 api_key（external-public 共享、无 user 归属）。"""
+    from apihub_core import db as db_mod
+
+    user = await identity.create_user(
+        email="new@example.com", password="secret123", phone="138", name="Key"
+    )
+    uid = user["user_id"]
+    app_id, key_id = "app_test_r2e", "key_test_r2e"
+
+    try:
+        async with db_mod.admin_db_session() as conn:
+            await conn.execute(
+                "INSERT INTO app (id, tenant_id, name, type, status)"
+                " VALUES ($1, $2, 'R2e Test App', 'server', 'active')"
+                " ON CONFLICT (id) DO NOTHING",
+                app_id, identity.EXTERNAL_PUBLIC_TENANT,
+            )
+            await conn.execute(
+                "INSERT INTO api_key (id, tenant_id, app_id, key_prefix, key_hash,"
+                " name, scopes, status)"
+                " VALUES ($1, $2, $3, 'sk_test__', 'hash_test_r2e', 'R2e Key', '{}', 'active')"
+                " ON CONFLICT (id) DO NOTHING",
+                key_id, identity.EXTERNAL_PUBLIC_TENANT, app_id,
+            )
+
+        await identity.anonymize_user(user_id=uid)
+
+        async with db_mod.admin_db_session() as conn:
+            status = await conn.fetchval(
+                "SELECT status FROM api_key WHERE id = $1", key_id
+            )
+        assert status == "active"
+    finally:
+        async with db_mod.admin_db_session() as conn:
+            await conn.execute("DELETE FROM api_key WHERE id = $1", key_id)
+            await conn.execute("DELETE FROM app WHERE id = $1", app_id)
+
