@@ -370,7 +370,6 @@ def assert_lua_atomic():
         for f in futs:
             results.append(f.result())
     admitted = sum(1 for st, _ in results if st == 200)
-    blocked = sum(1 for st, _ in results if st == 200)  # placeholder; real below
     allowed_count = 0
     blocked_count = 0
     for st, raw in results:
