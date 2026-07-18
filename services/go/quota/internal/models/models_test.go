@@ -10,11 +10,13 @@ import (
 // the exact key set Python's pydantic model emits, with snake_case tags and
 // no leftover current/reset_ms fields (the pre-R3a shape).
 func TestQuotaCheckResponseJSONShape(t *testing.T) {
+	blockedTier := "second"
+	blockedLimit := 10
 	resp := QuotaCheckResponse{
 		Allowed:           false,
-		TierBlocked:       "second",
-		Limit:             10,
-		Remaining:         0,
+		TierBlocked:       &blockedTier,
+		Limit:             &blockedLimit,
+		Remaining:         nil,
 		RetryAfterSeconds: 1,
 		RuleSource:        "rules",
 	}
@@ -63,6 +65,76 @@ func TestQuotaCheckResponseJSONShape(t *testing.T) {
 	}
 	if ria.RetryAfterSeconds != 1 {
 		t.Fatalf("retry_after_seconds: got %d want 1", ria.RetryAfterSeconds)
+	}
+
+	// Blocked-shape: tier_blocked/limit as JSON literals, remaining as null.
+	// Mirrors Python limiter.py:135-141 (blocked path leaves remaining=None).
+	if got := string(raw["tier_blocked"]); got != `"second"` {
+		t.Fatalf("tier_blocked: got %s want \"second\"", got)
+	}
+	if got := string(raw["limit"]); got != `10` {
+		t.Fatalf("limit: got %s want 10", got)
+	}
+	if got := string(raw["remaining"]); got != `null` {
+		t.Fatalf("remaining (blocked path): got %s want null", got)
+	}
+}
+
+// TestQuotaCheckResponseJSONNullShape asserts the allowed-path shape emits
+// tier_blocked / limit / remaining as JSON `null` when unset (not "" / 0),
+// matching Python's pydantic Optional semantics — see
+// services/services/quota/src/quota/models.py:42-54 and test_limiter.py:54
+// (`assert resp.tier_blocked is None`). On the allowed path Python sets only
+// remaining (via _remaining_for_first_active); when no active tiers exist,
+// remaining is also None. This test exercises the all-nil case.
+func TestQuotaCheckResponseJSONNullShape(t *testing.T) {
+	resp := QuotaCheckResponse{
+		Allowed:           true,
+		TierBlocked:       nil,
+		Limit:             nil,
+		Remaining:         nil,
+		RetryAfterSeconds: 0,
+		RuleSource:        "default",
+	}
+	data, err := json.Marshal(resp)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	for _, k := range []string{"tier_blocked", "limit", "remaining"} {
+		if got := string(raw[k]); got != `null` {
+			t.Fatalf("%s: got %s want null (full: %s) — non-pointer emission breaks the Python contract", k, got, string(data))
+		}
+	}
+	if got := string(raw["allowed"]); got != `true` {
+		t.Fatalf("allowed: got %s want true", got)
+	}
+
+	// Allowed-with-remaining shape: tier_blocked/limit still null, remaining
+	// carries the computed value (mirrors Python limiter.py:113-117).
+	rem := 5
+	resp2 := QuotaCheckResponse{
+		Allowed:           true,
+		TierBlocked:       nil,
+		Limit:             nil,
+		Remaining:         &rem,
+		RetryAfterSeconds: 0,
+		RuleSource:        "rules",
+	}
+	data2, _ := json.Marshal(resp2)
+	var raw2 map[string]json.RawMessage
+	json.Unmarshal(data2, &raw2)
+	if got := string(raw2["tier_blocked"]); got != `null` {
+		t.Fatalf("allowed.tier_blocked: got %s want null", got)
+	}
+	if got := string(raw2["limit"]); got != `null` {
+		t.Fatalf("allowed.limit: got %s want null", got)
+	}
+	if got := string(raw2["remaining"]); got != `5` {
+		t.Fatalf("allowed.remaining: got %s want 5", got)
 	}
 }
 

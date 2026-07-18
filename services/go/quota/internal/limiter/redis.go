@@ -106,15 +106,20 @@ func slotIndex(now time.Time, windowMs int64) string {
 // ---------------------------------------------------------------------------
 
 // CheckAndConsume increments counters for every configured tier and returns
-// the merged response. Field semantics mirror the Python contract:
-//   - Allowed=true:  Limit/Remaining = most-restrictive active tier's values,
-//     RetryAfterSeconds=0.
-//   - Allowed=false: TierBlocked/Limit/RetryAfterSeconds describe the first
-//     tier that blocked; Remaining=0.
+// the merged response. Field semantics mirror the Python contract
+// (services/services/quota/src/quota/limiter.py::check_and_consume):
+//
+//   - Allowed=true:  TierBlocked=nil, Limit=nil, Remaining=&v (matches
+//     Python L113-117, which sets only allowed + remaining + rule_source;
+//     remaining = min(active max_count) - cost per Python
+//     _remaining_for_first_active L230-239, or nil when no active tiers).
+//   - Allowed=false: TierBlocked=&tier, Limit=&maxOfThatTier, Remaining=nil,
+//     RetryAfterSeconds set (matches Python L135-141, which leaves remaining
+//     None on the blocked path).
 //
 // Task 1 keeps the existing INCR+Expire per-tier logic and only threads
-// RetryAfterSeconds through; Task 2 will swap the internals for an atomic
-// Lua Eval (one RTT, no cross-tier race).
+// the pointer fields through; Task 2 will swap the internals for an atomic
+// Lua Eval (one RTT, no cross-tier race) and align rule_source values.
 func (l *Limiter) CheckAndConsume(ctx context.Context, tenantID, appID, apiID string, rules *models.QuotaRules, cost int) *models.QuotaCheckResponse {
 	resp := &models.QuotaCheckResponse{
 		Allowed:           true,
@@ -132,11 +137,26 @@ func (l *Limiter) CheckAndConsume(ctx context.Context, tenantID, appID, apiID st
 		{"day", rules.Day},
 	}
 
+	// Track the most-restrictive active limit for the allowed-path Remaining
+	// (mirrors Python's _remaining_for_first_active: min of all active tier
+	// maxes minus cost). This is computed across passing tiers; if any tier
+	// blocks, we discard it and use the blocked-path shape instead.
+	minActiveLimit := int64(-1)
+	var firstBlocker struct {
+		name      string
+		limit     int64
+		windowMs  int64
+		key       string
+	}
+
 	for _, t := range tiers {
 		if t.rule.MaxCount <= 0 {
 			continue
 		}
 		limit := l.effectiveQuota(t.rule)
+		if minActiveLimit < 0 || limit < minActiveLimit {
+			minActiveLimit = limit
+		}
 		key := l.rateKey(tenantID, apiID, appID, tierChar(t.name), slotIndex(now, t.rule.WindowMs))
 
 		count, err := l.redis.Incr(ctx, key).Result()
@@ -148,30 +168,43 @@ func (l *Limiter) CheckAndConsume(ctx context.Context, tenantID, appID, apiID st
 			l.redis.Expire(ctx, key, time.Duration(t.rule.WindowMs)*time.Millisecond)
 		}
 
-		if count > limit {
-			// Blocked at this tier. Capture the first blocker's metadata.
-			if resp.Allowed {
-				resp.Allowed = false
-				resp.TierBlocked = t.name
-				resp.Limit = int(limit)
-				resp.Remaining = 0
-				resp.RetryAfterSeconds = l.windowRemainingSeconds(ctx, key, t.rule.WindowMs)
-			}
-			continue
-		}
-
-		// Tier passed. Track the most-restrictive active limit for the
-		// allowed-path response (matches Python's _remaining_for_first_active).
-		remaining := int(limit) - int(count)
-		if remaining < 0 {
-			remaining = 0
-		}
-		if resp.Limit == 0 || int(limit) < resp.Limit {
-			resp.Limit = int(limit)
-			resp.Remaining = remaining
+		if count > limit && resp.Allowed {
+			// Blocked at this tier. Capture the first blocker's metadata; we
+			// keep iterating so every tier still gets INCR'd (matching the
+			// Python Lua script, which increments all three KEYS atomically).
+			resp.Allowed = false
+			firstBlocker.name = t.name
+			firstBlocker.limit = limit
+			firstBlocker.windowMs = t.rule.WindowMs
+			firstBlocker.key = key
 		}
 	}
 
+	if !resp.Allowed {
+		// Blocked path (Python L135-141): tier_blocked + limit + retry_after_seconds,
+		// remaining intentionally nil.
+		tb := firstBlocker.name
+		limit := int(firstBlocker.limit)
+		resp.TierBlocked = &tb
+		resp.Limit = &limit
+		resp.Remaining = nil
+		resp.RetryAfterSeconds = l.windowRemainingSeconds(ctx, firstBlocker.key, firstBlocker.windowMs)
+		return resp
+	}
+
+	// Allowed path (Python L111-117): tier_blocked=nil, limit=nil, remaining set.
+	resp.TierBlocked = nil
+	resp.Limit = nil
+	if minActiveLimit >= 0 {
+		// Python _remaining_for_first_active: min(active max) - cost (>=0 clamp).
+		rem := int(minActiveLimit) - cost
+		if rem < 0 {
+			rem = 0
+		}
+		resp.Remaining = &rem
+	} else {
+		resp.Remaining = nil
+	}
 	return resp
 }
 
@@ -224,6 +257,11 @@ func (l *Limiter) Refund(ctx context.Context, tenantID, appID, apiID string, cos
 // matching Python's UsageResponse shape: {tenant_id, app_id, api_id, second,
 // minute, day}. Each UsagePoint always reports window_seconds + used; limit
 // is non-nil only when the tier is configured (mirrors Python's None default).
+//
+// WindowSeconds is ALWAYS the canonical _TIER_DEFS value (1 / 60 / 86400),
+// regardless of what WindowSec the rule row carries — see Python
+// limiter.py:190-196 (`window_seconds=window` where `window` comes from
+// `_TIER_DEFS`, not from the rule).
 func (l *Limiter) GetUsage(ctx context.Context, tenantID, appID, apiID string, rules *models.QuotaRules) *models.UsageResponse {
 	now := time.Now()
 	resp := &models.UsageResponse{
@@ -233,38 +271,30 @@ func (l *Limiter) GetUsage(ctx context.Context, tenantID, appID, apiID string, r
 	}
 
 	tiers := []struct {
-		name string
-		rule models.LimitRule
+		name           string
+		rule           models.LimitRule
+		canonicalSec   int64
+		canonicalMs    int64
 	}{
-		{"second", rules.Second},
-		{"minute", rules.Minute},
-		{"day", rules.Day},
+		{"second", rules.Second, 1, 1000},
+		{"minute", rules.Minute, 60, 60000},
+		{"day", rules.Day, 86400, 86400000},
 	}
 
 	for _, t := range tiers {
 		point := models.UsagePoint{
-			WindowSeconds: t.rule.WindowSec,
+			WindowSeconds: t.canonicalSec,
 			Used:          0,
 		}
-		if point.WindowSeconds <= 0 {
-			// Rule unconfigured → fall back to canonical window for the tier.
-			switch t.name {
-			case "second":
-				point.WindowSeconds = 1
-			case "minute":
-				point.WindowSeconds = 60
-			case "day":
-				point.WindowSeconds = 86400
-			}
-		}
-		windowMs := point.WindowSeconds * 1000
 
 		if t.rule.MaxCount > 0 {
 			limit := int(l.effectiveQuota(t.rule))
 			point.Limit = &limit
 		}
 
-		key := l.rateKey(tenantID, apiID, appID, tierChar(t.name), slotIndex(now, windowMs))
+		// Read from the canonical-window slot (matches Python's _rate_keys,
+		// which always uses TIER_SECOND/MINUTE/DAY for slot computation).
+		key := l.rateKey(tenantID, apiID, appID, tierChar(t.name), slotIndex(now, t.canonicalMs))
 		if count, err := l.redis.Get(ctx, key).Int(); err == nil {
 			point.Used = count
 		}

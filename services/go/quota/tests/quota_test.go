@@ -36,7 +36,8 @@ func TestCheckJSONRoundtrip(t *testing.T) {
 }
 
 func TestCheckResponseJSON(t *testing.T) {
-	resp := models.QuotaCheckResponse{Allowed: true, Limit: 100, Remaining: 99, RuleSource: "api"}
+	limit, remaining := 100, 99
+	resp := models.QuotaCheckResponse{Allowed: true, Limit: &limit, Remaining: &remaining, RuleSource: "api"}
 	data, _ := json.Marshal(resp)
 	var decoded models.QuotaCheckResponse
 	json.Unmarshal(data, &decoded)
@@ -89,7 +90,8 @@ func TestCheckHTTPEndpoint(t *testing.T) {
 	mux.HandleFunc("POST /v1/quota/check", func(w http.ResponseWriter, r *http.Request) {
 		var req models.QuotaCheckRequest
 		json.NewDecoder(r.Body).Decode(&req)
-		resp := models.QuotaCheckResponse{Allowed: true, Limit: 100, Remaining: 99, RuleSource: "api"}
+		limit, remaining := 100, 99
+		resp := models.QuotaCheckResponse{Allowed: true, Limit: &limit, Remaining: &remaining, RuleSource: "api"}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 	})

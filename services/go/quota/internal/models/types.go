@@ -15,13 +15,19 @@ type QuotaCheckRequest struct {
 // JSON keys in declaration order: allowed, tier_blocked, limit, remaining,
 // retry_after_seconds, rule_source. retry_after_seconds is non-zero only when
 // Allowed=false (seconds remaining until the blocking tier's window resets).
+//
+// TierBlocked / Limit / Remaining are pointers so they serialize as JSON
+// `null` when unset, mirroring Python's `str | None` / `int | None` (pydantic
+// Optional). Python's allowed path leaves tier_blocked+limit None and sets
+// remaining; Python's blocked path sets tier_blocked+limit and leaves
+// remaining None. See limiter.CheckAndConsume for the branch-by-branch mapping.
 type QuotaCheckResponse struct {
-	Allowed           bool   `json:"allowed"`
-	TierBlocked       string `json:"tier_blocked"`
-	Limit             int    `json:"limit"`
-	Remaining         int    `json:"remaining"`
-	RetryAfterSeconds int    `json:"retry_after_seconds"`
-	RuleSource        string `json:"rule_source"`
+	Allowed           bool    `json:"allowed"`
+	TierBlocked       *string `json:"tier_blocked"`
+	Limit             *int    `json:"limit"`
+	Remaining         *int    `json:"remaining"`
+	RetryAfterSeconds int     `json:"retry_after_seconds"`
+	RuleSource        string  `json:"rule_source"`
 }
 
 type QuotaRefundRequest struct {

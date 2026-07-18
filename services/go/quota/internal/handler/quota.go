@@ -55,7 +55,7 @@ func (h *QuotaHandler) check(w http.ResponseWriter, r *http.Request) {
 		resp.RuleSource = source
 	}
 	if h.kafka != nil {
-		go h.emitQuotaEvent(req, resp.Allowed, resp.TierBlocked)
+		go h.emitQuotaEvent(req, resp.Allowed, tierBlockedOrEmpty(resp.TierBlocked))
 	}
 	writeJSON(w, 200, resp)
 }
@@ -79,9 +79,18 @@ func (h *QuotaHandler) checkStrict(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if h.kafka != nil {
-		go h.emitQuotaEvent(req, resp.Allowed, resp.TierBlocked)
+		go h.emitQuotaEvent(req, resp.Allowed, tierBlockedOrEmpty(resp.TierBlocked))
 	}
 	writeJSON(w, 200, resp)
+}
+
+// tierBlockedOrEmpty dereferences a nilable TierBlocked for the Kafka event
+// payload, which carries the tier name as a plain string (nil → "").
+func tierBlockedOrEmpty(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 func (h *QuotaHandler) refund(w http.ResponseWriter, r *http.Request) {
