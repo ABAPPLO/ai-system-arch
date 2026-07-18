@@ -142,6 +142,10 @@ async def _write_admin_audit(reason: str) -> None:
             await conn.execute(
                 "SELECT set_config('app.is_platform_admin', $1, true)", "true"
             )
+            # 传 dict 让 asyncpg 的 jsonb codec（init_pool 注册的 encoder=json.dumps）
+            # 序列化；若在此处预先 json.dumps 得到 str，codec 会再次 JSON-encode 该字符串，
+            # 写入 jsonb 类型变为 JSON 字符串值（kind=string）而非对象 → detail->>'reason' 返回 NULL。
+            # 单元测试无 codec 时走 fallback text 编码看不出此 bug，仅 e2e 暴露。
             await conn.execute(
                 f"""
                 INSERT INTO {_AUDIT_TABLE}
@@ -149,7 +153,7 @@ async def _write_admin_audit(reason: str) -> None:
                 VALUES ($1, 'system', 'admin_db_session', 'platform', $2::jsonb)
                 """,
                 tenant_id,
-                json.dumps({"reason": reason}),
+                {"reason": reason},
             )
     except Exception as e:  # best-effort：审计失败不能影响业务
         log.warning("admin_audit_write_failed", error=str(e), reason=reason)

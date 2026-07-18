@@ -39,10 +39,17 @@ def require_pg():
 
 @pytest.fixture
 async def db_pool(monkeypatch):
-    """真 PG pool，注入 db._pool（admin_db_session 据此绕 RLS）。"""
+    """真 PG pool，注入 db._pool（admin_db_session 据此绕 RLS）。
+
+    必须带 _init_jsonb_codec（与 init_pool 一致）——否则 jsonb 走 asyncpg 默认
+    text 编解码，掩盖 production-only 的 codec 双重编码 bug（如 _write_admin_audit
+    早期版本 json.dumps 后再被 codec 二次编码 → jsonb string 而非 object）。
+    """
     from apihub_core import db
 
-    pool = await asyncpg.create_pool(TEST_PG_DSN, min_size=1, max_size=2)
+    pool = await asyncpg.create_pool(
+        TEST_PG_DSN, min_size=1, max_size=2, init=db._init_jsonb_codec,
+    )
     monkeypatch.setattr(db, "_pool", pool)
     try:
         yield pool
