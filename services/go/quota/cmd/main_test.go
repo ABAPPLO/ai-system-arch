@@ -114,17 +114,18 @@ func TestIngressAuth_HealthReady_BypassesAuth(t *testing.T) {
 	}
 }
 
-func TestIngressAuth_LegacyQuotaHealth_RequiresAuth(t *testing.T) {
-	// /v1/quota/health does NOT start with /health — kept auth-required for
-	// compat (internal callers can send the header). Only standard /health/*
-	// bypasses.
+func TestIngressAuth_QuotaHealth_BypassesAuth(t *testing.T) {
+	// deployment.yaml readiness/liveness probes hit /v1/quota/health, and the
+	// kubelet carries no X-Ingress-Auth — so this route MUST bypass auth, same
+	// as /health/ready (it is registered as a ready-alias in handler/quota.go).
+	// Mirrors Python's skip_auth_paths which lists /v1/quota/health.
 	h := ingressAuth("s3cr3t", okHandler)
 	req := httptest.NewRequest(http.MethodGet, "/v1/quota/health", nil)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, req)
 
-	if w.Code != http.StatusUnauthorized {
-		t.Fatalf("status: want 401 (legacy path is gated), got %d", w.Code)
+	if w.Code != http.StatusOK {
+		t.Fatalf("status: want 200 (probe-able ready-alias bypass), got %d", w.Code)
 	}
 }
 

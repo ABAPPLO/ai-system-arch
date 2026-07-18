@@ -73,11 +73,25 @@ jobs:
           echo "tags=$TAGS" >> $GITHUB_OUTPUT
           echo "image=${REPO_LC}" >> $GITHUB_OUTPUT
 
+      - name: Resolve Docker context + file
+        id: paths
+        run: |
+          if [[ "${{ matrix.service }}" == "quota" ]]; then
+            # quota switched to Go impl in R3a — Go Dockerfile + its own context
+            # (go.mod lives at services/go/quota/, not repo root, so the Dockerfile's
+            # `COPY go.mod go.sum ./` requires the narrower context).
+            echo "context=services/go/quota" >> $GITHUB_OUTPUT
+            echo "file=services/go/quota/Dockerfile" >> $GITHUB_OUTPUT
+          else
+            echo "context=." >> $GITHUB_OUTPUT
+            echo "file=services/services/${{ matrix.service }}/Dockerfile" >> $GITHUB_OUTPUT
+          fi
+
       - name: Build & push
         uses: docker/build-push-action@v7
         with:
-          context: .
-          file: services/services/${{ matrix.service }}/Dockerfile
+          context: ${{ steps.paths.outputs.context }}
+          file: ${{ steps.paths.outputs.file }}
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           cache-from: type=gha,scope=${{ matrix.service }}

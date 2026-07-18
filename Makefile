@@ -81,8 +81,15 @@ test:  ## 跑测试
 
 # ===== Docker =====
 docker-build:  ## 构建服务镜像（在仓库根目录执行）
-	docker build -f services/services/$(SERVICE)/Dockerfile \
-		-t registry.apihub.internal/apihub/$(SERVICE):0.1.0-dev .
+	@case "$(SERVICE)" in \
+	  quota) \
+	    echo ">> quota uses Go impl: services/go/quota/Dockerfile (context=services/go/quota)"; \
+	    docker build -f services/go/quota/Dockerfile \
+	      -t registry.apihub.internal/apihub/quota:0.1.0-dev services/go/quota ;; \
+	  *) \
+	    docker build -f services/services/$(SERVICE)/Dockerfile \
+	      -t registry.apihub.internal/apihub/$(SERVICE):0.1.0-dev . ;; \
+	esac
 
 # ===== Terraform =====
 TF_DIR = deploy/terraform/envs/$(ENV)

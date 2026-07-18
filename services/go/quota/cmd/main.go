@@ -118,15 +118,18 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 // not transit the APISIX proxy (and thus lacks a matching X-Ingress-Auth
 // header) is rejected with 401. The kubelet liveness AND readiness probes are
 // the callers that legitimately bypass the gateway (probes carry no secret),
-// so both /health/live and /health/ready are exempt — mirrors apihub_core's
-// middleware skip_auth_paths=("/health",...) startswith convention.
+// so /health/live, /health/ready, AND /v1/quota/health are exempt — the last
+// because deployment.yaml's readiness/liveness probes hit /v1/quota/health
+// (kept as a ready-alias in handler/quota.go for callers that predate the
+// standard /health/* names). Mirrors apihub_core's middleware
+// skip_auth_paths=("/health",..., "/v1/quota/health") convention.
 //
 // Empty secret → fail closed. We do NOT log per-request here (the startup
 // warning is enough); logging on every probe-able path would be noisy and
 // itself an info leak.
 func ingressAuth(secret string, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/health/live" || r.URL.Path == "/health/ready" {
+		if r.URL.Path == "/health/live" || r.URL.Path == "/health/ready" || r.URL.Path == "/v1/quota/health" {
 			next.ServeHTTP(w, r)
 			return
 		}
