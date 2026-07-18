@@ -10,6 +10,7 @@
 import json as _json
 import time
 from collections.abc import AsyncIterator
+from contextlib import suppress
 
 import httpx
 from apihub_core.errors import ApiError, ErrorCode
@@ -112,36 +113,50 @@ class HttpForwarder:
         )
 
     async def _forward_stream(self, snap, request, url, headers, body, request_id, start):
-        """AI SSE 流式 —— chunk-by-chunk 转发 + 末尾 emit 含 token 用量。"""
+        """AI SSE 流式 —— eager-open 上游捕获 status_code，chunk-by-chunk 转发 + 末尾 emit token。
+
+        关键：必须 await cm.__aenter__() 在构造 StreamingResponse 之前先拿到
+        upstream.status_code，否则 SSE 路径会把上游 4xx/5xx 吞成 HTTP 200
+        （StreamingResponse 的 status_code 在 generator 外就已固定）。
+        """
+
+        try:
+            cm = self._client.stream(
+                method=request.method,
+                url=url,
+                headers=headers,
+                params=request.query_params,
+                content=body,
+                timeout=None,  # 流式不超时（依赖 backend 自己控）
+            )
+            upstream = await cm.__aenter__()
+        except httpx.RequestError as e:
+            backend_latency_ms = int((time.perf_counter() - start) * 1000)
+            await _emit_failure(snap, request, e, request_id, backend_latency_ms)
+            raise ApiError(
+                ErrorCode.API_DOWN,
+                f"backend unreachable: {e}",
+                http_status=503,
+            ) from e
+
+        status_code = upstream.status_code
 
         async def stream_and_emit() -> AsyncIterator[bytes]:
             tokens_prompt = 0
             tokens_completion = 0
             total_bytes = 0
-            status_code = 200
-
             try:
-                async with self._client.stream(
-                    method=request.method,
-                    url=url,
-                    headers=headers,
-                    params=request.query_params,
-                    content=body,
-                    timeout=None,  # 流式不超时（依赖 backend 自己控）
-                ) as resp:
-                    status_code = resp.status_code
-                    async for chunk in resp.aiter_bytes():
-                        total_bytes += len(chunk)
-                        # 解析 SSE 试取 token usage
-                        p, c = _extract_tokens_from_chunk(chunk)
-                        tokens_prompt += p
-                        tokens_completion += c
-                        yield chunk
+                async for chunk in upstream.aiter_bytes():
+                    total_bytes += len(chunk)
+                    # 解析 SSE 试取 token usage
+                    p, c = _extract_tokens_from_chunk(chunk)
+                    tokens_prompt += p
+                    tokens_completion += c
+                    yield chunk
             except httpx.RequestError as e:
                 log.warning("stream_backend_error", error=str(e))
-                # 给客户端一个 SSE 错误事件
+                # 给客户端一个 SSE 错误事件；status_code 保留 eager-open 的真上游值
                 yield b'data: {"error":"backend error"}\n\n'
-                status_code = 503
             finally:
                 latency_ms = int((time.perf_counter() - start) * 1000)
                 await _emit_stream_complete(
@@ -155,10 +170,13 @@ class HttpForwarder:
                     tokens_prompt=tokens_prompt,
                     tokens_completion=tokens_completion,
                 )
+                with suppress(Exception):
+                    await cm.__aexit__(None, None, None)
 
         return StreamingResponse(
             stream_and_emit(),
             media_type="text/event-stream",
+            status_code=status_code,
             headers={"X-Accel-Buffering": "no"},  # nginx / APISIX 关缓冲
         )
 
