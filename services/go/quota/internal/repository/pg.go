@@ -43,7 +43,15 @@ func (r *PGRepository) LoadRules(ctx context.Context, tenantID, appID, apiID str
 	).Scan(&row.SecondMax, &row.SecondWindowMs, &row.MinuteMax, &row.MinuteWindowMs, &row.DayMax, &row.DayWindowMs)
 
 	if err != nil {
-		return defaultRules(), "fallback", nil
+		// No quota_rule row for this (tenant, app, api) → built-in defaults.
+		// Source label mirrors Python repository.load_rules' "default" branch
+		// (services/services/quota/src/quota/repository.py:111-112): when no
+		// layer contributed a rate_limit, source="default". The handler rewrites
+		// rule_source from this unless the limiter already said "fallback"
+		// (Redis failure) — see handler.QuotaHandler.check. The previous label
+		// "fallback" collided with the limiter's Redis-failure semantics and
+		// broke the Python rule_source contract (concern-2 surfaced by R3a T5).
+		return defaultRules(), "default", nil
 	}
 
 	return &models.QuotaRules{

@@ -50,18 +50,23 @@ func (h *QuotaHandler) check(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "invalid json"})
 		return
 	}
-	// source (api/fallback provenance from LoadRules) is intentionally
-	// ignored here: Limiter.CheckAndConsume already emits "rules"/"unlimited"
-	// /"fallback", and T1 deliberately diverged from Python routes.py:58-60
-	// (which rewrites rule_source to repo `source`). Reconciling belongs to a
-	// dedicated task — kept off R3a to avoid changing observable behavior.
-	rules, _, err := h.repo.LoadRules(r.Context(), req.TenantID, req.AppID, req.APIID)
+	rules, source, err := h.repo.LoadRules(r.Context(), req.TenantID, req.AppID, req.APIID)
 	if err != nil {
 		slog.Error("load_rules_error", "error", err)
 		writeJSON(w, 500, map[string]string{"error": "internal"})
 		return
 	}
 	resp := h.limiter.CheckAndConsume(r.Context(), req.TenantID, req.AppID, req.APIID, rules, req.Cost)
+	// Mirror Python routes.py:58-60: rule_source is the layer the rule came
+	// from (app / tenant / api_version / default), NOT the limiter's internal
+	// "rules" / "unlimited" label. Only "fallback" (Redis Eval failure)
+	// survives the rewrite — it's a meaningful degenerate label that callers
+	// can use to detect quota-service Redis outages. Fixes concern-2 deferred
+	// in T1: the Python contract never returns "rules" or "unlimited" from
+	// /v1/quota/check.
+	if resp.RuleSource != "fallback" {
+		resp.RuleSource = source
+	}
 	if h.kafka != nil {
 		go h.emitQuotaEvent(req, resp.Allowed, tierBlockedOrEmpty(resp.TierBlocked))
 	}
