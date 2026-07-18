@@ -287,3 +287,29 @@ async def test_anonymize_user_scrubs_notification_log(fake_redis):
                 "DELETE FROM notification_log WHERE id IN ('nl_a','nl_b')",
             )
 
+
+@pytest.mark.asyncio
+async def test_anonymize_writes_audit_log(fake_redis):
+    """anonymize 落一条 audit_log（reason=gdpr_erasure）。"""
+    from apihub_core import db as db_mod
+
+    user = await identity.create_user(
+        email="new@example.com", password="secret123", phone="138", name="Audit"
+    )
+    uid = user["user_id"]
+
+    async with db_mod.admin_db_session() as conn:
+        before = await conn.fetchval(
+            "SELECT COUNT(*) FROM audit_log"
+            " WHERE action='admin_db_session' AND detail->>'reason' = 'gdpr_erasure'"
+        )
+
+    await identity.anonymize_user(user_id=uid)
+
+    async with db_mod.admin_db_session() as conn:
+        after = await conn.fetchval(
+            "SELECT COUNT(*) FROM audit_log"
+            " WHERE action='admin_db_session' AND detail->>'reason' = 'gdpr_erasure'"
+        )
+    assert after == before + 1
+

@@ -149,7 +149,7 @@ async def anonymize_user(*, user_id: str) -> None:
     notification_log 投递日志清理（按旧 recipient=email）→ API key 吊销 → Redis 清理。
     全程在同一 admin_db_session 事务内（任一失败回滚，不残留半擦除状态）。
     """
-    async with db.admin_db_session() as conn:
+    async with db.admin_db_session(audit_reason="gdpr_erasure") as conn:
         row = await conn.fetchrow(
             "SELECT id, email FROM user_account WHERE id = $1", user_id,
         )
