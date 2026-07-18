@@ -36,12 +36,12 @@ _audit_reason_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
 _JSON_ENCODER = functools.partial(json.dumps, default=str)
 
 
-def set_audit_reason(reason: str | None) -> contextvars.ContextToken[str | None]:
+def set_audit_reason(reason: str | None) -> contextvars.Token[str | None]:
     """在当前协程内设默认审计 reason（HTTP 中间件用，免去逐调用传参）。"""
     return _audit_reason_var.set(reason)
 
 
-def reset_audit_reason(token: contextvars.ContextVar[str | None]) -> None:
+def reset_audit_reason(token: contextvars.Token[str | None]) -> None:
     _audit_reason_var.reset(token)
 
 
