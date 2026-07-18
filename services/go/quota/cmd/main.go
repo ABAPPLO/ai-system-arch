@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"crypto/subtle"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -51,9 +52,26 @@ func main() {
 	mux := http.NewServeMux()
 	h.Register(mux)
 
+	// Trust-ingress auth (R1d pattern, mirrors apihub_core.auth fast path):
+	// APISIX key-auth validates the caller and rewrites X-Ingress-Auth=<secret>
+	// onto the request; Go quota trusts that header and skips a per-request
+	// auth round-trip. Security premise: Go quota is reachable only via
+	// APISIX (ClusterIP, no external ingress) — same as dispatcher R1d.
+	//
+	// Fail-closed: if the operator forgets INGRESS_SHARED_SECRET, every non-
+	// /health/live route 401s. We log a single startup warning so misconfig
+	// is loud rather than silently open.
+	if cfg.IngressSharedSecret == "" {
+		slog.Warn("ingress_shared_secret_unset",
+			"behavior", "deny_all_non_live_routes",
+			"hint", "set INGRESS_SHARED_SECRET (same as dispatcher R1d) to open business routes")
+	} else {
+		slog.Info("ingress_auth_enabled")
+	}
+
 	server := &http.Server{
 		Addr:         fmt.Sprintf(":%d", cfg.Port),
-		Handler:      loggingMiddleware(recoveryMiddleware(mux)),
+		Handler:      loggingMiddleware(recoveryMiddleware(ingressAuth(cfg.IngressSharedSecret, mux))),
 		ReadTimeout:  5 * time.Second,
 		WriteTimeout: 10 * time.Second,
 		IdleTimeout:  60 * time.Second,
@@ -92,6 +110,32 @@ func recoveryMiddleware(next http.Handler) http.Handler {
 				http.Error(w, `{"error":"internal"}`, 500)
 			}
 		}()
+		next.ServeHTTP(w, r)
+	})
+}
+
+// ingressAuth enforces the R1d trust-ingress contract: any request that did
+// not transit the APISIX proxy (and thus lacks a matching X-Ingress-Auth
+// header) is rejected with 401. The kubelet liveness AND readiness probes are
+// the callers that legitimately bypass the gateway (probes carry no secret),
+// so both /health/live and /health/ready are exempt — mirrors apihub_core's
+// middleware skip_auth_paths=("/health",...) startswith convention.
+//
+// Empty secret → fail closed. We do NOT log per-request here (the startup
+// warning is enough); logging on every probe-able path would be noisy and
+// itself an info leak.
+func ingressAuth(secret string, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/health/live" || r.URL.Path == "/health/ready" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if secret == "" || subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Ingress-Auth")), []byte(secret)) != 1 {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			_, _ = w.Write([]byte(`{"error":"unauthorized"}`))
+			return
+		}
 		next.ServeHTTP(w, r)
 	})
 }

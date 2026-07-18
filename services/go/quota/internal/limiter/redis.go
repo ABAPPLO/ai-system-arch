@@ -126,6 +126,16 @@ func New(rdb *redis.Client, region string, splitRatio float64) *Limiter {
 	}
 }
 
+// HealthCheck pings the underlying Redis client. Used by the
+// /health/ready handler (alongside repository.PGRepository.HealthCheck) so
+// k8s readiness gates on both stores being reachable.
+func (l *Limiter) HealthCheck(ctx context.Context) error {
+	if l == nil || l.redis == nil {
+		return fmt.Errorf("redis client not initialized")
+	}
+	return l.redis.Ping(ctx).Err()
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

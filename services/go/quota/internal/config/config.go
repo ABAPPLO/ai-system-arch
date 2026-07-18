@@ -18,6 +18,13 @@ type Config struct {
 	RedisPassword string
 	KafkaBrokers  string
 	LogLevel      string
+	// IngressSharedSecret is the shared secret injected by APISIX
+	// proxy-rewrite as the `X-Ingress-Auth` request header. APISIX key-auth
+	// validates the caller's API key first; Go quota then trusts the header
+	// and skips a per-request auth round-trip. Mirrors R1d
+	// (apihub_core.config.ingress_shared_secret). Empty → fail closed
+	// (deny all non-/health/live routes); see cmd/main.go ingressAuth.
+	IngressSharedSecret string
 }
 
 func Load() *Config {
@@ -33,6 +40,8 @@ func Load() *Config {
 		RedisPassword: envStr("REDIS_PASSWORD", ""),
 		KafkaBrokers:  envStr("KAFKA_BROKERS", ""),
 		LogLevel:      envStr("LOG_LEVEL", "info"),
+		// Read raw — empty (unset) is meaningful: triggers fail-closed auth.
+		IngressSharedSecret: os.Getenv("INGRESS_SHARED_SECRET"),
 	}
 }
 

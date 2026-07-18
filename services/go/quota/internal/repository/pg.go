@@ -62,5 +62,8 @@ func defaultRules() *models.QuotaRules {
 }
 
 func (r *PGRepository) HealthCheck(ctx context.Context) error {
+	if r == nil || r.pool == nil {
+		return fmt.Errorf("pg pool not initialized")
+	}
 	return r.pool.Ping(ctx)
 }

@@ -29,7 +29,13 @@ func (h *QuotaHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/quota/check-strict", h.checkStrict)
 	mux.HandleFunc("POST /v1/quota/refund", h.refund)
 	mux.HandleFunc("GET /v1/quota/usage", h.usage)
-	mux.HandleFunc("GET /v1/quota/health", h.health)
+	// Health endpoints. /health/live is liveness (always 200, bypasses auth
+	// — see cmd/main.go ingressAuth). /health/ready is readiness (PG + Redis
+	// ping, 200/503). /v1/quota/health kept as a ready-alias for callers that
+	// predate the standard /health/* names.
+	mux.HandleFunc("GET /health/live", h.live)
+	mux.HandleFunc("GET /health/ready", h.ready)
+	mux.HandleFunc("GET /v1/quota/health", h.ready)
 }
 
 func writeJSON(w http.ResponseWriter, status int, v interface{}) {
@@ -44,16 +50,18 @@ func (h *QuotaHandler) check(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 400, map[string]string{"error": "invalid json"})
 		return
 	}
-	rules, source, err := h.repo.LoadRules(r.Context(), req.TenantID, req.AppID, req.APIID)
+	// source (api/fallback provenance from LoadRules) is intentionally
+	// ignored here: Limiter.CheckAndConsume already emits "rules"/"unlimited"
+	// /"fallback", and T1 deliberately diverged from Python routes.py:58-60
+	// (which rewrites rule_source to repo `source`). Reconciling belongs to a
+	// dedicated task — kept off R3a to avoid changing observable behavior.
+	rules, _, err := h.repo.LoadRules(r.Context(), req.TenantID, req.AppID, req.APIID)
 	if err != nil {
 		slog.Error("load_rules_error", "error", err)
 		writeJSON(w, 500, map[string]string{"error": "internal"})
 		return
 	}
 	resp := h.limiter.CheckAndConsume(r.Context(), req.TenantID, req.AppID, req.APIID, rules, req.Cost)
-	if resp.RuleSource == "api" {
-		resp.RuleSource = source
-	}
 	if h.kafka != nil {
 		go h.emitQuotaEvent(req, resp.Allowed, tierBlockedOrEmpty(resp.TierBlocked))
 	}
@@ -117,9 +125,21 @@ func (h *QuotaHandler) usage(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, resp)
 }
 
-func (h *QuotaHandler) health(w http.ResponseWriter, r *http.Request) {
-	err := h.repo.HealthCheck(r.Context())
-	if err != nil {
+// live is the liveness probe: always 200 if the process is serving. No
+// dependency checks — kubelet uses this to decide restart.
+func (h *QuotaHandler) live(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, 200, map[string]string{"status": "ok", "service": "quota"})
+}
+
+// ready is the readiness probe: 200 only when both PG and Redis answer.
+// 503 otherwise so k8s pulls the pod out of the Service endpoints until
+// deps recover. Also backs the legacy /v1/quota/health route.
+func (h *QuotaHandler) ready(w http.ResponseWriter, r *http.Request) {
+	ctx := r.Context()
+	pgErr := h.repo.HealthCheck(ctx)
+	redisErr := h.limiter.HealthCheck(ctx)
+	if pgErr != nil || redisErr != nil {
+		slog.Error("ready_check_failed", "pg_error", pgErr, "redis_error", redisErr)
 		writeJSON(w, 503, map[string]string{"status": "unhealthy"})
 		return
 	}
