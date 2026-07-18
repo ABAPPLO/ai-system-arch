@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import functools
 import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, suppress
@@ -29,31 +30,42 @@ _audit_reason_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "audit_reason", default=None
 )
 
+# 统一 JSON encoder：调用方直传 dict，codec 负责序列化并兜底非 JSON 原生类型
+# （datetime / UUID / set 等 → str）。`default=str` 保留旧 `json.dumps(x, default=str)`
+# helper 的兜底语义，对已可序列化数据零行为变化。
+_JSON_ENCODER = functools.partial(json.dumps, default=str)
+
 
 def set_audit_reason(reason: str | None) -> contextvars.ContextToken[str | None]:
     """在当前协程内设默认审计 reason（HTTP 中间件用，免去逐调用传参）。"""
     return _audit_reason_var.set(reason)
 
 
-def reset_audit_reason(token: contextvars.ContextToken[str | None]) -> None:
+def reset_audit_reason(token: contextvars.ContextVar[str | None]) -> None:
     _audit_reason_var.reset(token)
 
 
 async def _init_jsonb_codec(conn: asyncpg.Connection) -> None:
-    """让 jsonb 列直接返回 dict，避免每个 repository 都要 json.loads。
+    """让 jsonb 列直接返回 dict（decoder=json.loads），encoder 用 json.dumps+default=str。
 
-    asyncpg 默认把 jsonb 当 text 返回；这里注册 codec 让它走 json.loads。
     每个新连接都会跑一次（create_pool 的 init 回调）。
+
+    调用方应直传 dict 让 codec 序列化；切勿调用方先 `json.dumps(...)` 再传 str 给
+    `$N::jsonb` —— 生产 pool 经本函数注册的 codec 会再 encode 一次该字符串，
+    产出 JSON 字符串字面量 → PG 存 jsonb 类型为 `string`（非 `object`）→
+    `detail->>'...'` / `metadata->'quota'->>'day_limit'` 等返回 NULL。
+    单元测试若 create_pool 未带 init=_init_jsonb_codec，asyncpg 走 text fallback
+    会掩盖此 bug（仅生产暴露）。参考：workflow_svc/repository.py:35-37 直传 dict。
     """
     await conn.set_type_codec(
         "jsonb",
-        encoder=json.dumps,
+        encoder=_JSON_ENCODER,
         decoder=json.loads,
         schema="pg_catalog",
     )
     await conn.set_type_codec(
         "json",
-        encoder=json.dumps,
+        encoder=_JSON_ENCODER,
         decoder=json.loads,
         schema="pg_catalog",
     )
@@ -142,9 +154,10 @@ async def _write_admin_audit(reason: str) -> None:
             await conn.execute(
                 "SELECT set_config('app.is_platform_admin', $1, true)", "true"
             )
-            # 传 dict 让 asyncpg 的 jsonb codec（init_pool 注册的 encoder=json.dumps）
-            # 序列化；若在此处预先 json.dumps 得到 str，codec 会再次 JSON-encode 该字符串，
-            # 写入 jsonb 类型变为 JSON 字符串值（kind=string）而非对象 → detail->>'reason' 返回 NULL。
+            # 传 dict 让 asyncpg 的 jsonb codec（init_pool 注册的 encoder=_JSON_ENCODER，
+            # 即 json.dumps + default=str）序列化；若在此处预先 json.dumps 得到 str，
+            # codec 会再次 JSON-encode 该字符串，写入 jsonb 类型变为 JSON 字符串值
+            # （kind=string）而非对象 → detail->>'reason' 返回 NULL。
             # 单元测试无 codec 时走 fallback text 编码看不出此 bug，仅 e2e 暴露。
             await conn.execute(
                 f"""

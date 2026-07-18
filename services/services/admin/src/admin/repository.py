@@ -4,7 +4,6 @@
 写入策略：best-effort。失败只记 warning，不抛 —— 审计挂了不应该影响业务。
 """
 
-import json
 import re
 from datetime import datetime
 from typing import Any
@@ -53,7 +52,7 @@ async def record(entry: AuditRecord) -> int:
                 entry.resource_id,
                 entry.resource_name,
                 entry.env,
-                json.dumps(entry.detail, default=str),
+                entry.detail,
                 entry.user_agent,
                 entry.request_id,
                 entry.trace_id,
@@ -95,7 +94,7 @@ async def record_many(entries: list[AuditRecord]) -> int:
                     entry.resource_id,
                     entry.resource_name,
                     entry.env,
-                    json.dumps(entry.detail, default=str),
+                    entry.detail,
                     entry.user_agent,
                     entry.request_id,
                     entry.trace_id,

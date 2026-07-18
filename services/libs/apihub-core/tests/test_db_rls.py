@@ -158,7 +158,9 @@ class TestRLSViaDbSession:
         from apihub_core.tenant import set_tenant_context
 
         # 用真实 pool 连到 dev PG
-        pool = await asyncpg.create_pool(PG_DSN, min_size=1, max_size=2)
+        pool = await asyncpg.create_pool(
+            PG_DSN, min_size=1, max_size=2, init=db._init_jsonb_codec,
+        )
         monkeypatch.setattr(db, "_pool", pool)
 
         try:
@@ -182,7 +184,9 @@ class TestRLSViaDbSession:
         from apihub_core import db
         from apihub_core.tenant import clear_tenant_context, set_tenant_context
 
-        pool = await asyncpg.create_pool(PG_DSN, min_size=1, max_size=2)
+        pool = await asyncpg.create_pool(
+            PG_DSN, min_size=1, max_size=2, init=db._init_jsonb_codec,
+        )
         monkeypatch.setattr(db, "_pool", pool)
 
         try:
@@ -213,7 +217,9 @@ class TestRLSInjectionHardened:
         from apihub_core import db
         from apihub_core.tenant import TenantContext, set_tenant_context
 
-        pool = await asyncpg.create_pool(PG_DSN, min_size=1, max_size=2)
+        pool = await asyncpg.create_pool(
+            PG_DSN, min_size=1, max_size=2, init=db._init_jsonb_codec,
+        )
         monkeypatch.setattr(db, "_pool", pool)
         # 尝试 SQL 注入：旧 f-string 实现会拼进 SQL 破坏语句或改写 RLS
         evil = TenantContext(
@@ -234,7 +240,9 @@ class TestRLSInjectionHardened:
         from apihub_core import db
         from apihub_core.tenant import set_tenant_context
 
-        pool = await asyncpg.create_pool(PG_DSN, min_size=1, max_size=2)
+        pool = await asyncpg.create_pool(
+            PG_DSN, min_size=1, max_size=2, init=db._init_jsonb_codec,
+        )
         monkeypatch.setattr(db, "_pool", pool)
         try:
             set_tenant_context(tenant_a)
@@ -251,7 +259,9 @@ class TestAdminDbSessionAudit:
     async def test_no_audit_by_default(self, monkeypatch):
         from apihub_core import db
 
-        pool = await asyncpg.create_pool(PG_DSN, min_size=1, max_size=2)
+        pool = await asyncpg.create_pool(
+            PG_DSN, min_size=1, max_size=2, init=db._init_jsonb_codec,
+        )
         monkeypatch.setattr(db, "_pool", pool)
         try:
             async with _connect() as c, c.transaction():
@@ -278,7 +288,9 @@ class TestAdminDbSessionAudit:
         from apihub_core import db
         from apihub_core.tenant import set_tenant_context
 
-        pool = await asyncpg.create_pool(PG_DSN, min_size=1, max_size=2)
+        pool = await asyncpg.create_pool(
+            PG_DSN, min_size=1, max_size=2, init=db._init_jsonb_codec,
+        )
         monkeypatch.setattr(db, "_pool", pool)
         set_tenant_context(tenant_a)
         try:
@@ -307,7 +319,9 @@ class TestAdminDbSessionAudit:
         from apihub_core import db
         from apihub_core.tenant import set_tenant_context
 
-        pool = await asyncpg.create_pool(PG_DSN, min_size=1, max_size=2)
+        pool = await asyncpg.create_pool(
+            PG_DSN, min_size=1, max_size=2, init=db._init_jsonb_codec,
+        )
         monkeypatch.setattr(db, "_pool", pool)
         set_tenant_context(tenant_a)
         # 让 _write_admin_audit 内部 INSERT 报错：指向不存在的表

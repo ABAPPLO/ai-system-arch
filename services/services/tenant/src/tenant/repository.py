@@ -43,7 +43,7 @@ async def create_tenant(payload: TenantCreate) -> dict[str, Any]:
                 payload.slug,
                 ttype,
                 tier,
-                jsonb(payload.metadata),
+                payload.metadata,
             )
         except Exception as e:
             msg = str(e)
@@ -138,7 +138,7 @@ async def update_tenant(tenant_id: str, payload: TenantUpdate) -> dict[str, Any]
         params.append(payload.tier)
         fields.append(f"tier = ${len(params)}")
     if payload.metadata is not None:
-        params.append(jsonb(payload.metadata))
+        params.append(payload.metadata)
         fields.append(f"metadata = ${len(params)}")
 
     if not fields:
@@ -363,7 +363,7 @@ async def set_quota(tenant_id: str, quota: dict[str, Any]) -> dict[str, Any]:
             RETURNING id, parent_id, name, slug, type, status, tier, metadata, created_at, updated_at
             """,
             tenant_id,
-            jsonb(quota),
+            quota,
         )
     if not row:
         raise ApiError(ErrorCode.NOT_FOUND, f"tenant {tenant_id} not found")
@@ -379,13 +379,6 @@ async def _ensure_tenant_exists(tenant_id: str) -> None:
         row = await conn.fetchrow("SELECT 1 FROM tenant WHERE id = $1", tenant_id)
     if not row:
         raise ApiError(ErrorCode.NOT_FOUND, f"tenant {tenant_id} not found")
-
-
-def jsonb(data: Any) -> str:
-    """asyncpg 接受 str，自己序列化避免类型推断问题。"""
-    import json
-
-    return json.dumps(data, default=str)
 
 
 def replay_unique(msg: str, key: str) -> bool:
