@@ -353,3 +353,21 @@ async def test_anonymize_does_not_revoke_api_keys(fake_redis):
             await conn.execute("DELETE FROM api_key WHERE id = $1", key_id)
             await conn.execute("DELETE FROM app WHERE id = $1", app_id)
 
+
+@pytest.mark.asyncio
+async def test_export_excludes_tenant_scoped_data(fake_redis):
+    """export 只含个人数据，不含租户级 apps/api_keys/billing_records。"""
+    user = await identity.create_user(
+        email="new@example.com", password="secret123", phone="138", name="Excl"
+    )
+    uid = user["user_id"]
+    await identity.verify_email(user["verify_token"])
+
+    data = await identity.export_user_data(user_id=uid)
+
+    assert "account" in data
+    assert "tenants" in data
+    assert "apps" not in data
+    assert "api_keys" not in data
+    assert "billing_records" not in data
+
