@@ -107,9 +107,8 @@ def probe_env():
                 raise RuntimeError(f"pod {want}* not Running in apihub-system")
         # APISIX gateway NodePort 30080
         st, _ = http("GET", f"{APISIX_URL}/", timeout=5)
-        # 401 / 404 都算 APISIX 在数据面（key-auth reject / no route）；000 = 端口未通
-        if st == 0:
-            raise RuntimeError(f"APISIX NodePort 30080 unreachable (status={st})")
+        # 401 / 404 都算 APISIX 在数据面（key-auth reject / no route）；
+        # 端口未通 → urlopen 抛 URLError(OSError) → 外层 except 捕获 → exit 2。
         print(f"== env ok: kind up, APISIX 30080 (HTTP {st}), ai-gateway/dispatcher/mock-backend Running")
     except (OSError, RuntimeError) as e:
         print(f"SMOKE ENV-UNAVAILABLE: {e}")
@@ -362,7 +361,8 @@ def assert_routing():
 
     注：dispatcher StreamingResponse 默认 200，上游 4xx status 不外透 → 客户端收到 200 +
     错误 body。这是 dispatcher 已知行为（forwarder._forward_stream 未把上游 status 透传给
-    StreamingResponse 构造）。本 e2e 按 body 内容断言；status 透传修复留给 R2e。
+    StreamingResponse 构造）。本 e2e 按 body 内容断言；status 透传为 follow-up：dispatcher
+    forwarder SSE 上游 status 透传（pre-existing 自原 dispatcher，非 R2e/R2c 引入，单独跟踪）。
     """
     body = json.dumps(
         {"model": "unknown-model-xyz", "messages": [{"role": "user", "content": "x"}],

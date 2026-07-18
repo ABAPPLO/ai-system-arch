@@ -38,7 +38,7 @@ dispatcher 统一入口（计费/限流/脱敏/审计），ai-gateway 聚焦多 
 经 `apihub-apply`（schema → change-request → apply）或 init-db/seed 把 llm-chat api 的 backend_url 更新到 DB。
 
 ### 3. ai_provider / ai_model_route seed（e2e mock provider）
-- e2e 用 mock provider：`ai_model_route.base_url = http://mock-backend.apihub-system/v1/chat/completions`（mock-backend 返 OpenAI 风格 SSE 含 `usage`）。
+- e2e 用 mock provider：`ai_provider.base_url = http://mock-backend.apihub-system:80/v1`（openai_compat provider 自拼 `/chat/completions`；mock-backend 返 OpenAI 风格 SSE 含 `usage`）。
 - `ai_provider` + `ai_provider_key`（mock key，加密）seed。
 - **不改 ai-gateway provider 代码**：`openai_compat` 直连 `base_url`，mock-backend 兼容 OpenAI SSE 即可。
 

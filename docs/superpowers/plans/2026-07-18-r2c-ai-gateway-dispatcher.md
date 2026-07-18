@@ -14,7 +14,7 @@
 
 - **拓扑**：dispatcher 唯一 AI 入口；ai-gateway ClusterIP 内网（已 ClusterIP + `/v1/chat/completions` skip_auth，不改 Service/鉴权）。
 - **不改**：dispatcher forwarder AI 主干（已具备 SSE+token 提取+Kafka 计费+脱敏）、ai-gateway 路由/解密逻辑（Phase 4 已做）、ai-gateway Service/鉴权。
-- **e2e mock provider**：`ai_provider.base_url` 指向 mock-backend 的 `/v1/chat/completions`（OpenAI 风格 SSE）；不用 real key/外网。
+- **e2e mock provider**：`ai_provider.base_url` 指向 mock-backend 的 `/v1`（openai_compat provider 自拼 `/chat/completions`；OpenAI 风格 SSE）；不用 real key/外网。
 - **e2e 走 SQL seed**（同 `scripts/smoke/k8s-workflow-argo.py` 模式，不经 apihub-apply CLI）。
 - **python/pytest 走 repo-root `.venv/bin/python`**（NOT services/.venv）。kind e2e 用 `kubectl --context kind-apihub`。
 - **GateGuard**：每文件首次 bash/edit 拦，报 facts retry。
