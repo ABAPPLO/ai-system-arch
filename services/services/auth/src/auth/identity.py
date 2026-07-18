@@ -146,10 +146,12 @@ async def anonymize_user(*, user_id: str) -> None:
 
     匿名化而非物理删除，保护外键完整性。
     操作：user_account 匿名化 → tenant_member 删除 → user_consent 删除 →
-    notification_log 投递日志清理（按旧 recipient=email）→ API key 吊销 → Redis 清理。
-    全程在同一 admin_db_session 事务内（任一失败回滚，不残留半擦除状态）。
+    notification_log 投递日志清理（按旧 recipient=email）→ Redis 清理。
+    租户级 api_key 不动（external-public 共享租户，app/api_key 无 user 归属字段，
+    erasure 仅清该用户本人 PII）。全程在同一 admin_db_session 事务内
+    （任一失败回滚，不残留半擦除状态），并写一条 audit_log(reason=gdpr_erasure)。
     """
-    async with db.admin_db_session() as conn:
+    async with db.admin_db_session(audit_reason="gdpr_erasure") as conn:
         row = await conn.fetchrow(
             "SELECT id, email FROM user_account WHERE id = $1", user_id,
         )
@@ -169,16 +171,6 @@ async def anonymize_user(*, user_id: str) -> None:
         if old_email:
             await conn.execute(
                 "DELETE FROM notification_log WHERE recipient = $1", old_email,
-            )
-
-        apps = await conn.fetch(
-            "SELECT id FROM app WHERE tenant_id = $1", EXTERNAL_PUBLIC_TENANT,
-        )
-        for app in apps:
-            await conn.execute(
-                "UPDATE api_key SET status='revoked', revoked_at=NOW()"
-                " WHERE app_id=$1 AND status='active'",
-                app["id"],
             )
 
     try:
@@ -234,7 +226,8 @@ async def withdraw_consent(*, user_id: str) -> None:
 async def export_user_data(*, user_id: str) -> dict:
     """导出用户个人数据（GDPR Right to portability）。
 
-    含：账户信息、租户关系、应用、API Key、计费记录。
+    含：账户信息、租户关系。租户级共享数据（apps/api_keys/billing_records）
+    不归属个人（external-public 共享租户、无 user 归属字段），不在导出范围。
     """
     async with db.admin_db_session() as conn:
         row = await conn.fetchrow(
@@ -246,35 +239,6 @@ async def export_user_data(*, user_id: str) -> dict:
 
         members = await conn.fetch(
             "SELECT tenant_id, role FROM tenant_member WHERE user_id = $1", user_id,
-        )
-
-        apps = await conn.fetch(
-            "SELECT id, name, type, status, created_at FROM app"
-            " WHERE tenant_id = $1 ORDER BY created_at DESC",
-            EXTERNAL_PUBLIC_TENANT,
-        )
-
-        api_keys = []
-        for app in apps:
-            keys = await conn.fetch(
-                "SELECT id, name, scopes, status, created_at, expires_at FROM api_key"
-                " WHERE app_id = $1 ORDER BY created_at DESC",
-                app["id"],
-            )
-            for k in keys:
-                api_keys.append({
-                    "id": k["id"], "app_id": app["id"], "app_name": app["name"],
-                    "name": k["name"], "scopes": list(k["scopes"] or []),
-                    "status": k["status"], "created_at": k["created_at"].isoformat(),
-                    "expires_at": k["expires_at"].isoformat() if k["expires_at"] else None,
-                })
-
-        billing_records = await conn.fetch(
-            "SELECT period, plan_name, total_calls, total_tokens,"
-            " base_cents, overage_cents, status, created_at"
-            " FROM billing_record WHERE tenant_id = $1"
-            " ORDER BY period DESC LIMIT 12",
-            EXTERNAL_PUBLIC_TENANT,
         )
 
     from apihub_core.pii import maybe_decrypt  # noqa: PLC0415
@@ -291,19 +255,4 @@ async def export_user_data(*, user_id: str) -> dict:
             "created_at": row["created_at"].isoformat(),
         },
         "tenants": [{"tenant_id": m["tenant_id"], "role": m["role"]} for m in members],
-        "apps": [dict(a) for a in apps],
-        "api_keys": api_keys,
-        "billing_records": [
-            {
-                "period": r["period"],
-                "plan_name": r["plan_name"],
-                "total_calls": r["total_calls"],
-                "total_tokens": r["total_tokens"],
-                "base_cents": r["base_cents"],
-                "overage_cents": r["overage_cents"],
-                "status": r["status"],
-                "created_at": r["created_at"].isoformat(),
-            }
-            for r in billing_records
-        ],
     }

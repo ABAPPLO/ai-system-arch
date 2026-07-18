@@ -39,10 +39,17 @@ def require_pg():
 
 @pytest.fixture
 async def db_pool(monkeypatch):
-    """真 PG pool，注入 db._pool（admin_db_session 据此绕 RLS）。"""
+    """真 PG pool，注入 db._pool（admin_db_session 据此绕 RLS）。
+
+    必须带 _init_jsonb_codec（与 init_pool 一致）——否则 jsonb 走 asyncpg 默认
+    text 编解码，掩盖 production-only 的 codec 双重编码 bug（如 _write_admin_audit
+    早期版本 json.dumps 后再被 codec 二次编码 → jsonb string 而非 object）。
+    """
     from apihub_core import db
 
-    pool = await asyncpg.create_pool(TEST_PG_DSN, min_size=1, max_size=2)
+    pool = await asyncpg.create_pool(
+        TEST_PG_DSN, min_size=1, max_size=2, init=db._init_jsonb_codec,
+    )
     monkeypatch.setattr(db, "_pool", pool)
     try:
         yield pool
@@ -286,4 +293,88 @@ async def test_anonymize_user_scrubs_notification_log(fake_redis):
             await conn.execute(
                 "DELETE FROM notification_log WHERE id IN ('nl_a','nl_b')",
             )
+
+
+@pytest.mark.asyncio
+async def test_anonymize_writes_audit_log(fake_redis):
+    """anonymize 落一条 audit_log（reason=gdpr_erasure）。"""
+    from apihub_core import db as db_mod
+
+    user = await identity.create_user(
+        email="new@example.com", password="secret123", phone="138", name="Audit"
+    )
+    uid = user["user_id"]
+
+    async with db_mod.admin_db_session() as conn:
+        before = await conn.fetchval(
+            "SELECT COUNT(*) FROM audit_log"
+            " WHERE action='admin_db_session' AND detail->>'reason' = 'gdpr_erasure'"
+        )
+
+    await identity.anonymize_user(user_id=uid)
+
+    async with db_mod.admin_db_session() as conn:
+        after = await conn.fetchval(
+            "SELECT COUNT(*) FROM audit_log"
+            " WHERE action='admin_db_session' AND detail->>'reason' = 'gdpr_erasure'"
+        )
+    assert after == before + 1
+
+
+@pytest.mark.asyncio
+async def test_anonymize_does_not_revoke_api_keys(fake_redis):
+    """erasure 不吊销租户级 api_key（external-public 共享、无 user 归属）。"""
+    from apihub_core import db as db_mod
+
+    user = await identity.create_user(
+        email="new@example.com", password="secret123", phone="138", name="Key"
+    )
+    uid = user["user_id"]
+    app_id, key_id = "app_test_r2e", "key_test_r2e"
+
+    try:
+        async with db_mod.admin_db_session() as conn:
+            await conn.execute(
+                "INSERT INTO app (id, tenant_id, name, type, status)"
+                " VALUES ($1, $2, 'R2e Test App', 'server', 'active')"
+                " ON CONFLICT (id) DO NOTHING",
+                app_id, identity.EXTERNAL_PUBLIC_TENANT,
+            )
+            await conn.execute(
+                "INSERT INTO api_key (id, tenant_id, app_id, key_prefix, key_hash,"
+                " name, scopes, status)"
+                " VALUES ($1, $2, $3, 'sk_test__', 'hash_test_r2e', 'R2e Key', '{}', 'active')"
+                " ON CONFLICT (id) DO NOTHING",
+                key_id, identity.EXTERNAL_PUBLIC_TENANT, app_id,
+            )
+
+        await identity.anonymize_user(user_id=uid)
+
+        async with db_mod.admin_db_session() as conn:
+            status = await conn.fetchval(
+                "SELECT status FROM api_key WHERE id = $1", key_id
+            )
+        assert status == "active"
+    finally:
+        async with db_mod.admin_db_session() as conn:
+            await conn.execute("DELETE FROM api_key WHERE id = $1", key_id)
+            await conn.execute("DELETE FROM app WHERE id = $1", app_id)
+
+
+@pytest.mark.asyncio
+async def test_export_excludes_tenant_scoped_data(fake_redis):
+    """export 只含个人数据，不含租户级 apps/api_keys/billing_records。"""
+    user = await identity.create_user(
+        email="new@example.com", password="secret123", phone="138", name="Excl"
+    )
+    uid = user["user_id"]
+    await identity.verify_email(user["verify_token"])
+
+    data = await identity.export_user_data(user_id=uid)
+
+    assert "account" in data
+    assert "tenants" in data
+    assert "apps" not in data
+    assert "api_keys" not in data
+    assert "billing_records" not in data
 

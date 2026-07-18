@@ -1,10 +1,16 @@
 """repository 单测 —— 用 fake asyncpg pool 验证 SQL 拼接 + where 过滤。
 
 不连真 PG：每个测试 monkeypatch db._pool 给一个 _FakeConn，断言被调用的 SQL/params。
+
+Integration 测试（TestRecordJsonbIntegration）需真 PG（make dev-up + make db-apply），
+验证 audit_log.detail 经 jsonb codec 写入后 jsonb_typeof='object'（R2e Task 5 regression）。
 """
 
+import asyncio
+import os
 from datetime import datetime
 
+import asyncpg
 import pytest
 from admin import repository as repo
 from admin.models import AuditQuery, AuditRecord
@@ -95,9 +101,12 @@ class TestRecord:
         assert params[0] == "t1"
         # 第 7 个是 action
         assert params[6] == "create_tenant"
-        # detail 序列化成 json string
-        detail_idx = [i for i, p in enumerate(params) if isinstance(p, str) and '"name"' in p]
-        assert detail_idx, "detail should be JSON-serialized"
+        # detail 直传 dict（让 asyncpg jsonb codec 序列化）—— 切勿预先 json.dumps，
+        # 否则生产 codec 会二次编码 → jsonb typeof=string → detail->>'...' = NULL。
+        assert params[11] == {"name": "Acme"}, (
+            "detail should be passed as dict (codec handles serialization), "
+            "not pre-serialized via json.dumps"
+        )
 
     async def test_record_returns_zero_on_failure(self, fake_db, monkeypatch):
         """DB 抛 → 返回 0，不抛。"""
@@ -314,3 +323,130 @@ class TestStats:
         assert isinstance(result["by_day"], list)
         # 1 个 COUNT(*) + 3 个 GROUP BY = 4 个查询
         assert len(all_queries) == 4
+
+
+# ---------- Integration：jsonb codec 端到端（R2e Task 5 regression）----------
+
+
+# dev 栈 PG 暴露在 host 15433（容器内 5432）。可经 TEST_PG_DSN 覆盖。
+PG_DSN = os.environ.get(
+    "TEST_PG_DSN",
+    "postgresql://apihub:apihub_dev_pwd@localhost:15433/apihub",
+)
+
+
+async def _pg_available() -> bool:
+    try:
+        conn = await asyncpg.connect(PG_DSN)
+        try:
+            await conn.fetchval("SELECT 1")
+        finally:
+            await conn.close()
+        return True
+    except OSError:
+        return False
+    except asyncpg.PostgresError:
+        return False
+
+
+@pytest.fixture
+async def db_pool(monkeypatch):
+    """真 PG pool（带 jsonb codec），注入 db._pool。
+
+    必须带 _init_jsonb_codec（与 init_pool 一致）——否则 jsonb 走 asyncpg 默认
+    text 编解码，掩盖生产-only 的 codec 双重编码 bug。参照 test_identity.py 的 db_pool。
+    """
+    from apihub_core import db
+
+    pool = await asyncpg.create_pool(
+        PG_DSN, min_size=1, max_size=2, init=db._init_jsonb_codec,
+    )
+    monkeypatch.setattr(db, "_pool", pool)
+    try:
+        yield pool
+    finally:
+        await pool.close()
+
+
+class TestRecordJsonbIntegration:
+    """R2e Task 5 regression: record() 写入的 detail 在 PG 里须 jsonb_typeof='object'。
+
+    回归背景：record() 早期版本传 json.dumps(entry.detail, default=str)（str）给
+    $12::jsonb，生产 pool 的 jsonb codec 会再次 encode 该字符串 → PG 存 jsonb string
+    而非 object → detail->>'<key>' 返回 NULL。fake-pool 单测看不到此 bug。
+    """
+
+    @pytest.fixture(autouse=True)
+    def _require_pg(self):
+        """仅本 integration class 需真 PG；上方 fake-pool 单测不依赖 PG。"""
+        if not asyncio.run(_pg_available()):
+            pytest.skip("PG not available — run `make dev-up` first", allow_module_level=False)
+
+    async def test_record_detail_stored_as_jsonb_object(self, db_pool):
+        entry = AuditRecord(
+            tenant_id="t_r2e_t5",
+            actor_type="system",
+            action="r2e_t5_jsonb_check",
+            resource_type="test",
+            resource_id="r2e_t5",
+            detail={"reason": "r2e_t5", "count": 42, "nested": {"k": "v"}},
+        )
+        audit_id = await repo.record(entry)
+        assert audit_id > 0, "record() 应返回新插入的 audit_log.id"
+        try:
+            async with db_pool.acquire() as conn:
+                row = await conn.fetchrow(
+                    "SELECT jsonb_typeof(detail) AS kind, "
+                    "detail->>'reason' AS reason, "
+                    "detail->>'count' AS cnt, "
+                    "detail->'nested'->>'k' AS nested_k "
+                    "FROM audit_log WHERE id = $1",
+                    audit_id,
+                )
+            assert row is not None, f"audit row {audit_id} not found"
+            assert row["kind"] == "object", (
+                f"detail 应为 jsonb object，实际 jsonb_typeof={row['kind']!r}"
+                "（说明被双重编码成 JSON 字符串了）"
+            )
+            assert row["reason"] == "r2e_t5"
+            assert row["cnt"] == "42"
+            assert row["nested_k"] == "v"
+        finally:
+            async with db_pool.acquire() as conn:
+                await conn.execute("DELETE FROM audit_log WHERE id = $1", audit_id)
+
+    async def test_record_many_details_stored_as_jsonb_object(self, db_pool):
+        entries = [
+            AuditRecord(
+                tenant_id="t_r2e_t5",
+                actor_type="system",
+                action=f"r2e_t5_many_{i}",
+                resource_type="test",
+                resource_id=f"r2e_t5_many_{i}",
+                detail={"idx": i, "label": f"row-{i}"},
+            )
+            for i in range(3)
+        ]
+        n = await repo.record_many(entries)
+        assert n == 3
+        try:
+            async with db_pool.acquire() as conn:
+                rows = await conn.fetch(
+                    "SELECT jsonb_typeof(detail) AS kind, "
+                    "detail->>'idx' AS idx, "
+                    "detail->>'label' AS label "
+                    "FROM audit_log "
+                    "WHERE action LIKE 'r2e_t5_many_%' AND tenant_id = 't_r2e_t5'"
+                )
+            assert len(rows) == 3
+            for r in rows:
+                assert r["kind"] == "object", (
+                    f"record_many detail 应为 jsonb object，实际 {r['kind']!r}"
+                )
+                assert r["idx"] is not None and r["label"] is not None
+        finally:
+            async with db_pool.acquire() as conn:
+                await conn.execute(
+                    "DELETE FROM audit_log WHERE action LIKE 'r2e_t5_many_%' "
+                    "AND tenant_id = 't_r2e_t5'"
+                )
