@@ -23,7 +23,7 @@ dependencies = [
   # encrypt_pii(phone/name) 强制依赖。ai-gateway/crypto.py 亦直接用。缺少会导致
   # /v1/auth/register 在 create_user 内部 ModuleNotFoundError → 500。
   "cryptography>=42,<46",
-  "opentelemetry-api==1.40.0",
+  "opentelemetry-api==1.44.0",
   "opentelemetry-sdk==1.40.0",
   "opentelemetry-instrumentation-fastapi==0.61b0",
   "opentelemetry-instrumentation-httpx==0.61b0",
