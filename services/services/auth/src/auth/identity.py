@@ -145,14 +145,17 @@ async def anonymize_user(*, user_id: str) -> None:
     """匿名化用户账号（GDPR Right to erasure）。
 
     匿名化而非物理删除，保护外键完整性。
-    操作：user_account 匿名化 → tenant_member 删除 → API key 吊销 → Redis 清理。
+    操作：user_account 匿名化 → tenant_member 删除 → user_consent 删除 →
+    notification_log 投递日志清理（按旧 recipient=email）→ API key 吊销 → Redis 清理。
+    全程在同一 admin_db_session 事务内（任一失败回滚，不残留半擦除状态）。
     """
     async with db.admin_db_session() as conn:
         row = await conn.fetchrow(
-            "SELECT id FROM user_account WHERE id = $1", user_id,
+            "SELECT id, email FROM user_account WHERE id = $1", user_id,
         )
         if not row:
             raise ApiError(ErrorCode.NOT_FOUND, "user not found", http_status=404)
+        old_email = row["email"]
 
         anonymized_email = f"deleted-{secrets.token_hex(8)}@anonymized"
         await conn.execute(
@@ -162,6 +165,11 @@ async def anonymize_user(*, user_id: str) -> None:
         )
         await conn.execute("DELETE FROM tenant_member WHERE user_id = $1", user_id)
         await conn.execute("DELETE FROM user_consent WHERE user_id = $1", user_id)
+        # GDPR erasure：清该用户邮箱作为收件人的投递日志（notification_log.recipient = email PII）
+        if old_email:
+            await conn.execute(
+                "DELETE FROM notification_log WHERE recipient = $1", old_email,
+            )
 
         apps = await conn.fetch(
             "SELECT id FROM app WHERE tenant_id = $1", EXTERNAL_PUBLIC_TENANT,
@@ -215,20 +223,12 @@ async def list_consents(*, user_id: str) -> list[dict]:
 
 
 async def withdraw_consent(*, user_id: str) -> None:
-    """撤回所有同意 → 触发账号匿名化。"""
-    async with db.admin_db_session() as conn:
-        row = await conn.fetchrow(
-            "SELECT id FROM user_account WHERE id = $1", user_id,
-        )
-        if not row:
-            raise ApiError(ErrorCode.NOT_FOUND, "user not found", http_status=404)
+    """撤回所有同意 → 触发账号匿名化（GDPR right-to-erasure）。
 
-        await conn.execute(
-            "UPDATE user_consent SET status = 'withdrawn', updated_at = NOW()"
-            " WHERE user_id = $1 AND status = 'granted'",
-            user_id,
-        )
-    log.info("consent_withdrawn", user_id=user_id)
+    撤回即擦除（与 delete_account 等效 erasure，不同语义入口）。
+    """
+    await anonymize_user(user_id=user_id)
+    log.info("consent_withdraw_triggered_erasure", user_id=user_id)
 
 
 async def export_user_data(*, user_id: str) -> dict:

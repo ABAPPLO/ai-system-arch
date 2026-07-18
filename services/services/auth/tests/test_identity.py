@@ -17,7 +17,7 @@ TEST_PG_DSN = os.environ.get(
     "postgresql://apihub:apihub_dev_pwd@localhost:15433/apihub",
 )
 # 测试用固定邮箱 —— 每个测试前后清理，保证可重跑。
-_TEST_EMAILS = ("new@example.com", "dup@example.com", "v@example.com", "l@example.com")
+_TEST_EMAILS = ("new@example.com", "dup@example.com", "v@example.com", "l@example.com", "scrub@example.com")
 
 
 async def _pg_available() -> bool:
@@ -52,10 +52,15 @@ async def db_pool(monkeypatch):
 
 @pytest.fixture(autouse=True)
 async def cleanup_test_users(db_pool):
-    """每测试前后删测试用户及其 tenant_member，保证重复运行幂等。"""
+    """每测试前后删测试用户及其 tenant_member/user_consent，保证重复运行幂等。"""
     async with db_pool.acquire() as conn:
         await conn.execute(
             "DELETE FROM tenant_member WHERE user_id IN "
+            "(SELECT id FROM user_account WHERE email = ANY($1))",
+            list(_TEST_EMAILS),
+        )
+        await conn.execute(
+            "DELETE FROM user_consent WHERE user_id IN "
             "(SELECT id FROM user_account WHERE email = ANY($1))",
             list(_TEST_EMAILS),
         )
@@ -67,6 +72,11 @@ async def cleanup_test_users(db_pool):
     async with db_pool.acquire() as conn:
         await conn.execute(
             "DELETE FROM tenant_member WHERE user_id IN "
+            "(SELECT id FROM user_account WHERE email = ANY($1))",
+            list(_TEST_EMAILS),
+        )
+        await conn.execute(
+            "DELETE FROM user_consent WHERE user_id IN "
             "(SELECT id FROM user_account WHERE email = ANY($1))",
             list(_TEST_EMAILS),
         )
@@ -235,4 +245,45 @@ async def test_export_nonexistent_user_raises(fake_redis):
     with pytest.raises(ApiError) as exc:
         await identity.export_user_data(user_id="u_nonexistent")
     assert exc.value.http_status == 404
+
+
+@pytest.mark.asyncio
+async def test_anonymize_user_scrubs_notification_log(fake_redis):
+    """anonymize 清该用户邮箱作为 recipient 的 notification_log，干扰行（他人 email）留。"""
+    from apihub_core import db as db_mod
+
+    user = await identity.create_user(
+        email="scrub@example.com", password="secret123", phone="139", name="Scrub"
+    )
+    uid = user["user_id"]
+
+    try:
+        async with db_mod.admin_db_session() as conn:
+            await conn.execute(
+                "INSERT INTO notification_log (id, tenant_id, template_code, channel_type,"
+                " recipient, status) VALUES ($1,$2,$3,$4,$5,$6), ($7,$8,$9,$10,$11,$12)",
+                "nl_a", "external-public", "task_complete", "email", "scrub@example.com", "sent",
+                "nl_b", "external-public", "task_complete", "email", "other@example.com", "sent",
+            )
+            before = await conn.fetchval(
+                "SELECT COUNT(*) FROM notification_log WHERE recipient=$1", "scrub@example.com",
+            )
+        assert before == 1
+
+        await identity.anonymize_user(user_id=uid)
+
+        async with db_mod.admin_db_session() as conn:
+            after_target = await conn.fetchval(
+                "SELECT COUNT(*) FROM notification_log WHERE recipient=$1", "scrub@example.com",
+            )
+            after_other = await conn.fetchval(
+                "SELECT COUNT(*) FROM notification_log WHERE recipient=$1", "other@example.com",
+            )
+        assert after_target == 0
+        assert after_other == 1
+    finally:
+        async with db_mod.admin_db_session() as conn:
+            await conn.execute(
+                "DELETE FROM notification_log WHERE id IN ('nl_a','nl_b')",
+            )
 
