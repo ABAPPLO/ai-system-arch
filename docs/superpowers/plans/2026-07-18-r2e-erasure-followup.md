@@ -355,3 +355,86 @@ kubectl exec -n apihub-system apihub-pg-0 -- psql -U apihub -d apihub -c \
 无源码改动则跳过 commit；在 `.superpowers/sdd/progress.md` 记 e2e PASS（含 3 条断言）。若发现 bug（如打包漏依赖）则修 + commit，同 R2d T3 `c2f8f4c` 模式。
 
 ---
+
+### Task 5: jsonb double-encoding systemic fix（codec + admin + tenant + test_db_rls + 数据迁移）
+
+> 用户在 R2e 收尾时选择「连带 sibling 一起修」。本 task 修 R2e T4 e2e 发现的、超出 erasure 范围的 **systemic jsonb 双重编码 bug**（同一 anti-pattern 的所有 sibling）。背景：`_init_jsonb_codec`（apihub_core/db.py:42）注册 jsonb codec（encoder=`json.dumps`，生产 pool 经 init_pool 注册）。原 admin/tenant 代码 `json.dumps(x, default=str)` 传 **str** 给 `$N::jsonb` → 生产 codec 再 encode 一次 → PG 存 jsonb **string** → `detail->>'...'`/`metadata->'quota'->>'...'`=NULL。单测盲区：测试 pool 未注册 codec（asyncpg 走 text fallback，PG 正确解析 str）。参照：`workflow/repository.py:35-37` 已正确直传 dict。
+
+**方案 A（codec 统一 `default=str`）**：codec encoder 加 `default=str`（保留原代码兜底语义，对已可序列化数据零行为变化），admin/tenant 改直传 dict。一处 codec 改动让全仓 jsonb 写统一健壮。
+
+**Files:**
+- Modify: `services/libs/apihub-core/src/apihub_core/db.py`（`_init_jsonb_codec` encoder）
+- Modify: `services/services/admin/src/admin/repository.py:56,98`（record/record_many 直传 dict）
+- Modify: `services/services/tenant/src/tenant/repository.py`（删 `jsonb()` helper + 2 callers 直传）
+- Modify: `services/libs/apihub-core/tests/test_db_rls.py`（6-7 处 `create_pool` 注册 codec）
+- Create: `scripts/init-db/12-fix-jsonb-double-encoding.sql`（幂等历史坏数据迁移）
+- Test: `services/services/admin/tests/test_repository.py` + `services/services/tenant/tests/`（加 jsonb_typeof=object 断言）
+
+- [ ] **Step 1: db.py codec 统一 default=str**
+
+顶部加 `import functools`，新增模块级 encoder，`_init_jsonb_codec` 两个 codec 都用它：
+```python
+import functools
+# ...
+_JSON_ENCODER = functools.partial(json.dumps, default=str)
+
+
+async def _init_jsonb_codec(conn: asyncpg.Connection) -> None:
+    """让 jsonb 列直接返回 dict（decoder=json.loads）。
+
+    encoder 用 json.dumps + default=str：调用方直传 dict 即可，codec 负责序列化
+    并兜底非 JSON 原生类型（datetime 等）。切勿调用方先 json.dumps 再 `::jsonb`
+    （生产 codec 会二次编码 → jsonb string → `->>'...'`=NULL）。
+    """
+    await conn.set_type_codec(
+        "jsonb", encoder=_JSON_ENCODER, decoder=json.loads, schema="pg_catalog",
+    )
+    await conn.set_type_codec(
+        "json", encoder=_JSON_ENCODER, decoder=json.loads, schema="pg_catalog",
+    )
+```
+
+- [ ] **Step 2: admin/repository.py 直传 dict**
+
+`record` (L56) 与 `record_many` (L98)：`json.dumps(entry.detail, default=str),` → `entry.detail,`（两处）。
+
+- [ ] **Step 3: tenant/repository.py 删 helper + 直传**
+
+删 `jsonb()` helper（L384-388）。caller 改：L46 `jsonb(payload.metadata)` → `payload.metadata`；L366 `jsonb(quota)` → `quota`。删 helper 后若 `import json` 在该文件不再被引用则一并删（确认无其他 json. 用法）。
+
+- [ ] **Step 4: test_db_rls.py 注册 codec**
+
+6-7 处 `asyncpg.create_pool(PG_DSN, min_size=1, max_size=2)` → 加 `init=db._init_jsonb_codec`（`db` 已在函数内 `from apihub_core import db`）。使测试 pool 与生产一致（同 R2e T4 fix 对 test_identity.py db_pool 的做法）。
+
+- [ ] **Step 5: 数据迁移 SQL（幂等）**
+
+创建 `scripts/init-db/12-fix-jsonb-double-encoding.sql`：
+```sql
+-- 修 jsonb double-encoding 历史坏数据（json.dumps(str)::jsonb 经 codec 二次编码 → jsonb string）。
+-- 幂等：只处理 jsonb_typeof='string' 的行；apply-db 须 as owner `apihub`。
+UPDATE audit_log SET detail   = (detail::text)::jsonb   WHERE jsonb_typeof(detail)   = 'string';
+UPDATE tenant    SET metadata = (metadata::text)::jsonb WHERE jsonb_typeof(metadata) = 'string';
+UPDATE app       SET metadata = (metadata::text)::jsonb WHERE jsonb_typeof(metadata) = 'string';
+```
+
+- [ ] **Step 6: 测试——加 jsonb_typeof=object 断言**
+
+- admin `test_repository.py`：写一条 audit 后 `SELECT jsonb_typeof(detail), detail->>'<some_key>' FROM audit_log WHERE id=...` 断言 `= 'object'` 且值非 NULL。
+- tenant 测试：create_tenant/set_quota 后 `SELECT metadata->'quota'->>'day_limit' FROM tenant WHERE id=...` 断言可读（非 NULL）。
+（参照 R2e T4 e2e 的 jsonb_typeof 验证。具体测试函数按各文件现有模式。）
+
+- [ ] **Step 7: 跑 apply-db（dev）+ 全量测试 + lint + commit**
+
+```bash
+make db-apply   # 回放含新 12-*.sql，修 dev 历史坏数据
+.venv/bin/python -m pytest services/services/admin/tests/ services/services/tenant/tests/ services/libs/apihub-core/tests/ services/services/auth/tests/test_identity.py -v
+ruff check <改动的 .py>
+mypy services/libs/apihub-core/src/apihub_core/db.py services/services/admin/src/admin/repository.py services/services/tenant/src/tenant/repository.py
+```
+commit（可拆 2 个：代码修 + migration）：
+```
+fix(r2e): jsonb codec 统一 default=str + admin/tenant 直传 dict（修 double-encoding sibling）
+fix(r2e): test_db_rls 注册 codec + 12-fix-jsonb-double-encoding.sql 历史坏数据迁移
+```
+
+---
