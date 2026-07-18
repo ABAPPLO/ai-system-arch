@@ -12,7 +12,7 @@ api:
 version:
   version: v1
   backend_type: ai_model        # ⭐ AI 模型
-  backend_url: http://llm-gateway.internal/v1/chat/completions
+  backend_url: http://ai-gateway.apihub-system/v1/chat/completions
   method: POST
   path: /v1/llm/chat
 

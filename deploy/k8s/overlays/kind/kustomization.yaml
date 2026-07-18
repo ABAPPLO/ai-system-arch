@@ -78,6 +78,8 @@ patches:
     target: { kind: Deployment, name: notification }
   - path: patches/ai-gateway-envfrom.yaml
     target: { kind: Deployment, name: ai-gateway }
+  - path: patches/ai-gateway-secret.yaml
+    target: { kind: Secret, name: ai-gateway-secret, namespace: apihub-system }
   - path: patches/billing-envfrom.yaml
     target: { kind: Deployment, name: billing }
   # kind/dev：把 admin-cron-apikey Secret patch 成 seed 的 tenant_a key

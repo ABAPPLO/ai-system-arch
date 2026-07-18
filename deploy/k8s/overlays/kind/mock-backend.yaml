@@ -20,6 +20,19 @@ spec:
               class H(BaseHTTPRequestHandler):
                   def do_POST(self):
                       n=int(self.headers.get('Content-Length',0)); b=self.rfile.read(n)
+                      if self.path == '/v1/chat/completions':
+                          self.send_response(200)
+                          self.send_header('Content-Type','text/event-stream')
+                          self.send_header('X-Accel-Buffering','no')
+                          self.end_headers()
+                          cid='chatcmpl-mock'
+                          for content in ['Hello',' from',' mock']:
+                              chunk={'id':cid,'object':'chat.completion.chunk','choices':[{'index':0,'delta':{'content':content},'finish_reason':None}]}
+                              self.wfile.write(f'data: {json.dumps(chunk)}\n\n'.encode()); self.wfile.flush()
+                          final={'id':cid,'object':'chat.completion.chunk','choices':[{'index':0,'delta':{},'finish_reason':'stop'}],'usage':{'prompt_tokens':10,'completion_tokens':3,'total_tokens':13}}
+                          self.wfile.write(f'data: {json.dumps(final)}\n\n'.encode()); self.wfile.flush()
+                          self.wfile.write(b'data: [DONE]\n\n'); self.wfile.flush()
+                          return
                       self.send_response(200); self.send_header('Content-Type','application/json'); self.end_headers()
                       self.wfile.write(json.dumps({"ok":True,"echo":b.decode()[:200]}).encode())
                   def do_GET(self):
