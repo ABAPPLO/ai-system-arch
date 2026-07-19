@@ -1,0 +1,34 @@
+# 双区测试依赖：region 边界 = 进程/端口边界。`make dev-up-multi` 起这套。
+services:
+  pg-sh:
+    image: postgres:16-alpine
+    environment: { POSTGRES_DB: apihub, POSTGRES_USER: apihub, POSTGRES_PASSWORD: apihub_dev_pwd }
+    ports: ["15432:5432"]
+    command: ["postgres", "-c", "wal_level=logical"]
+  pg-bj:
+    image: postgres:16-alpine
+    environment: { POSTGRES_DB: apihub, POSTGRES_USER: apihub, POSTGRES_PASSWORD: apihub_dev_pwd }
+    ports: ["5433:5432"]
+    command: ["postgres", "-c", "wal_level=logical"]
+  redis-sh:
+    image: redis:7-alpine
+    ports: ["6379:6379"]
+  redis-bj:
+    image: redis:7-alpine
+    ports: ["6380:6379"]
+  kafka-sh:
+    image: bitnami/kafka:3.7
+    environment: { KAFKA_CFG_NODE_ID: 1, KAFKA_CFG_PROCESS_ROLES: "controller,broker", KAFKA_CFG_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093", KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://localhost:9092", KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER, KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "1@kafka-sh:9093", KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT" }
+    ports: ["9092:9092"]
+  kafka-bj:
+    image: bitnami/kafka:3.7
+    environment: { KAFKA_CFG_NODE_ID: 2, KAFKA_CFG_PROCESS_ROLES: "controller,broker", KAFKA_CFG_LISTENERS: "PLAINTEXT://:9092,CONTROLLER://:9093", KAFKA_CFG_ADVERTISED_LISTENERS: "PLAINTEXT://localhost:9093", KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER, KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: "2@kafka-bj:9093", KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: "CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT" }
+    ports: ["9093:9092"]
+  ch-sh:
+    image: clickhouse/clickhouse-server:24.3
+    environment: { CLICKHOUSE_DB: apihub, CLICKHOUSE_USER: default, CLICKHOUSE_PASSWORD: apihub_dev_pwd }
+    ports: ["8123:8123"]
+  ch-bj:
+    image: clickhouse/clickhouse-server:24.3
+    environment: { CLICKHOUSE_DB: apihub, CLICKHOUSE_USER: default, CLICKHOUSE_PASSWORD: apihub_dev_pwd }
+    ports: ["8124:8123"]
