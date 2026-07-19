@@ -63,6 +63,10 @@ data:
             return
         end
 
+        -- APISIX 3.17 不对 array-typed schema 默认值做运行时填充 → conf.write_methods 可能为 nil。
+        -- 显式兜底，避免 ipairs(nil) → HTTP 500（任何 tenant-affinity:{} 启用的路由都会踩到）。
+        conf.write_methods = conf.write_methods or {"POST", "PUT", "PATCH", "DELETE"}
+
         -- C1 + I2 + M3: Unknown home_region — log warning and allow write locally
         if home ~= "sh" and home ~= "bj" then
             ngx.log(ngx.WARN, "tenant-affinity: unknown home_region '"

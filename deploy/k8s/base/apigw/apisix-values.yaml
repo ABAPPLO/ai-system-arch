@@ -36,7 +36,9 @@ apisix:
   # 与 apisix.plugins 里手写的 - tenant-affinity 重复——APISIX 按 plugin.name 去重，无害。
   customPlugins:
     enabled: true
-    luaPath: "/usr/local/apisix/apisix/plugins/?.lua"
+    # NOTE: 不要设 luaPath——chart 会把它渲染成 config.yaml 的 extra_lua_path，
+    # 触发 init_by_lua loop（resty/core/base.lua:82 loop loading 'apisix.core'）→ APISIX 起不来。
+    # 默认 package.path 已能解析 apisix.plugins.tenant-affinity 到下方挂载的 .lua 文件。
     plugins:
       - name: "tenant-affinity"
         attrs: {}

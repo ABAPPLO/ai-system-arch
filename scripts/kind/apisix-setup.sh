@@ -104,7 +104,8 @@ apisix:
     - tenant-affinity
   customPlugins:
     enabled: true
-    luaPath: "/usr/local/apisix/apisix/plugins/?.lua"
+    # 不设 luaPath：chart 渲染成 extra_lua_path 会触发 init_by_lua loop → APISIX 起不来
+    # （base apisix-values.yaml 同款修正；默认 package.path 已能解析到挂载的 .lua）。
     plugins:
       - name: "tenant-affinity"
         attrs: {}
