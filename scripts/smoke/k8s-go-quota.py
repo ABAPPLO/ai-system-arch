@@ -13,13 +13,19 @@ api-registry 等 caller 零改动。本脚本直连 Go quota（port-forward svc/
                             {allowed, tier_blocked, limit, remaining,
                              retry_after_seconds, rule_source}（无 current /
                             reset_ms；tier_blocked/limit/remaining 可 null）。
+                            T2: rule_source 必须 == "app"（seed app override
+                            生效，证明 3 层 merge 加载了 PG seed）。
   R3A-C  usage 扁平结构  —— GET /v1/quota/usage JSON 顶层 == {tenant_id, app_id,
                             api_id, second, minute, day}；每个 point 字段 ==
                             {window_seconds, used, limit}。
+                            T2: 三 tier limit 必须匹配 seed merge 结果
+                            （second=20 app override, minute=100, day=1000 from
+                            api_version floor）。
   R3A-D  Redis key 格式   —— check 后 redis-cli 出现 key 形如
                             `t:<tenant>:rate:<api>:<app>:{s|m|d}:<slot>`。
-  R3A-E  Lua 原子性       —— burst N 次并发 check，second tier max=N-1，断言
-                            admitted == N-1（不多放）。
+  R3A-E  Lua 原子性       —— burst 15 次并发 check（tenant_smoke_r3a_lua），
+                            seeded tenant second max=5，断言 admitted == 5
+                            （精确，证明规则来自 seed 不是 hardcoded default）。
 
 退出码：0 OK / 1 assert fail / 2 env unavailable。
 
@@ -47,15 +53,29 @@ QUOTA_URL = f"http://127.0.0.1:{QUOTA_PF_PORT}"
 # --- 业务参数（与 dispatcher R1d / apisix-setup.sh INGRESS_SHARED_SECRET 一致）---
 INGRESS_SHARED_SECRET = "ingress-shared-dev"
 
-# --- e2e 用的 tenant/app/api 标识（仅作为 Redis key 维度，不需要 PG 行存在）---
+# --- e2e 用的 tenant/app/api 标识（必须与 13-quota-rules-seed.sql 一致）---
+# T2 后：这些 ID 对应 PG 真行（rate_limit JSONB seed），证明 Go LoadRules 的
+# 3 层 merge 端到端走通——不是仅 Redis key 维度了。
 TENANT_ID = "tenant_smoke_r3a"
 APP_ID = "app_smoke_r3a"
 API_ID = "api_smoke_r3a"
 
-# Lua 原子断言的并发参数：defaultRules.Second.MaxCount=10（repository.defaultRules）。
-# burst 一次 20 个 → 期待 admitted <= 10（second tier 上限），其余 401-ish（allowed=false）。
-DEFAULT_RULE_SECOND_MAX = 10
-LUA_BURST_N = 20
+# T2 seed-derived expectations（13-quota-rules-seed.sql）：
+#   - app_smoke_r3a.rate_limit = {"second":{"max_count":20,...}} （app override）
+#   - ver_smoke_r3a_v1.rate_limit second=10, minute=100, day=1000 （api_version floor）
+#   - merged main path: second=20 (app wins) / minute=100 / day=1000, source="app"
+APP_SECOND_MAX = 20
+API_VERSION_MINUTE_MAX = 100
+API_VERSION_DAY_MAX = 1000
+
+# Lua 原子断言维度：tenant_smoke_r3a_lua（与主路径不同 tenant，隔离 second slot）。
+# 该 tenant 仅有 tenant.rate_limit = second=5（13-quota-rules-seed.sql）。
+# burst 15 个并发 → admitted 精确 5（seeded tenant 第二层上限），blocked 10。
+# 5 是非默认值（历史 R3a defaultRules.Second.MaxCount=10 已被 T1 删除），
+# 证明规则来自 seed JSONB 而非 hardcoded default。
+LUA_TENANT_ID = "tenant_smoke_r3a_lua"
+LUA_TENANT_SECOND_MAX = 5
+LUA_BURST_N = 15
 
 
 # ---------------------------------------------------------------------------
@@ -205,12 +225,16 @@ def assert_auth():
 
 
 def assert_check_shape():
-    """R3A-B: check 响应字段集合 == Python QuotaCheckResponse keys。
+    """R3A-B: check 响应字段集合 == Python QuotaCheckResponse keys + seed-driven source.
 
     Python models.py: QuotaCheckResponse{allowed, tier_blocked, limit, remaining,
     retry_after_seconds, rule_source}。Go 必须返同样 6 字段（不多不少，无
     current/reset_ms），且 tier_blocked/limit/remaining 在 allowed=True 路径下为
     JSON null（pointer types marshal to null）。
+
+    T2 后：rule_source 必须为 "app"（seed app_smoke_r3a.rate_limit 覆盖 api_version），
+    不能是 "default"——这证明 Go LoadRules 真的从 PG 加载了 seed（不是 unlimited）。
+    remaining 应 = APP_SECOND_MAX - 1（第一次 check，cost=1）。
     """
     expected_keys = {
         "allowed", "tier_blocked", "limit", "remaining",
@@ -243,14 +267,25 @@ def assert_check_shape():
     # rule_source VALUE：Python routes.py:58 重写后只可能是
     # "fallback"（Redis 故障）/ "app" / "tenant" / "api_version" / "default"。
     # 不可能出现 "rules" / "unlimited"（limiter 内部标签会被 source 覆盖）。
-    # 本 e2e 没有种子 quota_rule 行 → Go repo 返回 "default"（Python 对齐）。
     valid_sources = {"fallback", "app", "tenant", "api_version", "default"}
     assert payload["rule_source"] in valid_sources, (
         f"R3A-B rule_source 值 {payload['rule_source']!r} 不在 Python 契约集合 {valid_sources}；"
         f"handler.check 是否漏了 routes.py:58-style 重写？"
     )
+    # T2: seed app_smoke_r3a.rate_limit 覆盖 → source 必须 "app"（不是 default）
+    assert payload["rule_source"] == "app", (
+        f"R3A-B rule_source 想要 'app'（seed app override），实际 {payload['rule_source']!r}；"
+        f"如为 'default' 检查：13-quota-rules-seed.sql 是否 apply？Go quota AfterConnect "
+        f"is_platform_admin 是否生效（RLS 否则隐藏 app 行）？"
+    )
+    # remaining = APP_SECOND_MAX - cost（首次 check，second slot 之前没用过）
+    assert payload["remaining"] == APP_SECOND_MAX - 1, (
+        f"R3A-B remaining 想要 {APP_SECOND_MAX - 1}（app second max={APP_SECOND_MAX} - cost 1），"
+        f"实际 {payload['remaining']!r}"
+    )
     print(f"  [R3A-B] check 响应字段 OK —— keys={sorted(got_keys)}, "
-          f"allowed={payload['allowed']}, tier_blocked=null, rule_source={payload['rule_source']!r}")
+          f"allowed={payload['allowed']}, tier_blocked=null, "
+          f"rule_source={payload['rule_source']!r}, remaining={payload['remaining']}")
     return payload
 
 
@@ -290,6 +325,23 @@ def assert_usage_shape():
             f"实际 {pt['window_seconds']}"
         )
         # 第 0 章 / default rules 下 second/minute/day 都启用了，所以 limit 非 null
+    # T2 seed-driven 限值断言：
+    #   - second.limit = APP_SECOND_MAX（app override 覆盖 api_version 的 10）
+    #   - minute.limit = API_VERSION_MINUTE_MAX（app 未配，api_version 提供）
+    #   - day.limit    = API_VERSION_DAY_MAX（app 未配，api_version 提供）
+    # 三层 merge 端到端：app 的 second 覆盖生效 + api_version 的 minute/day 透传。
+    assert payload["second"]["limit"] == APP_SECOND_MAX, (
+        f"R3A-C second.limit 想要 {APP_SECOND_MAX}（app override），"
+        f"实际 {payload['second']['limit']!r}"
+    )
+    assert payload["minute"]["limit"] == API_VERSION_MINUTE_MAX, (
+        f"R3A-C minute.limit 想要 {API_VERSION_MINUTE_MAX}（api_version floor），"
+        f"实际 {payload['minute']['limit']!r}"
+    )
+    assert payload["day"]["limit"] == API_VERSION_DAY_MAX, (
+        f"R3A-C day.limit 想要 {API_VERSION_DAY_MAX}（api_version floor），"
+        f"实际 {payload['day']['limit']!r}"
+    )
     # check 后 usage.second.used >= 1（刚 check 过）
     assert payload["second"]["used"] >= 1, (
         f"R3A-C second.used 应 >= 1（刚 check 过），实际 {payload['second']['used']}"
@@ -345,17 +397,22 @@ def assert_redis_key():
 
 
 def assert_lua_atomic():
-    """R3A-E: burst N 次并发 check，second tier max=N-1 → admitted == N-1。
+    """R3A-E: burst N 次并发 check，second tier max=seeded → admitted == seeded max。
 
-    defaultRules.Second.MaxCount=10（repository.defaultRules，quota_rule 表无此
-    tenant 行时回退）。burst 20 个 goroutine 同时 check cost=1：Lua 原子保证
-    second counter 在 10 处闭合，admitted==10、blocked==10。
+    T2 后：规则来自 13-quota-rules-seed.sql 的 tenant_smoke_r3a_lua.rate_limit
+    (`{"second":{"max_count":5,...}}`)。LoadRules 走三层 fall-through：
+       app(id=app_smoke_r3a AND tenant_id=tenant_smoke_r3a_lua) → 无行（app 在
+           tenant_smoke_r3a 名下）→ NULL
+       tenant(id=tenant_smoke_r3a_lua) → seeded → second=5
+       api_version(api_id=api_smoke_r3a AND tenant_id=tenant_smoke_r3a_lua) →
+           无行（api_version 在 tenant_smoke_r3a 名下）→ NULL
+    → source="tenant"，second max=5（不是 R3a 历史 hardcoded defaultRules 10）。
 
-    注：用同一 (tenant, app, api) 维度 + 同一秒内并发。跨 tier 不验证（minute
-    default=100、day default=1000，远大于 burst N）。
+    burst 15 个线程同时 check cost=1：Lua 原子保证 second counter 在 5 处闭合，
+    admitted==5、blocked==10。5 是非默认值（proves rule loaded from seed JSONB）。
     """
-    # 隔离维度避免和其他断言共用 second slot
-    tenant = f"{TENANT_ID}_lua"
+    # 隔离维度：独立 tenant 让 second slot 与主路径不共用
+    tenant = LUA_TENANT_ID
     body = json.dumps(
         {"tenant_id": tenant, "app_id": APP_ID, "api_id": API_ID, "cost": 1}
     ).encode()
@@ -369,7 +426,6 @@ def assert_lua_atomic():
                 for _ in range(LUA_BURST_N)]
         for f in futs:
             results.append(f.result())
-    admitted = sum(1 for st, _ in results if st == 200)
     allowed_count = 0
     blocked_count = 0
     for st, raw in results:
@@ -382,31 +438,39 @@ def assert_lua_atomic():
             blocked_count += 1
     print(f"  burst {LUA_BURST_N} 个 check —— HTTP-200 总数={sum(1 for st,_ in results if st==200)}, "
           f"allowed={allowed_count}, blocked={blocked_count}, "
-          f"default second-tier max={DEFAULT_RULE_SECOND_MAX}")
-    # defaultRules.Second.MaxCount=10；并发应精确 admitted=10，blocked=10（HTTP 仍是 200，
-    # 业务层语义 allowed=False 表示被挡 —— 见 Python routes.py 注释）
-    assert allowed_count == DEFAULT_RULE_SECOND_MAX, (
+          f"seed tenant_smoke_r3a_lua second-tier max={LUA_TENANT_SECOND_MAX}")
+    # seed tenant.rate_limit.second.max_count=5；并发应精确 admitted=5，blocked=10
+    # （HTTP 仍是 200，业务层语义 allowed=False 表示被挡 —— 见 Python routes.py 注释）
+    assert allowed_count == LUA_TENANT_SECOND_MAX, (
         f"R3A-E Lua 原子性失败：admitted={allowed_count}，期待精确 "
-        f"{DEFAULT_RULE_SECOND_MAX}（second tier max）—— 多放={allowed_count - DEFAULT_RULE_SECOND_MAX}"
+        f"{LUA_TENANT_SECOND_MAX}（seed tenant second max）—— "
+        f"多放={allowed_count - LUA_TENANT_SECOND_MAX}"
     )
-    assert blocked_count == LUA_BURST_N - DEFAULT_RULE_SECOND_MAX, (
+    assert blocked_count == LUA_BURST_N - LUA_TENANT_SECOND_MAX, (
         f"R3A-E blocked 数不匹配：got={blocked_count}，"
-        f"want={LUA_BURST_N - DEFAULT_RULE_SECOND_MAX}"
+        f"want={LUA_BURST_N - LUA_TENANT_SECOND_MAX}"
     )
-    # 抽样一个 blocked 响应验字段
+    # 抽样一个 blocked 响应验字段 + source
     sample_blocked = next(json.loads(raw) for st, raw in results
                           if st == 200 and not json.loads(raw).get("allowed"))
     assert sample_blocked["tier_blocked"] == "second", (
         f"R3A-E blocked.tier_blocked 想要 'second'，实际 {sample_blocked['tier_blocked']!r}"
     )
-    assert sample_blocked["limit"] == DEFAULT_RULE_SECOND_MAX, (
-        f"R3A-E blocked.limit 想要 {DEFAULT_RULE_SECOND_MAX}，实际 {sample_blocked['limit']!r}"
+    assert sample_blocked["limit"] == LUA_TENANT_SECOND_MAX, (
+        f"R3A-E blocked.limit 想要 {LUA_TENANT_SECOND_MAX}（seed），"
+        f"实际 {sample_blocked['limit']!r}"
     )
     assert sample_blocked["retry_after_seconds"] >= 1, (
         f"R3A-E blocked.retry_after_seconds 想要 >=1，实际 {sample_blocked['retry_after_seconds']!r}"
     )
-    print(f"  [R3A-E] Lua 原子性 OK —— admitted={allowed_count} (==second max), "
-          f"blocked={blocked_count}, sample blocked={sample_blocked}")
+    # source 必须为 "tenant"（seed 在 tenant 层，app/api_version fall-through）
+    assert sample_blocked["rule_source"] == "tenant", (
+        f"R3A-E blocked.rule_source 想要 'tenant'（seed tenant_smoke_r3a_lua.rate_limit），"
+        f"实际 {sample_blocked['rule_source']!r}"
+    )
+    print(f"  [R3A-E] Lua 原子性 OK —— admitted={allowed_count} (==seed tenant second max), "
+          f"blocked={blocked_count}, source={sample_blocked['rule_source']!r}, "
+          f"sample blocked={sample_blocked}")
 
 
 # ---------------------------------------------------------------------------

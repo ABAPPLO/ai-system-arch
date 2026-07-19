@@ -179,6 +179,18 @@ func (l *Limiter) effectiveQuota(rule models.LimitRule) int64 {
 	return int64(math.Ceil(float64(rule.MaxCount) * l.splitRatio))
 }
 
+// tierMaxForLua returns the max_count to feed into the Lua script for a tier:
+// effectiveQuota(MaxCount * splitRatio) for active tiers, 0 for inactive tiers
+// (MaxCount<=0 || !Enabled). Lua's CHECK_AND_INCR treats max=0 as "skip check,
+// still INCR" (lua_scripts.py:42-44), which is exactly the behavior Python's
+// _compile_rules produces for inactive tiers (limiter.py:223-224).
+func (l *Limiter) tierMaxForLua(rule models.LimitRule) int64 {
+	if !tierActive(rule) {
+		return 0
+	}
+	return l.effectiveQuota(rule)
+}
+
 // slotIndex returns the sliding-window slot string for now and windowMs.
 func slotIndex(now time.Time, windowMs int64) string {
 	if windowMs <= 0 {
@@ -224,13 +236,23 @@ func toInt64(v interface{}) (int64, bool) {
 // Public API — used by handler.QuotaHandler
 // ---------------------------------------------------------------------------
 
+// tierActive mirrors Python _compile_rules' active-tier predicate
+// (services/services/quota/src/quota/limiter.py:220:
+// `if rule and rule.enabled and rule.max_count > 0`). A tier is "active"
+// (contributes to limiting) only when both Enabled=true AND MaxCount>0.
+// Disabled / unconfigured tiers are skipped by the limiter but still INCR'd
+// in Lua so /usage reflects every call (Python L223-224).
+func tierActive(r models.LimitRule) bool {
+	return r.Enabled && r.MaxCount > 0
+}
+
 // CheckAndConsume performs an atomic Lua check+incr across all three tiers
 // (one Eval, one RTT) and returns the merged response. Field semantics mirror
 // the Python contract (services/services/quota/src/quota/limiter.py::
 // check_and_consume):
 //
-//   - rule_source="unlimited": no tier has a positive MaxCount → return
-//     immediately without touching Redis (Python limiter.py:79-83).
+//   - rule_source="unlimited": no tier is active (Enabled && MaxCount>0) →
+//     return immediately without touching Redis (Python limiter.py:79-83).
 //   - rule_source="rules", Allowed=true: all tiers passed; Remaining is
 //     min(active max) - cost per Python _remaining_for_first_active
 //     (limiter.py:230-239), or nil when there are no active tiers (this
@@ -258,7 +280,7 @@ func (l *Limiter) CheckAndConsume(ctx context.Context, tenantID, appID, apiID st
 	// Unlimited short-circuit: no active tier → don't touch Redis.
 	hasActive := false
 	for _, t := range tiers {
-		if t.rule.MaxCount > 0 {
+		if tierActive(t.rule) {
 			hasActive = true
 			break
 		}
@@ -271,11 +293,14 @@ func (l *Limiter) CheckAndConsume(ctx context.Context, tenantID, appID, apiID st
 	}
 
 	// Args layout per Python _compile_rules: [max_s, max_m, max_d, ttl_s,
-	// ttl_m, ttl_d, cost]. max=0 for inactive tiers — Lua skips the check
-	// but still INCRs so GET /usage reflects the call.
+	// ttl_m, ttl_d, cost]. max=0 for inactive tiers (MaxCount<=0 || !Enabled)
+	// — Lua skips the check but still INCRs so GET /usage reflects the call.
+	// Note we pass the rule's MaxCount verbatim here (NOT effectiveQuota) for
+	// disabled tiers so they contribute 0 to Lua; effectiveQuota applies the
+	// region split only to active tiers (see below).
 	keys := l.rateKeysForTiers(tenantID, apiID, appID, time.Now())
 	args := []interface{}{
-		l.effectiveQuota(rules.Second), l.effectiveQuota(rules.Minute), l.effectiveQuota(rules.Day),
+		l.tierMaxForLua(rules.Second), l.tierMaxForLua(rules.Minute), l.tierMaxForLua(rules.Day),
 		tierSecondSecs, tierMinuteSecs, tierDaySecs,
 		cost,
 	}
@@ -334,13 +359,14 @@ func (l *Limiter) CheckAndConsume(ctx context.Context, tenantID, appID, apiID st
 }
 
 // minActiveRemaining returns min(active tier max) - cost, or nil if no tier is
-// active. Mirrors Python _remaining_for_first_active (limiter.py:230-239).
-// On the allowed path cost <= every active max (otherwise Lua would have
-// blocked on the first INCRBY), so the clamp at 0 is defensive only.
+// active. Mirrors Python _remaining_for_first_active (limiter.py:230-239):
+// only active tiers (Enabled && MaxCount>0) contribute. On the allowed path
+// cost <= every active max (otherwise Lua would have blocked on the first
+// INCRBY), so the clamp at 0 is defensive only.
 func (l *Limiter) minActiveRemaining(rules *models.QuotaRules, cost int) *int {
 	var minMax int64 = -1
 	for _, r := range [3]models.LimitRule{rules.Second, rules.Minute, rules.Day} {
-		if r.MaxCount <= 0 {
+		if !tierActive(r) {
 			continue
 		}
 		q := l.effectiveQuota(r)
@@ -403,7 +429,7 @@ func (l *Limiter) GetUsage(ctx context.Context, tenantID, appID, apiID string, r
 			Used:          0,
 		}
 
-		if t.rule.MaxCount > 0 {
+		if tierActive(t.rule) {
 			limit := int(l.effectiveQuota(t.rule))
 			point.Limit = &limit
 		}

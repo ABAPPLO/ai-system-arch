@@ -63,26 +63,31 @@ type UsageResponse struct {
 
 // === 限流规则 ===
 
+// LimitRule mirrors Python quota.models.LimitRule. Enabled carries the
+// per-tier enabled flag (Python L19: `enabled: bool = True`); the limiter
+// treats MaxCount<=0 || !Enabled as "skip this tier" (matches Python
+// _compile_rules L220: `if rule and rule.enabled and rule.max_count > 0`).
+//
+// The zero-value LimitRule (MaxCount=0, Enabled=false) represents an "unset"
+// tier — equivalent to Python's None in QuotaRules. Parsed rules from the
+// JSONB blob always carry Enabled=true unless the blob explicitly sets it
+// false (see repository.parseTier).
 type LimitRule struct {
 	Tier      string
 	MaxCount  int
 	WindowSec int64
 	WindowMs  int64
+	Enabled   bool
 }
 
+// QuotaRules mirrors Python quota.models.QuotaRules. All-zero = unlimited
+// (Python EMPTY_RULES, repository.py:20): the limiter's hasActive short-circuit
+// fires when no tier has MaxCount>0 && Enabled, returning rule_source=
+// "unlimited" without touching Redis.
 type QuotaRules struct {
 	Second LimitRule
 	Minute LimitRule
 	Day    LimitRule
-}
-
-type RuleRow struct {
-	SecondMax      int   `db:"second_max"`
-	SecondWindowMs int64 `db:"second_window_ms"`
-	MinuteMax      int   `db:"minute_max"`
-	MinuteWindowMs int64 `db:"minute_window_ms"`
-	DayMax         int   `db:"day_max"`
-	DayWindowMs    int64 `db:"day_window_ms"`
 }
 
 // === Kafka ===
