@@ -7,6 +7,44 @@ apisix:
     enabled: true
   admin_key:
     key: "REPLACE_ME_VIA_SEALED_SECRET"
+  # 插件注册：chart 把本列表写入 APISIX config.yaml 的 plugins: 段。
+  # NOTE: 历史遗留——以前写在**顶层** `plugins:`，但 chart v2.16.0 只读 `apisix.plugins`
+  # （顶层被忽略，等价于走 APISIX 内置默认插件集，所以 key-auth 等仍能工作）。
+  # R3b S1-T4 修正到 `apisix.plugins`，并新增下方 `customPlugins` 把自定义 lua 投递进 pod。
+  plugins:
+    - api-breaker
+    - limit-req
+    - limit-count
+    - limit-conn
+    - key-auth
+    - jwt-auth
+    - consumer-restriction
+    - proxy-rewrite
+    - ip-restriction
+    - ua-restriction
+    - referer-restriction
+    - body-transformer
+    - kafka-proxy       # 调用事件直接 Kafka
+    - prometheus
+    - skywalking        # 链路追踪（或用 otel）
+    - opentelemetry
+    - tenant-affinity   # 多 Region 写流量亲和路由（lua 由下方 customPlugins 投递）
+  # 自定义插件 lua 投递：把 deploy/apisix/plugins/tenant-affinity.lua（由 kind bootstrap
+  # `kubectl create configmap apisix-plugin-tenant-affinity --from-file=...` 创建，见
+  # scripts/kind/apisix-setup.sh）挂到 APISIX 插件目录；chart 同时把 customPlugins.plugins[*].name
+  # 追加进 config.yaml 的 plugins 段（见 apisix/templates/configmap.yaml 的 customPlugins 块）。
+  # 与 apisix.plugins 里手写的 - tenant-affinity 重复——APISIX 按 plugin.name 去重，无害。
+  customPlugins:
+    enabled: true
+    luaPath: "/usr/local/apisix/apisix/plugins/?.lua"
+    plugins:
+      - name: "tenant-affinity"
+        attrs: {}
+        configMap:
+          name: "apisix-plugin-tenant-affinity"
+          mounts:
+            - key: "tenant-affinity.lua"
+              path: "/usr/local/apisix/apisix/plugins/tenant-affinity.lua"
 
 gateway:
   type: LoadBalancer
@@ -23,23 +61,3 @@ ingressController:
 # 启用 dashboard（仅 dev / staging）
 dashboard:
   enabled: true
-
-# 启用插件
-plugins:
-  - api-breaker
-  - limit-req
-  - limit-count
-  - limit-conn
-  - key-auth
-  - jwt-auth
-  - consumer-restriction
-  - proxy-rewrite
-  - ip-restriction
-  - ua-restriction
-  - referer-restriction
-  - body-transformer
-  - kafka-proxy       # 调用事件直接 Kafka
-  - prometheus
-  - skywalking        # 链路追踪（或用 otel）
-  - opentelemetry
-  - tenant-affinity   # 多 Region 写流量亲和路由
