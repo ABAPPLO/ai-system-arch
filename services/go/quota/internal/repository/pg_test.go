@@ -290,3 +290,61 @@ func TestRulesFromBlobs_TenantOnly(t *testing.T) {
 		t.Fatalf("Second.MaxCount: got %d want 3", got.Second.MaxCount)
 	}
 }
+
+// TestRulesFromBlobs_EmptyObjectFallsThrough: T1 review Minor #3 — an empty
+// `{}` jsonb at the app layer must NOT report source="app". Python's
+// `if row["app_rl"]:` truthiness check on the asyncpg-decoded dict treats
+// `{}` as falsy and falls through to the next layer. Go's prior `appRL !=
+// nil` check missed this (a non-nil `[]byte("{}")` reported source="app"
+// even though the app layer contributed no rule — misleading for operators).
+// Pin the faithful port: `{}` → fall through.
+func TestRulesFromBlobs_EmptyObjectFallsThrough(t *testing.T) {
+	// app=`{}` (empty object), tenant=NULL, api_version has real rules.
+	// Source should be "api_version" (app falls through as if NULL).
+	got, source := rulesFromBlobs([]byte(`{}`), nil, []byte(`{"second":{"max_count":7,"window_seconds":1}}`))
+	if source != "api_version" {
+		t.Fatalf("source: got %q want api_version (app `{}` must fall through)", source)
+	}
+	if got.Second.MaxCount != 7 {
+		t.Fatalf("Second.MaxCount: got %d want 7 (from api_version)", got.Second.MaxCount)
+	}
+
+	// All three layers `{}` → source="default", EMPTY_RULES.
+	got, source = rulesFromBlobs([]byte(`{}`), []byte(`{}`), []byte(`{}`))
+	if source != "default" {
+		t.Fatalf("source: got %q want default (all empty `{}`)", source)
+	}
+	if *got != (models.QuotaRules{}) {
+		t.Fatalf("rules: got %+v want empty (all `{}` → unlimited)", *got)
+	}
+}
+
+// TestIsTruthyBlob: pin the truthiness table to Python's `if row[col]:` on
+// asyncpg-decoded jsonb. Empty collection / null / false-y JSON → false.
+func TestIsTruthyBlob(t *testing.T) {
+	cases := []struct {
+		name string
+		raw  []byte
+		want bool
+	}{
+		{"nil (NULL column)", nil, false},
+		{"empty bytes", []byte(""), false},
+		{"json null", []byte("null"), false},
+		{"empty object", []byte("{}"), false},
+		{"empty array", []byte("[]"), false},
+		{"false literal", []byte("false"), false},
+		{"empty string", []byte(`""`), false},
+		{"non-empty object", []byte(`{"second":1}`), true},
+		{"non-empty array", []byte(`[1]`), true},
+		{"number literal", []byte("42"), true},
+		{"true literal", []byte("true"), true},
+		{"invalid json", []byte("not json"), false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := isTruthyBlob(c.raw); got != c.want {
+				t.Fatalf("isTruthyBlob(%q): got %v want %v", string(c.raw), got, c.want)
+			}
+		})
+	}
+}

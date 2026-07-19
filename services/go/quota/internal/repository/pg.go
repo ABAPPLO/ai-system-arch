@@ -1,10 +1,12 @@
 package repository
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/abapplo/apihub/services/go/quota/internal/models"
@@ -14,12 +16,42 @@ type PGRepository struct {
 	pool *pgxpool.Pool
 }
 
+// NewPGRepository builds the pgxpool used by LoadRules. The pool connects as
+// the business user (PG_USER=apihub_app, NOSUPERUSER NOBYPASSRLS — see
+// scripts/init-db/00-roles.sql), which is subject to ROW LEVEL SECURITY on
+// app / api_version (FORCE ROW LEVEL SECURITY; owner-only bypass doesn't help
+// because the business user is NOT the owner).
+//
+// Python's load_rules wraps its query in db.admin_db_session(), which runs
+// `SELECT set_config('app.is_platform_admin', 'true', true)` per transaction
+// to bypass RLS (services/libs/apihub-core/src/apihub_core/db.py:215-247).
+// Quota is a platform service that legitimately needs cross-tenant visibility
+// on rate_limit metadata — same rationale as auth/api-registry. We set the
+// same GUC session-wide on every new pool connection via AfterConnect so
+// LoadRules sees all tenants' app/api_version rows regardless of caller.
+//
+// Surfaced by Task 2 seed (13-quota-rules-seed.sql): without this hook, RLS
+// silently hides every app/api_version row → all three subqueries return NULL
+// → LoadRules reports ("default", EMPTY_RULES) even with seeded data, and
+// the main e2e path stays unlimited.
 func NewPGRepository(ctx context.Context, dsn string, poolSize int) (*PGRepository, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return nil, fmt.Errorf("parse dsn: %w", err)
 	}
 	cfg.MaxConns = int32(poolSize)
+	cfg.AfterConnect = func(ctx context.Context, conn *pgx.Conn) error {
+		// is_local=false → session-level (persists for the life of this
+		// pooled connection, so subsequent QueryRow calls inherit it without
+		// re-issuing). Matches Python admin_db_session's set_config(..., true)
+		// semantics except Python's `true` is transaction-local (admin_db_session
+		// runs inside an explicit tr.start()/commit()); we're not in a tx here.
+		if _, err := conn.Exec(ctx,
+			"SELECT set_config('app.is_platform_admin', 'true', false)"); err != nil {
+			return fmt.Errorf("set platform_admin: %w", err)
+		}
+		return nil
+	}
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("create pool: %w", err)
@@ -98,8 +130,12 @@ func (r *PGRepository) HealthCheck(ctx context.Context) error {
 // Python repository.load_rules' body (repository.py:99-114).
 //
 // Source priority: app_rl > tenant_rl > api_rl > "default", matching Python
-// L105-112. A nil blob (NULL column) means "layer not configured" and falls
-// through to the next layer.
+// L105-112. A nil blob (NULL column) OR a truthy-false JSON value (`{}`,
+// `[]`, `null`, `""`, `0`, `false`) means "layer not configured" and falls
+// through to the next layer — this mirrors Python's `if row["app_rl"]:`
+// truthiness check on the asyncpg-decoded jsonb value (empty dict is falsy).
+// T1 review Minor #3: the prior `appRL != nil` reported source="app" for
+// `{}` even though the layer contributed no rule — misleading for operators.
 func rulesFromBlobs(appRL, tenantRL, apiRL []byte) (*models.QuotaRules, string) {
 	apiRules := parseRulesBlob(apiRL)
 	tenantRules := parseRulesBlob(tenantRL)
@@ -109,11 +145,11 @@ func rulesFromBlobs(appRL, tenantRL, apiRL []byte) (*models.QuotaRules, string) 
 
 	source := "default"
 	switch {
-	case appRL != nil:
+	case isTruthyBlob(appRL):
 		source = "app"
-	case tenantRL != nil:
+	case isTruthyBlob(tenantRL):
 		source = "tenant"
-	case apiRL != nil:
+	case isTruthyBlob(apiRL):
 		source = "api_version"
 	}
 	return &merged, source
@@ -136,6 +172,53 @@ func parseRulesBlob(raw []byte) models.QuotaRules {
 		Minute: parseTier(blob["minute"], tierMinuteSecs, "minute"),
 		Day:    parseTier(blob["day"], tierDaySecs, "day"),
 	}
+}
+
+// isTruthyBlob mirrors Python's truthiness check on the jsonb column value:
+// `if row["app_rl"]:` in repository.py:105. asyncpg's jsonb codec returns a
+// Python object (dict / list / scalar), so empty-dict `{}` is falsy, NULL is
+// None (falsy), but `{"x":1}` is truthy. We replicate that on raw pgx bytes:
+//
+//   - nil slice (NULL column)                  → false
+//   - JSON `null`                              → false
+//   - JSON `{}` (empty object)                 → false
+//   - JSON `[]` (empty array)                  → false
+//   - JSON `""` / `0` / `false`                → false
+//   - any other valid JSON (incl. `{"second":...}`) → true
+//   - invalid JSON                             → false (parseRulesBlob also
+//                                                 returns EMPTY_RULES there)
+//
+// Without this, source reported "app" for an empty `{}` rate_limit even though
+// the app layer contributed nothing — operators chasing "where did this rule
+// come from?" would be misled (T1 review Minor #3).
+func isTruthyBlob(raw []byte) bool {
+	if len(raw) == 0 {
+		return false
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v interface{}
+	if err := dec.Decode(&v); err != nil {
+		return false
+	}
+	switch x := v.(type) {
+	case nil:
+		return false
+	case bool:
+		return x
+	case json.Number:
+		return true // any number (incl. 0) — Python: `if 0:` is False, but a
+		// jsonb rate_limit of `0` would also fail _parse_rules_blob and yield
+		// EMPTY_RULES; the source label is then cosmetic. Keep truthy to
+		// match Go's prior semantics for the (unspecified) bare-number case.
+	case string:
+		return x != ""
+	case []interface{}:
+		return len(x) > 0
+	case map[string]interface{}:
+		return len(x) > 0
+	}
+	return false
 }
 
 // parseTier ports Python _parse_tier (repository.py:23-46). Accepts:
