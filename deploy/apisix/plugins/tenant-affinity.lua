@@ -21,11 +21,12 @@ _M.schema = {
 
 function _M.rewrite(conf, ctx)
     local consumer = ctx.consumer
-    if not consumer or not consumer.home_region then
+    local labels = consumer and consumer.labels
+    if not labels or not labels.home_region then
         return
     end
 
-    local home = consumer.home_region
+    local home = labels.home_region
     local curr = os.getenv("HOME_REGION") or "sh"
     if home == curr then
         return
