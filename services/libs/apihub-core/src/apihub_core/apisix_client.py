@@ -96,20 +96,26 @@ async def publish_route(
     )
 
 
-async def upsert_consumer(*, key_id: str, key: str) -> None:
+async def upsert_consumer(
+    *, key_id: str, key: str, labels: dict[str, str] | None = None
+) -> None:
     """upsert APISIX consumer（username=key_id，per-key）—— 随 APIKey 生命周期。
 
     consumer 持 key-auth 凭证（key=明文，header=X-API-Key），APISIX 在网关层秒级校验。
     per-key（非 per-app）：APISIX key-auth consumer 只能持一个 key，per-app 会让同 app
     第 2 个 key 覆盖第 1 个。consumer_name 对下游不透明（信任路径走 Redis，不读它）。
+
+    labels：可选 consumer 标签（如 {"home_region": "bj"}），供 tenant-affinity 插件读取。
     """
     settings = get_settings()
     if not settings.apisix_admin_url:
         raise ApiError(ErrorCode.INTERNAL, "APISIX_ADMIN_URL not configured", http_status=500)
-    body = {
+    body: dict = {
         "username": key_id,
         "plugins": {"key-auth": {"key": key, "header": "X-API-Key"}},
     }
+    if labels:
+        body["labels"] = labels
     await _admin_request(
         "PUT",
         f"{settings.apisix_admin_url}/apisix/admin/consumers/{key_id}",
