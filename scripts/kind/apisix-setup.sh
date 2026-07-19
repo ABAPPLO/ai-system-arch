@@ -236,9 +236,11 @@ say "admin API reachable"
 ADMIN="http://127.0.0.1:${LOCAL_ADMIN_PORT}/apisix/admin"
 
 # 6a) consumer：smoke / key-auth key = ak_test_a_demo001
-say "upsert consumer 'smoke' (key-auth key=${DEMO_KEY})"
+#     R3b S1-T3：consumer 携带 labels.home_region="sh" —— 演示 tenant-affinity 写亲和
+#     （APISIX 插件读 labels.home_region 决定写路由 region）。
+say "upsert consumer 'smoke' (key-auth key=${DEMO_KEY}, home_region=sh)"
 curl -s "${ADMIN}/consumers/smoke" -H "X-API-KEY: ${ADMIN_KEY}" -X PUT \
-  -d "{\"username\":\"smoke\",\"plugins\":{\"key-auth\":{\"key\":\"${DEMO_KEY}\"}}}" \
+  -d "{\"username\":\"smoke\",\"plugins\":{\"key-auth\":{\"key\":\"${DEMO_KEY}\"}},\"labels\":{\"home_region\":\"sh\"}}" \
   -o /dev/null -w "  consumer PUT -> %{http_code}\n"
 
 # 6b) route：/dispatch/* → dispatcher.apihub-system:80，key-auth 读 X-API-Key（修正 #4）。

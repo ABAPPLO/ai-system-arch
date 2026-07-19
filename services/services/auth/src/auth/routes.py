@@ -10,6 +10,7 @@
 
 import uuid
 
+from apihub_core.apisix_client import upsert_consumer
 from apihub_core.errors import ApiError, ErrorCode
 from apihub_core.logging import get_logger
 from apihub_core.tenant import require_tenant
@@ -45,6 +46,20 @@ from auth.repository import (
 )
 
 log = get_logger(__name__)
+
+
+async def _inject_home_region_on_create(
+    *, key_id: str, key: str, tenant_id: str
+) -> None:
+    """create_key 的 testable seam：把 tenant.home_region 注入 consumer labels。
+
+    多区写亲和（R3b S1-T3）：每个 API key 对应的 APISIX consumer 携带
+    `labels={"home_region": <hr>}`，供 APISIX tenant-affinity 插件读取以决定写路由。
+    tenant 无 home_region 时传 labels=None（upsert_consumer 视为不带 labels 字段）。
+    """
+    home_region = await get_tenant_home_region(tenant_id)
+    labels = {"home_region": home_region} if home_region else None
+    await upsert_consumer(key_id=key_id, key=key, labels=labels)
 
 
 def register_routes(app: FastAPI) -> None:
@@ -155,12 +170,15 @@ def register_routes(app: FastAPI) -> None:
         # R1d：随 key 生命周期同步 APISIX consumer（edge 校验）+ 预热 Redis 身份缓存
         # （dispatcher 信任路径命中即不回源 auth）。best-effort：失败仅记日志，不回滚 key
         # （key 仍可用——dispatcher 回落 HTTP auth）。
+        # R3b S1-T3：consumer labels 注入 tenant.home_region（多区写亲和 consumer 侧）。
         try:
-            from apihub_core import apisix_client, identity
+            from apihub_core import identity
 
             from auth.apikey import POSITIVE_CACHE_TTL
 
-            await apisix_client.upsert_consumer(key_id=key_id, key=plaintext)
+            await _inject_home_region_on_create(
+                key_id=key_id, key=plaintext, tenant_id=ctx.tenant_id
+            )
             await identity.write_identity(
                 plaintext,
                 {
