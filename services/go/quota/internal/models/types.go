@@ -9,14 +9,25 @@ type QuotaCheckRequest struct {
 	Cost     int    `json:"cost"`
 }
 
+// QuotaCheckResponse aligns field-by-field with the Python contract
+// (services/services/quota/src/quota/models.py::QuotaCheckResponse).
+//
+// JSON keys in declaration order: allowed, tier_blocked, limit, remaining,
+// retry_after_seconds, rule_source. retry_after_seconds is non-zero only when
+// Allowed=false (seconds remaining until the blocking tier's window resets).
+//
+// TierBlocked / Limit / Remaining are pointers so they serialize as JSON
+// `null` when unset, mirroring Python's `str | None` / `int | None` (pydantic
+// Optional). Python's allowed path leaves tier_blocked+limit None and sets
+// remaining; Python's blocked path sets tier_blocked+limit and leaves
+// remaining None. See limiter.CheckAndConsume for the branch-by-branch mapping.
 type QuotaCheckResponse struct {
-	Allowed     bool   `json:"allowed"`
-	TierBlocked string `json:"tier_blocked"`
-	Current     int    `json:"current"`
-	Limit       int    `json:"limit"`
-	Remaining   int    `json:"remaining"`
-	ResetMs     int64  `json:"reset_ms"`
-	RuleSource  string `json:"rule_source"`
+	Allowed           bool    `json:"allowed"`
+	TierBlocked       *string `json:"tier_blocked"`
+	Limit             *int    `json:"limit"`
+	Remaining         *int    `json:"remaining"`
+	RetryAfterSeconds int     `json:"retry_after_seconds"`
+	RuleSource        string  `json:"rule_source"`
 }
 
 type QuotaRefundRequest struct {
@@ -30,16 +41,24 @@ type QuotaRefundResponse struct {
 	Refunded bool `json:"refunded"`
 }
 
+// UsagePoint aligns with Python UsagePoint: {window_seconds, used, limit}.
+// Limit is a pointer so it serializes as `null` when the tier is unconfigured
+// (mirrors Python's `limit: int | None = None`).
 type UsagePoint struct {
-	Tier      string `json:"tier"`
-	Used      int    `json:"used"`
-	Limit     int    `json:"limit"`
-	Remaining int    `json:"remaining"`
-	ResetMs   int64  `json:"reset_ms"`
+	WindowSeconds int64 `json:"window_seconds"`
+	Used          int   `json:"used"`
+	Limit         *int  `json:"limit"`
 }
 
+// UsageResponse is the flat shape Python returns: three named tier points
+// (second / minute / day) rather than an array. Field order matches Python.
 type UsageResponse struct {
-	Points []UsagePoint `json:"points"`
+	TenantID string     `json:"tenant_id"`
+	AppID    string     `json:"app_id"`
+	APIID    string     `json:"api_id"`
+	Second   UsagePoint `json:"second"`
+	Minute   UsagePoint `json:"minute"`
+	Day      UsagePoint `json:"day"`
 }
 
 // === 限流规则 ===

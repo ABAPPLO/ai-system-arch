@@ -36,7 +36,8 @@ func TestCheckJSONRoundtrip(t *testing.T) {
 }
 
 func TestCheckResponseJSON(t *testing.T) {
-	resp := models.QuotaCheckResponse{Allowed: true, Current: 1, Limit: 100, Remaining: 99, ResetMs: 1000, RuleSource: "api"}
+	limit, remaining := 100, 99
+	resp := models.QuotaCheckResponse{Allowed: true, Limit: &limit, Remaining: &remaining, RuleSource: "api"}
 	data, _ := json.Marshal(resp)
 	var decoded models.QuotaCheckResponse
 	json.Unmarshal(data, &decoded)
@@ -63,14 +64,19 @@ func TestRefundJSON(t *testing.T) {
 }
 
 func TestUsageJSON(t *testing.T) {
-	resp := models.UsageResponse{Points: []models.UsagePoint{
-		{Tier: "second", Used: 5, Limit: 100, Remaining: 95, ResetMs: 45000},
-	}}
+	limit := 100
+	resp := models.UsageResponse{
+		TenantID: "t_001", AppID: "app_test", APIID: "api_test",
+		Second: models.UsagePoint{WindowSeconds: 1, Used: 5, Limit: &limit},
+	}
 	data, _ := json.Marshal(resp)
 	var decoded models.UsageResponse
 	json.Unmarshal(data, &decoded)
-	if len(decoded.Points) != 1 {
-		t.Fatalf("expected 1 point, got %d", len(decoded.Points))
+	if decoded.Second.Used != 5 {
+		t.Fatalf("expected second.used=5, got %d", decoded.Second.Used)
+	}
+	if decoded.Second.Limit == nil || *decoded.Second.Limit != 100 {
+		t.Fatalf("expected second.limit=100 (non-nil), got %v", decoded.Second.Limit)
 	}
 }
 
@@ -84,7 +90,8 @@ func TestCheckHTTPEndpoint(t *testing.T) {
 	mux.HandleFunc("POST /v1/quota/check", func(w http.ResponseWriter, r *http.Request) {
 		var req models.QuotaCheckRequest
 		json.NewDecoder(r.Body).Decode(&req)
-		resp := models.QuotaCheckResponse{Allowed: true, Current: 1, Limit: 100, Remaining: 99, ResetMs: 1000, RuleSource: "api"}
+		limit, remaining := 100, 99
+		resp := models.QuotaCheckResponse{Allowed: true, Limit: &limit, Remaining: &remaining, RuleSource: "api"}
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(resp)
 	})

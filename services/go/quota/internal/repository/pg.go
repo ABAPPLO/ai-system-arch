@@ -43,14 +43,33 @@ func (r *PGRepository) LoadRules(ctx context.Context, tenantID, appID, apiID str
 	).Scan(&row.SecondMax, &row.SecondWindowMs, &row.MinuteMax, &row.MinuteWindowMs, &row.DayMax, &row.DayWindowMs)
 
 	if err != nil {
-		return defaultRules(), "fallback", nil
+		// No quota_rule row for this (tenant, app, api) → built-in defaults.
+		// Source label mirrors Python repository.load_rules' "default" branch
+		// (services/services/quota/src/quota/repository.py:111-112): when no
+		// layer contributed a rate_limit, source="default". The handler rewrites
+		// rule_source from this unless the limiter already said "fallback"
+		// (Redis failure) — see handler.QuotaHandler.check. The previous label
+		// "fallback" collided with the limiter's Redis-failure semantics and
+		// broke the Python rule_source contract (concern-2 surfaced by R3a T5).
+		return defaultRules(), "default", nil
 	}
 
+	// Source label "api_version" mirrors Python repository.load_rules'
+	// api-version-rule branch (services/services/quota/src/quota/repository.py:110);
+	// "api" was not in Python's rule_source contract set
+	// {app, tenant, api_version, default, fallback} (concern-a, R3a T5).
+	//
+	// Asymmetry note (concern-a, deferred to R3b): Python's load_rules merges
+	// three disjunctive layers — app_rl / tenant_rl / api_rl — and labels the
+	// winner ("app" > "tenant" > "api_version"). Go's quota_rule table is a
+	// single row keyed by (tenant_id, app_id, api_id) with no per-layer merge,
+	// so today only the "api_version" label is reachable on this branch. The
+	// app/tenant layers and their labels are not yet implemented in Go.
 	return &models.QuotaRules{
 		Second: models.LimitRule{Tier: "second", MaxCount: row.SecondMax, WindowMs: row.SecondWindowMs, WindowSec: row.SecondWindowMs / 1000},
 		Minute: models.LimitRule{Tier: "minute", MaxCount: row.MinuteMax, WindowMs: row.MinuteWindowMs, WindowSec: row.MinuteWindowMs / 1000},
 		Day:    models.LimitRule{Tier: "day", MaxCount: row.DayMax, WindowMs: row.DayWindowMs, WindowSec: row.DayWindowMs / 1000},
-	}, "api", nil
+	}, "api_version", nil
 }
 
 func defaultRules() *models.QuotaRules {
@@ -62,5 +81,8 @@ func defaultRules() *models.QuotaRules {
 }
 
 func (r *PGRepository) HealthCheck(ctx context.Context) error {
+	if r == nil || r.pool == nil {
+		return fmt.Errorf("pg pool not initialized")
+	}
 	return r.pool.Ping(ctx)
 }

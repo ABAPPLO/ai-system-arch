@@ -1,6 +1,6 @@
 .PHONY: help install dev fmt lint test docker-build tf-init tf-plan tf-apply \
         k8s-apply-dev k8s-apply-staging k8s-apply-prod argocd-sync \
-        run-registry run-dispatcher run-auth run-executor run-quota run-tenant run-admin run-docs run-trace run-retry run-workflow run-notification run-portal run-ai-gateway run-billing \
+        run-registry run-dispatcher run-auth run-executor run-quota build-quota run-tenant run-admin run-docs run-trace run-retry run-workflow run-notification run-portal run-ai-gateway run-billing \
         run-admin-frontend admin-frontend-install admin-frontend-typecheck admin-frontend-build portal-frontend-install portal-frontend-typecheck portal-frontend-build run-portal-frontend \
         dev-up dev-down dev-logs dev-ps dev-reset dev-psql dev-redis-cli db-apply \
         cli-install cli-validate cli-apply-dev cli-apply-staging cli-apply-prod \
@@ -81,8 +81,15 @@ test:  ## 跑测试
 
 # ===== Docker =====
 docker-build:  ## 构建服务镜像（在仓库根目录执行）
-	docker build -f services/services/$(SERVICE)/Dockerfile \
-		-t registry.apihub.internal/apihub/$(SERVICE):0.1.0-dev .
+	@case "$(SERVICE)" in \
+	  quota) \
+	    echo ">> quota uses Go impl: services/go/quota/Dockerfile (context=services/go/quota)"; \
+	    docker build -f services/go/quota/Dockerfile \
+	      -t registry.apihub.internal/apihub/quota:0.1.0-dev services/go/quota ;; \
+	  *) \
+	    docker build -f services/services/$(SERVICE)/Dockerfile \
+	      -t registry.apihub.internal/apihub/$(SERVICE):0.1.0-dev . ;; \
+	esac
 
 # ===== Terraform =====
 TF_DIR = deploy/terraform/envs/$(ENV)
@@ -136,8 +143,11 @@ run-auth:  ## 本地启动 auth
 run-executor:  ## 本地启动 executor（worker，需要 Kafka + PG + Redis）
 	uvicorn executor.main:app --reload --port 8003
 
-run-quota:  ## 本地启动 quota（延迟敏感，需要 Redis）
-	uvicorn quota.main:app --reload --port 8004
+run-quota:  ## 本地启动 quota（Go 实现，延迟敏感，需要 Redis）
+	cd services/go/quota && go run ./cmd
+
+build-quota:  ## 构建 Go quota 二进制到 bin/quota
+	cd services/go/quota && go build -o ../../bin/quota ./cmd
 
 run-tenant:  ## 本地启动 tenant-svc（管理类，需要 PG + Redis）
 	uvicorn tenant.main:app --reload --port 8005

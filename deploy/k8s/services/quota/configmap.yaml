@@ -24,6 +24,12 @@ data:
   KAFKA_BROKERS: apihub-kafka-1:9092,apihub-kafka-2:9092,apihub-kafka-3:9092
   KAFKA_TOPIC_CALL_EVENTS: api-call-events
 
+  # R3a：Go quota 信任入口鉴权（复用 R1d 模式，与 dispatcher/configmap.yaml 对齐）。
+  # Go quota 的 ingressAuth 中间件验 X-Ingress-Auth == INGRESS_SHARED_SECRET；
+  # APISIX proxy-rewrite 注入该 header。值须与 APISIX 一致；空 → fail-closed（全 401）。
+  # 非敏（不像密码那样需要加密），入 ConfigMap；prod 走强随机（与 dispatcher 同策略）。
+  INGRESS_SHARED_SECRET: ingress-shared-dev
+
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.apihub-monitoring:4317
   OTEL_SERVICE_NAME: quota
   OTEL_RESOURCE_ATTRIBUTES: deployment.environment=dev
