@@ -137,7 +137,7 @@ func TestCheckAndConsumeLuaAtomicity(t *testing.T) {
 	const limit = 10
 	const goroutines = 200
 	rules := &models.QuotaRules{
-		Second: models.LimitRule{Tier: "second", MaxCount: limit, WindowMs: 1000},
+		Second: models.LimitRule{Tier: "second", MaxCount: limit, WindowMs: 1000, Enabled: true},
 		// minute / day MaxCount = 0 → Lua skips their check but still INCRs
 		// so GET /usage reflects every attempt (Python _compile_rules: max=0
 		// for inactive tiers).
@@ -184,9 +184,9 @@ func TestCheckAndConsumeLuaAtomicityMultiTier(t *testing.T) {
 	l, _, _ := newMiniLimiter(t)
 
 	rules := &models.QuotaRules{
-		Second: models.LimitRule{Tier: "second", MaxCount: 5, WindowMs: 1000},
-		Minute: models.LimitRule{Tier: "minute", MaxCount: 50, WindowMs: 60000},
-		Day:    models.LimitRule{Tier: "day", MaxCount: 5000, WindowMs: 86400000},
+		Second: models.LimitRule{Tier: "second", MaxCount: 5, WindowMs: 1000, Enabled: true},
+		Minute: models.LimitRule{Tier: "minute", MaxCount: 50, WindowMs: 60000, Enabled: true},
+		Day:    models.LimitRule{Tier: "day", MaxCount: 5000, WindowMs: 86400000, Enabled: true},
 	}
 
 	const goroutines = 200
@@ -242,7 +242,7 @@ func TestCheckAndConsumeSequential(t *testing.T) {
 	l, _, _ := newMiniLimiter(t)
 
 	rules := &models.QuotaRules{
-		Second: models.LimitRule{Tier: "second", MaxCount: 3, WindowMs: 1000},
+		Second: models.LimitRule{Tier: "second", MaxCount: 3, WindowMs: 1000, Enabled: true},
 	}
 	const tenant, app, api = "t_seq", "a_seq", "b_seq"
 
@@ -316,6 +316,55 @@ func TestRuleSourceUnlimited(t *testing.T) {
 	}
 }
 
+// TestDisabledTierSkipped verifies the new Enabled-flag contract: a tier with
+// Enabled=false (even with MaxCount>0) is treated as inactive — the limiter
+// reports rule_source="unlimited" and never blocks. Mirrors Python
+// _compile_rules (limiter.py:220: `if rule and rule.enabled and
+// rule.max_count > 0`) which drops disabled tiers from active_tiers entirely.
+func TestDisabledTierSkipped(t *testing.T) {
+	l, mr, _ := newMiniLimiter(t)
+
+	// All tiers Enabled=false → effectively unlimited, even though MaxCount>0.
+	rules := &models.QuotaRules{
+		Second: models.LimitRule{Tier: "second", MaxCount: 1, WindowMs: 1000, Enabled: false},
+		Minute: models.LimitRule{Tier: "minute", MaxCount: 1, WindowMs: 60000, Enabled: false},
+		Day:    models.LimitRule{Tier: "day", MaxCount: 1, WindowMs: 86400000, Enabled: false},
+	}
+	resp := l.CheckAndConsume(context.Background(), "t_dis", "a_dis", "b_dis", rules, 1)
+	if !resp.Allowed {
+		t.Fatalf("disabled tiers must not block: %+v", resp)
+	}
+	if resp.RuleSource != "unlimited" {
+		t.Fatalf("rule_source: got %q want unlimited (all tiers disabled)", resp.RuleSource)
+	}
+	if got := len(mr.Keys()); got != 0 {
+		t.Fatalf("all-disabled path touched Redis: keys=%d", got)
+	}
+
+	// Mixed: one enabled tier limits; disabled tiers do not contribute.
+	rules2 := &models.QuotaRules{
+		Second: models.LimitRule{Tier: "second", MaxCount: 2, WindowMs: 1000, Enabled: true},
+		// minute disabled — would otherwise be the strictest tier.
+		Minute: models.LimitRule{Tier: "minute", MaxCount: 1, WindowMs: 60000, Enabled: false},
+	}
+	// Two calls must admit against the second-tier limit=2; the disabled
+	// minute=1 must NOT block.
+	for i := 0; i < 2; i++ {
+		resp := l.CheckAndConsume(context.Background(), "t_mix", "a_mix", "b_mix", rules2, 1)
+		if !resp.Allowed {
+			t.Fatalf("call %d: disabled minute must not block: %+v", i, resp)
+		}
+	}
+	// 3rd call exceeds the second-tier limit=2 → blocked at second, NOT minute.
+	resp3 := l.CheckAndConsume(context.Background(), "t_mix", "a_mix", "b_mix", rules2, 1)
+	if resp3.Allowed {
+		t.Fatal("3rd call: expected blocked at second, got allowed")
+	}
+	if resp3.TierBlocked == nil || *resp3.TierBlocked != "second" {
+		t.Fatalf("tier_blocked: got %v want second (minute is disabled)", resp3.TierBlocked)
+	}
+}
+
 // TestRuleSourceFallback verifies Redis errors degrade to allowed +
 // rule_source="fallback" (Python limiter.py:97-108: a downed limiter should
 // not block all traffic).
@@ -330,7 +379,7 @@ func TestRuleSourceFallback(t *testing.T) {
 	l := New(rdb, "", 1.0)
 	mr.Close()
 
-	rules := &models.QuotaRules{Second: models.LimitRule{MaxCount: 5, WindowMs: 1000}}
+	rules := &models.QuotaRules{Second: models.LimitRule{MaxCount: 5, WindowMs: 1000, Enabled: true}}
 	resp := l.CheckAndConsume(context.Background(), "t", "a", "b", rules, 1)
 	if !resp.Allowed {
 		t.Fatalf("fallback must allow: %+v", resp)
@@ -349,7 +398,7 @@ func TestRuleSourceFallback(t *testing.T) {
 func TestRefundAtomic(t *testing.T) {
 	l, _, _ := newMiniLimiter(t)
 
-	rules := &models.QuotaRules{Second: models.LimitRule{MaxCount: 5, WindowMs: 1000}}
+	rules := &models.QuotaRules{Second: models.LimitRule{MaxCount: 5, WindowMs: 1000, Enabled: true}}
 	const tenant, app, api = "t_rf", "a_rf", "b_rf"
 
 	// Consume 3.
@@ -391,7 +440,7 @@ func TestRefundDoesNotGoNegative(t *testing.T) {
 		t.Fatal("refund returned false")
 	}
 	// First real consume against a limit of 1 must admit (counter is 0).
-	rules := &models.QuotaRules{Second: models.LimitRule{MaxCount: 1, WindowMs: 1000}}
+	rules := &models.QuotaRules{Second: models.LimitRule{MaxCount: 1, WindowMs: 1000, Enabled: true}}
 	resp := l.CheckAndConsume(context.Background(), tenant, app, api, rules, 1)
 	if !resp.Allowed {
 		t.Fatalf("after over-refund: expected allowed (clamp to 0 broken): %+v", resp)
