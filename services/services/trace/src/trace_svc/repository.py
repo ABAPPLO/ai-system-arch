@@ -95,11 +95,9 @@ async def list_calls(
         LIMIT %(limit)s OFFSET %(offset)s
     """  # noqa: S608
     try:
-        return ch.query_all(
-            sql,
-            params,
-            force_tenant_id=None if use_admin_session else "sentinel",
-        )
+        if use_admin_session:
+            return ch.query_union_peer(sql, sql, params, force_tenant_id=None)
+        return ch.query_all(sql, params, force_tenant_id="sentinel")
     except RuntimeError as e:
         log.warning("trace_list_clickhouse_unavailable", error=str(e))
         return []
@@ -220,11 +218,12 @@ async def stats(
         LIMIT 10
     """  # noqa: S608
     try:
-        top_apis_raw = ch.query_all(
-            top_apis_sql,
-            params,
-            force_tenant_id=None if use_admin_session else "sentinel",
-        )
+        if use_admin_session:
+            top_apis_raw = ch.query_union_peer(
+                top_apis_sql, top_apis_sql, params, force_tenant_id=None
+            )
+        else:
+            top_apis_raw = ch.query_all(top_apis_sql, params, force_tenant_id="sentinel")
     except RuntimeError:
         top_apis_raw = []
 
@@ -250,11 +249,12 @@ async def stats(
         LIMIT 168
     """  # noqa: S608
     try:
-        by_hour_raw = ch.query_all(
-            by_hour_sql,
-            params,
-            force_tenant_id=None if use_admin_session else "sentinel",
-        )
+        if use_admin_session:
+            by_hour_raw = ch.query_union_peer(
+                by_hour_sql, by_hour_sql, params, force_tenant_id=None
+            )
+        else:
+            by_hour_raw = ch.query_all(by_hour_sql, params, force_tenant_id="sentinel")
     except RuntimeError:
         by_hour_raw = []
 
@@ -295,7 +295,6 @@ async def call_funnel(
     limit: int = 50,
 ) -> list[dict[str, Any]]:
     """调用漏斗：按 trace_id 分组，展示每次调用链中的 API 序列。"""
-    ft = "sentinel" if not use_admin_session else None
     params: dict[str, Any] = {}
     clauses: list[str] = []
     if viewer_tenant_id:
@@ -309,13 +308,15 @@ async def call_funnel(
         params["until"] = until
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     try:
-        rows = ch.query_all(
-            f"""
+        sql = f"""
             SELECT trace_id, groupArray((ts, api_id, path)) AS steps
             FROM api_call_log {where}
             GROUP BY trace_id ORDER BY max(ts) DESC LIMIT {limit}
-            """, params, force_tenant_id=ft,
-        )
+            """  # noqa: S608
+        if use_admin_session:
+            rows = ch.query_union_peer(sql, sql, params, force_tenant_id=None)
+        else:
+            rows = ch.query_all(sql, params, force_tenant_id="sentinel")
     except RuntimeError as e:
         log.warning("funnel_ch_unavailable", error=str(e))
         return []
@@ -338,7 +339,6 @@ async def co_occurrence(
     min_pairs: int = 3,
 ) -> list[dict[str, Any]]:
     """API 共现：同一 trace 中的 API 对，按频次降序。"""
-    ft = "sentinel" if not use_admin_session else None
     params: dict[str, Any] = {}
     clauses: list[str] = []
     if viewer_tenant_id:
@@ -349,8 +349,7 @@ async def co_occurrence(
         params["since"] = since
     where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
     try:
-        rows = ch.query_all(
-            f"""
+        sql = f"""
             SELECT a.api_id AS api_a, a.path AS path_a,
                    b.api_id AS api_b, b.path AS path_b,
                    count() AS pair_count
@@ -360,8 +359,11 @@ async def co_occurrence(
             GROUP BY a.api_id, a.path, b.api_id, b.path
             HAVING pair_count >= %(min)s
             ORDER BY pair_count DESC LIMIT 30
-            """, {**params, "min": min_pairs}, force_tenant_id=ft,
-        )
+            """  # noqa: S608
+        if use_admin_session:
+            rows = ch.query_union_peer(sql, sql, {**params, "min": min_pairs}, force_tenant_id=None)
+        else:
+            rows = ch.query_all(sql, {**params, "min": min_pairs}, force_tenant_id="sentinel")
     except RuntimeError as e:
         log.warning("cooccur_ch_unavailable", error=str(e))
         return []

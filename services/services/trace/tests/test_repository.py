@@ -88,10 +88,10 @@ class TestListCalls:
         rows = await repo.list_calls(CallQuery(), use_admin_session=True)
         assert len(rows) == 1
         assert rows[0]["trace_id"] == "t1"
-        # 验证 ch.query_all 被调用一次
+        # 验证 ch.query_union_peer 被调用一次（admin 走跨区 peer 路径）
         assert len(fake_ch["calls"]) == 1
         call_kind, sql, params, force = fake_ch["calls"][0]
-        assert call_kind == "all"
+        assert call_kind == "union"
         assert force is None  # admin session
 
     async def test_clickhouse_unavailable_returns_empty(self, monkeypatch):
@@ -185,6 +185,12 @@ class TestStats:
 
         monkeypatch.setattr(ch_mod, "query_one", _query_one)
         monkeypatch.setattr(ch_mod, "query_all", _query_all)
+        # admin 路径走 query_union_peer → 复用 _query_all 的路由逻辑
+        monkeypatch.setattr(
+            ch_mod,
+            "query_union_peer",
+            lambda ls, ps, p, *, force_tenant_id="sentinel": _query_all(ls, p, force_tenant_id=force_tenant_id),
+        )
 
         result = await repo.stats(CallQuery(), use_admin_session=True)
         assert result["total"] == 1000

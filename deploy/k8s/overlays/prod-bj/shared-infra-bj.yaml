@@ -21,6 +21,8 @@ data:
   CH_PORT: "8123"
   CH_USERNAME: "apihub"
   PEER_REGION_CH_HOST: "ch-sh.internal"
+  PEER_REGION_CH_USER: "default"
+  PEER_REGION_CH_PASSWORD: "REPLACE_ME"        # ← prod-sh CH 凭据（apply 时 ExternalSecrets/KMS 注入）
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.apihub-monitoring:4317"
   QUOTA_REGION_SPLIT_RATIO: "0.4"
   PEER_QUOTA_REGION_SPLIT_RATIO: "0.6"
