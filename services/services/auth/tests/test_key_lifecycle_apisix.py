@@ -44,16 +44,22 @@ def fake_redis(monkeypatch):
 async def test_create_key_upserts_consumer_and_warms_cache(monkeypatch):
     calls = {"consumer": None, "cache_warm": None}
 
-    async def _upsert(*, key_id, key):
-        calls["consumer"] = (key_id, key)
+    async def _upsert(*, key_id, key, labels=None):
+        calls["consumer"] = (key_id, key, labels)
 
     async def _write(api_key, data, ttl):
         calls["cache_warm"] = (api_key, data, ttl)
 
-    from apihub_core import apisix_client, identity
+    from apihub_core import identity
     from auth import routes as routes_mod
 
-    monkeypatch.setattr(apisix_client, "upsert_consumer", _upsert)
+    # R3b S1-T3：create_key 现在通过 _inject_home_region_on_create 调用
+    # routes_mod.upsert_consumer（模块级绑定），并先查 get_tenant_home_region。
+    async def _home_region(tenant_id):  # noqa: ARG001
+        return "bj"
+
+    monkeypatch.setattr(routes_mod, "upsert_consumer", _upsert)
+    monkeypatch.setattr(routes_mod, "get_tenant_home_region", _home_region)
     monkeypatch.setattr(identity, "write_identity", _write)
 
     async def _fake_create(**kw):

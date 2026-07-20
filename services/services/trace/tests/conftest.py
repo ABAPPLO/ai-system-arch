@@ -54,8 +54,14 @@ def fake_ch(monkeypatch):
         state["calls"].append(("one", sql, params, force_tenant_id))
         return state["row"]
 
+    def _query_union_peer(local_sql, peer_sql=None, params=None, *, force_tenant_id="sentinel"):
+        # admin 跨区查询：记录为 union 调用，返回与 query_all 同样的 fixture 数据。
+        state["calls"].append(("union", local_sql, params, force_tenant_id))
+        return state["rows"]
+
     monkeypatch.setattr(ch_mod, "query_all", _query_all)
     monkeypatch.setattr(ch_mod, "query_one", _query_one)
+    monkeypatch.setattr(ch_mod, "query_union_peer", _query_union_peer)
     return state
 
 

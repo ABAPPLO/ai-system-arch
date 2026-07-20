@@ -21,6 +21,11 @@ data:
   CH_PORT: "8123"
   CH_USERNAME: "apihub"
   PEER_REGION_CH_HOST: "ch-sh.internal"
+  PEER_REGION_CH_USER: "default"
+  PEER_REGION_CH_PASSWORD: "REPLACE_ME"        # ← prod-sh CH 凭据（apply 时 ExternalSecrets/KMS 注入）
+  GATEWAY_URL_SH: "https://api-sh.apihub.com"
+  GATEWAY_URL_BJ: "https://api-bj.apihub.com"
+  MULTI_REGION_ACTIVE: "1"                      # C-T1 guard：un-gate Go quota splitRatio（与 prod-sh 对称，缺则 bj=100% → 双活超量 1.6×）
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.apihub-monitoring:4317"
   QUOTA_REGION_SPLIT_RATIO: "0.4"
   PEER_QUOTA_REGION_SPLIT_RATIO: "0.6"

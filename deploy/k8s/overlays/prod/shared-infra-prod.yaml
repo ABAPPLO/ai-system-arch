@@ -7,6 +7,7 @@ metadata:
   name: apihub-shared-infra-prod
   namespace: apihub-system
 data:
+  HOME_REGION: "sh"
   PG_HOST: "apihub-rds.internal"             # ← terraform output rds_endpoint
   PG_PORT: "5432"
   PG_USER: "apihub_app"
@@ -23,6 +24,14 @@ data:
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.apihub-monitoring:4317"
   QUOTA_REGION_SPLIT_RATIO: "0.6"
   PEER_QUOTA_REGION_SPLIT_RATIO: "0.4"
+  # 多 region active-active（R3b）：peer 指向 prod-bj，secret 占位 apply 时 ExternalSecrets 注入。
+  GATEWAY_URL_SH: "https://api-sh.apihub.com"
+  GATEWAY_URL_BJ: "https://api-bj.apihub.com"
+  PEER_REGION_CH_HOST: "ch-bj.internal"
+  PEER_REGION_CH_USER: "default"
+  PEER_REGION_CH_PASSWORD: "REPLACE_ME"       # ← prod-bj CH 凭据（apply 时 ExternalSecrets/KMS 注入，与 prod-bj 风格一致）
+  PEER_REGION_PG_DSN: "postgres://apihub@pg-bj.internal:5432/apihub"
+  MULTI_REGION_ACTIVE: "1"                    # C-T1 guard：un-gate Go quota splitRatio（dev/kind 不设=单 region 100%）
 ---
 apiVersion: v1
 kind: Secret

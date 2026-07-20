@@ -21,15 +21,20 @@ _M.schema = {
 
 function _M.rewrite(conf, ctx)
     local consumer = ctx.consumer
-    if not consumer or not consumer.home_region then
+    local labels = consumer and consumer.labels
+    if not labels or not labels.home_region then
         return
     end
 
-    local home = consumer.home_region
+    local home = labels.home_region
     local curr = os.getenv("HOME_REGION") or "sh"
     if home == curr then
         return
     end
+
+    -- APISIX 3.17 不对 array-typed schema 默认值做运行时填充 → conf.write_methods 可能为 nil。
+    -- 显式兜底，避免 ipairs(nil) → HTTP 500（任何 tenant-affinity:{} 启用的路由都会踩到）。
+    conf.write_methods = conf.write_methods or {"POST", "PUT", "PATCH", "DELETE"}
 
     -- C1 + I2 + M3: Unknown home_region — log warning and allow write locally
     if home ~= "sh" and home ~= "bj" then

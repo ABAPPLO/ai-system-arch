@@ -57,6 +57,10 @@ class Settings(BaseSettings):
     peer_region_ch_host: str | None = Field(default=None, alias="PEER_REGION_CH_HOST")
     """对端 Region 的 ClickHouse HTTP 地址（如 http://ch-sh.internal:8123）。
        空值表示单 Region 模式或暂无对端可查询。"""
+    peer_region_pg_dsn: str | None = Field(default=None, alias="PEER_REGION_PG_DSN")
+    """对端 Region PG DSN（逻辑订阅源/故障切换用，Python 侧可读）。"""
+    peer_region_ch_user: str = Field(default="default", alias="PEER_REGION_CH_USER")
+    peer_region_ch_password: str = Field(default="", alias="PEER_REGION_CH_PASSWORD")
 
     # Argo Workflow（workflow-svc 用）
     # stub：dev / test 内存模拟；k8s：in-cluster 走 K8s API

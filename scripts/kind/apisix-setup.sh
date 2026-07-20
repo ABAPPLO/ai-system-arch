@@ -52,6 +52,23 @@ say "apisix chart repo ready"
 #    NodePort 30080 在 helm 值里指定，安装后再核对 / 兜底 patch（修正 #1）。
 # ---------------------------------------------------------------------------
 log "helm install APISIX (gateway NodePort $GATEWAY_NODEPORT)"
+
+# 2-pre) R3b S1-T4：先创建 tenant-affinity 插件 ConfigMap——APISIX pod 启动前必须存在
+#        （apisix-values.yaml 的 apisix.customPlugins.configMap.name 引用本 ConfigMap，
+#        缺失则 pod 起不来或挂载空）。幂等：--dry-run=client | kubectl apply。
+say "upsert ConfigMap apisix-plugin-tenant-affinity (tenant-affinity.lua)"
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+LUA_SRC="${REPO_ROOT}/deploy/apisix/plugins/tenant-affinity.lua"
+if [ ! -f "${LUA_SRC}" ]; then
+  echo "ERROR: tenant-affinity.lua not found at ${LUA_SRC}" >&2
+  exit 1
+fi
+kubectl -n "${NS}" create configmap apisix-plugin-tenant-affinity \
+  --from-file=tenant-affinity.lua="${LUA_SRC}" \
+  -o yaml --dry-run=client | kubectl -n "${NS}" apply -f - >/dev/null \
+  && say "  ConfigMap apisix-plugin-tenant-affinity applied (namespace=${NS})" \
+  || { echo "ERROR: failed to apply apisix-plugin-tenant-affinity ConfigMap" >&2; exit 1; }
+
 cat >/tmp/apisix-kind-values.yaml <<EOF
 gateway:
   type: NodePort
@@ -70,6 +87,33 @@ etcd:
   # ⚠️ chart v12（面向 etcd 3.6）默认 liveness 探针走 /livez，但镜像 pin 在 3.5.9 ——
   # etcd 3.5 无 /livez（返 404）→ liveness 必败 → CrashLoop（实测 restarts=31）。
   # 不能在 helm values 改 probe path（bitnami etcd subchart 未暴露该取值入口），用下方 §4b patch 修。
+
+# R3b S1-T4：投递 tenant-affinity.lua 进 pod + 注册插件名。
+# 与 deploy/k8s/base/apigw/apisix-values.yaml 同款（kind 不读 base values，需在 inline 复述）。
+# 注：plugins 列表是**完整覆盖**——只写 tenant-affinity 会让 key-auth/proxy-rewrite 等失效，
+# 故把 smoke 路由用到的内置插件一并显式列出（APISIX 不与默认插件集合并）。
+apisix:
+  plugins:
+    - key-auth
+    - proxy-rewrite
+    - limit-req
+    - limit-count
+    - limit-conn
+    - prometheus
+    - opentelemetry
+    - tenant-affinity
+  customPlugins:
+    enabled: true
+    # 不设 luaPath：chart 渲染成 extra_lua_path 会触发 init_by_lua loop → APISIX 起不来
+    # （base apisix-values.yaml 同款修正；默认 package.path 已能解析到挂载的 .lua）。
+    plugins:
+      - name: "tenant-affinity"
+        attrs: {}
+        configMap:
+          name: "apisix-plugin-tenant-affinity"
+          mounts:
+            - key: "tenant-affinity.lua"
+              path: "/usr/local/apisix/apisix/plugins/tenant-affinity.lua"
 EOF
 
 # 容忍首次安装可能因镜像拉取超时失败（资源仍会创建）
@@ -236,9 +280,11 @@ say "admin API reachable"
 ADMIN="http://127.0.0.1:${LOCAL_ADMIN_PORT}/apisix/admin"
 
 # 6a) consumer：smoke / key-auth key = ak_test_a_demo001
-say "upsert consumer 'smoke' (key-auth key=${DEMO_KEY})"
+#     R3b S1-T3：consumer 携带 labels.home_region="sh" —— 演示 tenant-affinity 写亲和
+#     （APISIX 插件读 labels.home_region 决定写路由 region）。
+say "upsert consumer 'smoke' (key-auth key=${DEMO_KEY}, home_region=sh)"
 curl -s "${ADMIN}/consumers/smoke" -H "X-API-KEY: ${ADMIN_KEY}" -X PUT \
-  -d "{\"username\":\"smoke\",\"plugins\":{\"key-auth\":{\"key\":\"${DEMO_KEY}\"}}}" \
+  -d "{\"username\":\"smoke\",\"plugins\":{\"key-auth\":{\"key\":\"${DEMO_KEY}\"}},\"labels\":{\"home_region\":\"sh\"}}" \
   -o /dev/null -w "  consumer PUT -> %{http_code}\n"
 
 # 6b) route：/dispatch/* → dispatcher.apihub-system:80，key-auth 读 X-API-Key（修正 #4）。

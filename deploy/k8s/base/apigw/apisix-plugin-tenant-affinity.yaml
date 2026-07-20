@@ -1,0 +1,101 @@
+# ConfigMap 投递 APISIX 自定义插件 tenant-affinity.lua 到 pod 的插件目录。
+# 详见 deploy/k8s/base/apigw/apisix-values.yaml 的 apisix.customPlugins 段。
+#
+# 投递路径（两种等价方式）：
+#   1) kind bootstrap / 任何 shell 路径（**canonical**）：
+#        kubectl -n apihub-ingress create configmap apisix-plugin-tenant-affinity \
+#          --from-file=tenant-affinity.lua=deploy/apisix/plugins/tenant-affinity.lua \
+#          -o yaml --dry-run=client | kubectl apply -f -
+#      （脚本里如此做；本 yaml 与之等价，供 kustomize / CI / 审计直接 apply 使用。）
+#   2) kustomize 直接 apply 本 yaml（lua 内容内联在 data.tenant-affinity.lua）。
+#
+# Helm 不直接消费本 yaml——apisix-values.yaml 的 apisix.customPlugins.configMap.name
+# 仅引用 ConfigMap **名**（apisix-plugin-tenant-affinity），要求该 ConfigMap 已存在；
+# ConfigMap 本体由上述 1)/2) 之一创建。 Helm install 须在 ConfigMap 存在后执行。
+#
+# 注：修改 lua 时请改源文件 deploy/apisix/plugins/tenant-affinity.lua（S1-T2 拥有），
+# 再用方式 1) 重新生成。本 yaml 的内联副本与之保持同步（CI 校验脚本可加 drift 检测）。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: apisix-plugin-tenant-affinity
+  namespace: apihub-ingress
+  labels:
+    app.kubernetes.io/name: apisix
+    app.kubernetes.io/component: custom-plugin
+    apihub.io/plugin: tenant-affinity
+  annotations:
+    apihub.io/source-file: deploy/apisix/plugins/tenant-affinity.lua
+    apihub.io/owner-task: S1-T2
+data:
+  tenant-affinity.lua: |
+    -- Read gateway URLs from env vars with defaults
+    local GATEWAY_SH = os.getenv("GATEWAY_URL_SH") or "https://api-sh.apihub.com"
+    local GATEWAY_BJ = os.getenv("GATEWAY_URL_BJ") or "https://api-bj.apihub.com"
+
+    local _M = { version = 0.2, priority = 2000, name = "tenant-affinity" }
+
+    _M.schema = {
+        type = "object",
+        properties = {
+            write_methods = {
+                type = "array",
+                items = { type = "string" },
+                default = { "POST", "PUT", "PATCH", "DELETE" },
+            },
+            fallback_local = {
+                type = "boolean",
+                default = false,
+            },
+        },
+    }
+
+    function _M.rewrite(conf, ctx)
+        local consumer = ctx.consumer
+        local labels = consumer and consumer.labels
+        if not labels or not labels.home_region then
+            return
+        end
+
+        local home = labels.home_region
+        local curr = os.getenv("HOME_REGION") or "sh"
+        if home == curr then
+            return
+        end
+
+        -- APISIX 3.17 不对 array-typed schema 默认值做运行时填充 → conf.write_methods 可能为 nil。
+        -- 显式兜底，避免 ipairs(nil) → HTTP 500（任何 tenant-affinity:{} 启用的路由都会踩到）。
+        conf.write_methods = conf.write_methods or {"POST", "PUT", "PATCH", "DELETE"}
+
+        -- C1 + I2 + M3: Unknown home_region — log warning and allow write locally
+        if home ~= "sh" and home ~= "bj" then
+            ngx.log(ngx.WARN, "tenant-affinity: unknown home_region '"
+                    .. tostring(home) .. "', allowing write locally")
+            return
+        end
+
+        local method = ctx.var.request_method
+        for _, m in ipairs(conf.write_methods) do
+            if m == method then
+                -- C2: Safe degradation — if fallback_local is enabled and peer is
+                -- unreachable, allow write locally with a warning
+                if conf.fallback_local then
+                    ngx.log(ngx.WARN,
+                            "tenant-affinity: write to non-home region allowed via "
+                            .. "fallback_local, tenant=" .. tostring(home))
+                    return
+                end
+
+                local gw = { sh = GATEWAY_SH, bj = GATEWAY_BJ }
+                local uri = ctx.var.uri
+                if ctx.var.is_args == 1 then
+                    uri = uri .. "?" .. ctx.var.args
+                end
+                ngx.status = 302
+                ngx.header["Location"] = gw[home] .. uri
+                return ngx.exit(302)
+            end
+        end
+    end
+
+    return _M
