@@ -1,5 +1,7 @@
 -- ClickHouse 调用日志 schema —— 详见 docs/04-data-model.md §4
--- 注意：ClickHouse 不做 RLS（无 tenant 隔离），靠查询 SQL WHERE tenant_id 过滤
+-- 注意：ClickHouse 不做 DB-level RLS。app 层由 apihub_core.clickhouse._assert_tenant_filter
+-- 强制 query_all/query_one 的租户作用域查询含 %(tenant_id)s + params tenant_id 绑定 ctx（防伪）；
+-- admin(force_tenant_id=None) 旁路+审计。operator direct-CH 不受保护（DB-level 参数化视图列 future hardening）。
 
 CREATE DATABASE IF NOT EXISTS apihub;
 
