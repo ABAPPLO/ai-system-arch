@@ -144,7 +144,7 @@ kind 双实例 harness：`pg-sh:5432` / `pg-bj:5433`、`kafka-sh` / `kafka-bj` +
 - **C1** Go quota splitRatio 单区守卫：`PEER_REGION_*` 任一未配置 → `splitRatio` 强制 1.0（无视 `QUOTA_REGION_SPLIT_RATIO` env）；仅 peer 配置齐备时才按比例——修「单区砍 60%」潜伏 bug（`redis.go:178-180 effectiveQuota` + `main.go:50` wiring）。代码层守卫覆盖已部署 prod-sh 的 0.6 configmap，不依赖人工改。
 - **C2** prod-sh overlay 对称：`HOME_REGION=sh` / `PEER_REGION_CH_HOST`(+creds) / `PEER_REGION_GATEWAY`（S1-T5 / S4-T2 共用）。
 - **C3** `peer_region_pg_dsn` Settings（= S2-T2）。
-- **C4** per-region Redis 强制：Redis key **不加** region 段（保持与 Python + R3a/#60 对齐），靠「每区独立 Redis」隔离；kind 双实例给两区 quota 各自独立 Redis，否则计数相撞。设计 §4.2 的 region 前缀列 future hardening，本轮不做（避免再次撕裂 Go/Python key 对齐）。
+- **C4** per-region Redis 强制：Redis key **不加** region 段（保持与 Python + R3a/#60 对齐），靠「每区独立 Redis」隔离；kind 双实例给两区 quota 各自独立 Redis，否则计数相撞。设计 §4.2 的 region 前缀列 future hardening，本轮不做（避免再次撕裂 Go/Python key 对齐）。**✓ C-T2 已落实（2026-07-20）**：Task 0.1 `docker-compose.multi-region.yml` 起 `redis-sh:6379` + `redis-bj:6380` 两独立实例；两区 quota Deployment 各指 `REDIS_HOST=redis-sh`/`redis-bj`，计数隔离。key 不加 region 段（靠独立 Redis 隔离，对齐 Python/R3a/#60）。
 
 ## 6. 验证总表（每条从真入口驱动，对照审计 §6）
 
