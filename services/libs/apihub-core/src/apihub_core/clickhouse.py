@@ -112,6 +112,39 @@ def current_tenant_id_or_none() -> str | None:
     return ctx.tenant_id if ctx else None
 
 
+def _assert_tenant_filter(
+    sql: str,
+    params: dict[str, Any] | None,
+    force_tenant_id: str | None,
+) -> None:
+    """CH 租户隔离中央护栏（app-level）。
+
+    租户作用域（force_tenant_id != None）：SQL 须含 `%(tenant_id)s` token +
+    params["tenant_id"] 须 == 解析出的 tenant_id（防伪）。admin（None）旁路 + 审计。
+
+    非 store-level（operator direct-CH 不受保护，见 spec §5）；DB-level 参数化视图列 future hardening。
+    """
+    if force_tenant_id is None:
+        log.info("ch_admin_scope_query", sql=sql[:120])
+        return
+    if force_tenant_id == "sentinel":
+        ctx = get_tenant_context()
+        if ctx is None:
+            raise RuntimeError(
+                "ch_session called without tenant context; "
+                "pass force_tenant_id=None for admin view"
+            )
+        effective = ctx.tenant_id
+    else:
+        effective = force_tenant_id
+    if "%(tenant_id)s" not in sql:
+        raise ValueError(
+            "tenant-scoped CH query missing %(tenant_id)s filter"
+        )
+    if params is None or params.get("tenant_id") != effective:
+        raise ValueError("tenant_id param does not match context tenant")
+
+
 def query_all(
     sql: str,
     params: dict[str, Any] | None = None,
@@ -121,7 +154,9 @@ def query_all(
     """便捷封装：SELECT 返回 list[dict]。
 
     ClickHouse 用 %(name)s 风格的参数化（不是 asyncpg 的 $1）。
+    租户作用域查询经 _assert_tenant_filter 强制 %(tenant_id)s + 绑定 ctx（防伪）。
     """
+    _assert_tenant_filter(sql, params, force_tenant_id)
     with ch_session(force_tenant_id=force_tenant_id) as ch:
         result = ch.query(sql, parameters=params or {})
         cols = result.column_names
