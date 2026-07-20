@@ -16,11 +16,15 @@ services:
   redis-bj:
     image: redis:7-alpine
     ports: ["6380:6379"]
+  # 双 CH 同主机端口（18123）绑定到不同 loopback IP——apihub_core.clickhouse 的
+  # peer_client 复用 settings.ch_port（strip 掉 peer_region_ch_host 的 :port），
+  # 故 local 与 peer 必须同端口；用 127.0.0.2 / 127.0.0.3 区分两 Region。
+  # 选 18123（非 8123）避免与 dev 栈 apihub-clickhouse（0.0.0.0:8123）冲突。
   ch-sh:
-    image: clickhouse/clickhouse-server:24.3
+    image: clickhouse/clickhouse-server:24.3-alpine
     environment: { CLICKHOUSE_DB: apihub, CLICKHOUSE_USER: default, CLICKHOUSE_PASSWORD: apihub_dev_pwd }
-    ports: ["8123:8123"]
+    ports: ["127.0.0.2:18123:8123"]
   ch-bj:
-    image: clickhouse/clickhouse-server:24.3
+    image: clickhouse/clickhouse-server:24.3-alpine
     environment: { CLICKHOUSE_DB: apihub, CLICKHOUSE_USER: default, CLICKHOUSE_PASSWORD: apihub_dev_pwd }
-    ports: ["8124:8123"]
+    ports: ["127.0.0.3:18123:8123"]

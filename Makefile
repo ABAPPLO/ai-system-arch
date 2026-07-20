@@ -227,7 +227,7 @@ dev-down:  ## 停止开发栈（保留 volume）
 dev-up-multi:  ## 启动双区测试栈（2×PG/CH/Redis，region-labeled 端口）
 	docker compose -f docker-compose.multi-region.yml up -d
 	sleep 5
-	@echo "pg-sh:15432 pg-bj:5433 redis-sh:6379 redis-bj:6380 ch-sh:8123 ch-bj:8124"
+	@echo "pg-sh:15432 pg-bj:5433 redis-sh:6379 redis-bj:6380 ch-sh:127.0.0.2:18123 ch-bj:127.0.0.3:18123"
 
 dev-logs:  ## 看开发栈日志（tail -f）
 	$(COMPOSE) logs -f --tail=100
