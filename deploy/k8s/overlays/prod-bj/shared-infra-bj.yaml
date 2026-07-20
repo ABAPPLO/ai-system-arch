@@ -17,9 +17,6 @@ data:
   REDIS_HOST: "redis-bj.internal"
   REDIS_PORT: "6379"
   KAFKA_BROKERS: "kafka-bj-1:9092,kafka-bj-2:9092,kafka-bj-3:9092"
-  # R3b S3 MM2：两区 broker 地址。prod-bj 与 prod（上海）对称（两 region 都需同时知道双方 broker）。
-  KAFKA_SH: "kafka-sh.apihub-system:9092"
-  KAFKA_BJ: "kafka-bj.apihub-system:9092"
   CH_HOST: "ch-bj.internal"
   CH_PORT: "8123"
   CH_USERNAME: "apihub"

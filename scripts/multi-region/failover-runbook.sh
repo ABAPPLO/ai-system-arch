@@ -4,7 +4,7 @@
 #
 # Promotes the surviving region's PG, disables the failed→surviving logical
 # subscription, migrates tenant home_region, resets Kafka consumer-group
-# offsets on the surviving region, flips aliyun alidns, and pauses MM2.
+# offsets on the surviving region, and flips aliyun alidns.
 #
 # Lag pre-flight is PG16-compatible: uses NOW() - latest_end_time on the
 # surviving region's pg_stat_subscription (NOT latest_end_lag, which is
@@ -86,16 +86,12 @@ else
   echo "  [DRY-RUN/no-cli] would reset $CG on $KAFKA_SURVIVING"
 fi
 
-echo "[5/6] DNS switch — aliyun alidns + MM2 direction reverse"
+echo "[5/6] DNS switch — aliyun alidns"
 if [ "$DRY_RUN" != "--dry-run" ] && [ "${DNS_RECORD_ID:-}" ] && command -v aliyun >/dev/null 2>&1; then
   aliyun alidns UpdateDomainRecord --RecordId "$DNS_RECORD_ID" --RR api --Type A --Value "${SURVIVING_SLB_IP:?SURVIVING_SLB_IP required}" --TTL 30
   echo "  DNS api.${DOMAIN} → ${SURVIVING_SLB_IP}"
 else
   echo "  [DRY-RUN/no-cli/no-DNS_RECORD_ID] would switch DNS to ${SURVIVING_REGION} SLB" >&2
-fi
-if [ "$DRY_RUN" != "--dry-run" ] && command -v kubectl >/dev/null 2>&1; then
-  kubectl -n apihub-system rollout pause deployment/mirrormaker2 2>/dev/null || true
-  echo "  MM2 paused (reverse direction handled by post-failover ConfigMap)"
 fi
 audit dns "${SURVIVING_SLB_IP:-na}"
 

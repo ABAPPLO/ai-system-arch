@@ -11,9 +11,9 @@
 兑现 ADR-013 多 Region 全双活的**代码/脚本/接缝**——审计 §3.7 点名「写亲和核心是空的」。本 spec 核实确认：多 Region 现有代码集中在单 commit `b209d50`，**8 个缺口全部成立**（详见 §3 现状）。R3b 把 5 个子系统全部做真，并在一个 kind 集群用「双实例」做 e2e 验证。
 
 **范围决策（用户 2026-07-19 拍板）**：
-- **全做**：S1 APISIX 写亲和 + S2 PG 双向逻辑订阅 + S3 Kafka MirrorMaker + S4 CH 跨区查询 + S5 failover runbook/drill，一个 squash-PR。
+- **全做**：S1 APISIX 写亲和 + S2 PG 双向逻辑订阅 + S3 Kafka 跨区（DROP MM2，改 home-local）+ S4 CH 跨区查询 + S5 failover runbook/drill，一个 squash-PR。
 - **PG 复制模型**：全库双向 + `origin=none`（非 per-tenant 行过滤）。正确性承赖写分区。
-- **验证拓扑**：单 kind 集群 + 双实例（2×PG / 2×Kafka+MM2 / 2×CH / 2×Redis / 2×dispatcher / 1×APISIX）。
+- **验证拓扑**：单 kind 集群 + 双实例（2×PG / 2×CH / 2×Redis / 2×dispatcher / 1×APISIX；Kafka 单实例，无 MM2，见 §5 S3）。
 
 **非目标（§9）**：per-tenant publication、GSLB 真云 DNS、真跨区分区/延迟、Redis key 加 region 段、真·季度 ops 演练、Phase 4 新服务多区部署、Terraform prod-bj infra（已存在）、Thanos 跨区监控（已做）。
 
@@ -48,10 +48,10 @@ client ──302(write,non-home)──► APISIX(home) ──► dispatcher(home
                                                           PG(peer, has all rows)
 read  ──► 就近 dispatcher ──► 本地 PG/CH（写后读强主另行处理，§8-R2）
 CH 全局/admin 查 ──► trace-svc remote(peer) UNION local
-Kafka events ──► 本区 CH-writer；MM2 双向 + event_id 幂等去重
+Kafka events ──► 本区 CH-writer（home-local，无跨区复制；跨区日志靠 S4 CH remote()）
 ```
 
-kind 双实例 harness：`pg-sh:5432` / `pg-bj:5433`、`kafka-sh` / `kafka-bj` + MM2 Deployment、`ch-sh` / `ch-bj`、`redis-sh` / `redis-bj`、2 dispatcher（`HOME_REGION=sh|bj`）、1 APISIX（`HOME_REGION=sh`）。**region 边界 = 进程/config 边界**，对代码验证足够；真网络分区/延迟不在 kind 范畴（§8-R5）。
+kind 双实例 harness：`pg-sh:5432` / `pg-bj:5433`、`ch-sh` / `ch-bj`、`redis-sh` / `redis-bj`、2 dispatcher（`HOME_REGION=sh|bj`）、1 APISIX（`HOME_REGION=sh`）。Kafka 单实例（无跨区 MM2，见 §5 S3）。**region 边界 = 进程/config 边界**，对代码验证足够；真网络分区/延迟不在 kind 范畴（§8-R5）。
 
 ## 5. 子系统设计
 
@@ -83,20 +83,22 @@ kind 双实例 harness：`pg-sh:5432` / `pg-bj:5433`、`kafka-sh` / `kafka-bj` +
 - **S2-T3** lag 查询 helper（`scripts/multi-region/` 下，runbook + 监控共用）。
 - **S2-T4** 双 PG e2e：写 sh→现 bj；写 bj→现 sh；**模拟回环行→断言不再复制回**（origin=none 核心断言）。
 
-### S3 · Kafka MirrorMaker（k8s 化 + MM2）
+### S3 · Kafka 跨区复制（已 DROP MM2 双向）
 
-**设计决策**：
-- 弃 MM1 脚本，上 **MM2（MirrorMaker 2）k8s Deployment**：原生双向 + `IdentityReplicationPolicy` 防 topic 改名回环 + 内置 offset sync。allowlist：双向 `api-call-events`/`task-requests`/`task-failures`/`audit-events`/`billing-events`；`notification-events` 单向（设计 §4.3）。
-- 幂等：MM2 防环 + 下游消费者按 R0b 契约 `event_id` 去重（核查 + 文档化）。
-- manifest `deploy/k8s/base/shared/mirrormaker-deployment.yaml` + overlay patch broker 地址。
+**设计决策（2026-07-20 更新）**：在 §2 写分区承重模型下，**Kafka 跨区复制改由「不复制」**——每租户只写 home-region Kafka，本区 CH-writer 消费 → home-region ClickHouse。跨区可见性由两条链路承担：
 
-**任务**：
-- **S3-T1** MM2 Deployment（双向 + IdentityReplicationPolicy + allowlist）；归档/删坏脚本 `deploy-mirrormaker.sh`。
-- **S3-T2** overlay broker 地址（dev kind / prod / prod-bj）。
-- **S3-T3** 消费者 `event_id` 去重核查 + 文档。
-- **S3-T4** 双 Kafka + MM2 e2e：produce sh topic→consume bj；反向；**count 断言无重复**。
+- **元数据/状态**：S2 PG 双向逻辑订阅（全库 `origin=none`）——apis/apps/keys/tenants/quota_rules/tasks 等元数据两区一致。
+- **日志/聚合**：S4 `trace-svc` CH `remote()` union 查询——admin/全局聚合走 `remote($peer) UNION ALL local`，per-tenant/region-local 不变。
 
-**S3-T3 event_id 去重核查（2026-07-19）**：
+**MM2 双向复制被 DROP 的两条理由**：
+
+1. **不必要**：写分区下 Kafka 事件 home-local，没有「对端要消费本区 event」的消费者存在；MM2 复制到对端 topic 后无本地消费者，纯噪音。
+2. **循环风险（已实证）**：S3-T4 e2e 证明 `IdentityReplicationPolicy`（双向同 topic 名）触发**指数级 record-level 回环**——produce 3 条 → 数秒内 offset 飙至 32K–150K。原因：双向 `sh->bj` + `bj->sh` 各自把对端 mirror 副本再 mirror 回去，IdentityReplicationPolicy 保留同名 topic 无法靠 topic 名区分「原产」vs「mirror」，只能逐 record 追 ACLs/checkpoints 防环，配置错即雪崩。属「配置错静默丢消息/雪崩」的最坏形态。
+
+**任务（重订）**：
+
+- **S3-T1~T2、T4**（MM2 Deployment / overlay broker / 双 Kafka e2e）：**全部撤销**。manifest `mirrormaker-deployment.yaml` 删除；prod/prod-bj overlay MM2 patch 块移除；`KAFKA_SH`/`KAFKA_BJ` ConfigMap keys 移除（仅 MM2 用，无其他消费者）；`docker-compose.multi-region.yml` 双 Kafka 服务移除（仅 S3-T4 e2e 用）；RED `e2e-mm2.sh` 删除；MM1 `deploy-mirrormaker.sh.legacy` 删除；S5 runbook 的 MM2 反转 step 删除。
+- **S3-T3 event_id 去重核查（2026-07-19）**：**仍成立**。撤销 MM2 不改变「Kafka 消费 at-least-once」事实——网络分区/consumer 重启同样产生重复投递。消费者按业务主键去重（不依赖 `event_id`，R0b 契约实际未定义该字段）的现状如下：
 
 `grep -rn "event_id\|ON CONFLICT\|idempot" services/services/{executor,retry,trace,quota}/src` 结论：
 
@@ -106,10 +108,7 @@ kind 双实例 harness：`pg-sh:5432` / `pg-bj:5433`、`kafka-sh` / `kafka-bj` +
 - **trace**：**无任何去重**——CH-writer（Kafka→ClickHouse）无幂等保护，重复事件会写重复行。
 - **quota**：无消费者去重——仅 `kafka.emit` 生产 `billing-events`（`routes.py:62`），无消费者。
 
-**MM2 幂等约定**：MM2 `IdentityReplicationPolicy` 防 topic 改名回环（`sh.topic` 不会再被复制成 `bj.sh.topic`），但跨区消费仍 **at-least-once**——网络分区/MM2 重启都会产生重复投递。所有 Kafka 消费者须按事件业务主键去重：
-
-- executor/retry 现状靠 `task_id` / `task_instance_id` + `ON CONFLICT` / 状态机原子转换已满足（不依赖 `event_id`）。
-- **trace（CH-writer）是缺口**：MM2 双向复制后，同一 `CallEvent` 可能在 sh 和 bj 各消费一次 → ClickHouse 重复行。S3-T4 e2e 的「count 断言无重复」会暴露此缺口；follow-up 需给 `CallEvent` 加 `event_id`（或用 `request_id`+`trace_id` 复合键）+ CH ReplacingMergeTree/幂等写入。列为 §9 follow-up（非本轮）。
+**幂等约定（不依赖 MM2）**：消费者须按事件业务主键去重——executor/retry 现状靠 `task_id` / `task_instance_id` + `ON CONFLICT` / 状态机原子转换已满足。**trace（CH-writer）是缺口**：重复投递会写重复 ClickHouse 行；follow-up 需给 `CallEvent` 加 `event_id`（或用 `request_id`+`trace_id` 复合键）+ CH ReplacingMergeTree/幂等写入。列为 §9 follow-up（独立于 MM2 决策）。
 
 ### S4 · CH 跨区查询（trace-svc remote()）
 
@@ -129,13 +128,13 @@ kind 双实例 harness：`pg-sh:5432` / `pg-bj:5433`、`kafka-sh` / `kafka-bj` +
 **设计决策**：
 - 修静默 bypass：lag 比较改 PG 侧 SQL（`SELECT CASE WHEN replay_lag > interval '5s' THEN 1 ELSE 0 END`），不依赖 `bc`。
 - 修探针：failover sh→bj 前，查 bj 的 `pg_stat_subscription`（from-sh 订阅）lag，要求追平；sh 已挂则 `--force`。
-- DNS 真调用：包 `aliyun alidns` CLI（kind/dev `--dry-run` 跳过 + 告警，非纯 echo）；Kafka CG reset 真调 `kafka-consumer-groups --reset-offsets`；MM2 方向反转 = 缩 sh→bj 副本至 0。
+- DNS 真调用：包 `aliyun alidns` CLI（kind/dev `--dry-run` 跳过 + 告警，非纯 echo）；Kafka CG reset 真调 `kafka-consumer-groups --reset-offsets`。
 - 每阶段写 `audit_log`（等保，接 R0a 审计）。
 - drill = `scripts/multi-region/drill-failover.sh`：对 kind 双实例注入故障（缩 sh dispatcher 至 0 / 断 PG）→ 跑 runbook 真 `pg_promote` → 断言读写在提升后的 bj 落地 → rollback。即「季度演练」的**可重复自动化 harness** 交付物。
 
 **任务**：
 - **S5-T1** `failover-runbook.sh` 修 bc bypass + 探针目标（PG 侧 lag SQL）。
-- **S5-T2** DNS 真 aliyun 调用（kind skip+告警）+ Kafka CG reset 真 + MM2 方向反转。
+- **S5-T2** DNS 真 aliyun 调用（kind skip+告警）+ Kafka CG reset 真。
 - **S5-T3** runbook 各阶段 `audit_log`。
 - **S5-T4** `drill-failover.sh` harness（注入→runbook→assert→rollback）对 kind 双区。
 
@@ -153,7 +152,7 @@ kind 双实例 harness：`pg-sh:5432` / `pg-bj:5433`、`kafka-sh` / `kafka-bj` +
 | S1 插件 | httpx POST 真 APISIX（consumer label home_region=bj），`follow_redirects=False` | 302 + Location 指向 peer gateway |
 | S1 决策 | Lua 单测（mock consumer/region/method 全分支） | GET 放行 / POST non-home→302 / POST home 放行 / 无 home_region→fail-open |
 | S2 复制 | 直写 sh PG 一行 → 查 bj PG | bj 出现；反向亦然；**回环行不再复制** |
-| S3 MM2 | produce 到 sh kafka → consume 自 bj | bj 收到；反向；count 无重复 |
+| S3 Kafka（已 drop MM2）| 写分区下事件 home-local；跨区靠 PG-bidir（元数据）+ CH-remote（日志）| 无 MM2 manifest/overlay/compose 残留；kustomize 渲染净 |
 | S4 CH | trace-svc 全局查询（双 CH 各写一行） | UNION 返两条；peer 未配返一条 |
 | S5 runbook | drill：缩 sh dispatcher 至 0 → 跑 runbook → 查 bj | bj 提升后读写真落地 |
 | C1 splitRatio | Go quota check（peer 未配） | admitted 上限 = rule MaxCount（非 60%） |
@@ -165,9 +164,9 @@ kind 双实例 harness：`pg-sh:5432` / `pg-bj:5433`、`kafka-sh` / `kafka-bj` +
 ```
 S1-T1..T6（写亲和）─┐
                    ├─► S2-T1..T4（双向复制，承赖 S1 写分区）─┐
-                   │                                          ├─► S5-T4 drill（需 S1+S2+S3 数据面就绪）
-S3-T1..T4（MM2）───┤                                          │
-S4-T1..T4（CH）────┘                                          │
+                   │                                          ├─► S5-T4 drill（需 S1+S2 数据面就绪）
+S3（已 drop MM2）──┘                                          │
+S4-T1..T4（CH）───────────────────────────────────────────────┘
 C1/C2/C3/C4（跨切面）可与 S1..S4 并行 ─────────────────────────┘
 S5-T1..T3（runbook 修复）可与上并行；S5-T4 drill 收尾
 ```
@@ -178,7 +177,7 @@ S1 先行；S2 必须在 S1 验证后；S5-T4 drill 是最后集成关。
 
 - **R1 origin=none 正确性全靠 S1 写分区**：绕过亲和的写→双向冲突。缓解：S1 先落地验证（§7 排序）+ 可选双向冲突巡检（比两区同 row `updated_at` 差异告警，列 follow-up）。
 - **R2 复制延迟 read-your-writes**：写 home→就近读非 home 可能旧值。本轮接受 lag + `>30s` 告警；高危读强主列后续。
-- **R3 MM2 运维复杂度**：配置错静默丢消息。缓解：e2e count 断言 + 谨慎 `sync_group_offsets`；schema-registry 列 follow-up（§9-D）。
+- **R3 MM2 循环风险（已消除）**：S3-T4 e2e 证明 `IdentityReplicationPolicy` 双向同 topic 名触发指数级 record-level 回环（3→32K–150K）。决策 DROP MM2（§5 S3）——写分区下事件 home-local，跨区靠 PG-bidir + CH-remote。
 - **R4 CH remote() 跨区延迟**：仅 admin/全局用，超时 + 本地优先降级。
 - **R5 drill 无法模拟真分区/延迟**（kind 单宿主）：明确 drill 验「切换逻辑+数据链路」；分区行为靠 staging/prod 真演练。
 - **R6 runbook DNS/Kafka 在 kind 跳过**：分支 mock 单测；首次 staging 演练强制覆盖。
@@ -192,6 +191,7 @@ S1 先行；S2 必须在 S1 验证后；S5-T4 drill 是最后集成关。
 - 真·季度 ops 演练（本轮交付可重复 harness）
 - Phase 4 新服务（notification/ai-gateway/billing/portal）多区部署（prod-bj overlay 现与 prod 同列 11 服务；新服务多区后续）
 - Terraform prod-bj infra（已存在）/ Thanos 跨区监控（已做）
+- **MM2 双向复制（dropped）**：写分区下事件 home-local，跨区可见性由 PG-bidir（S2，元数据）+ CH-remote()（S4，日志/admin）达成；S3-T4 e2e 证明 `IdentityReplicationPolicy` 双向同 topic 名触发指数级 record-level 回环（3→32K–150K），且本就无消费者需要跨区 topic。ADR-013「Kafka MirrorMaker 双向」字面被此写分区模型 supersede，其语义目标经 PG-bidir + CH-remote 达成。
 
 ## 10. 参考
 

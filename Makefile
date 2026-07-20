@@ -224,10 +224,10 @@ dev-up:  ## 启动开发栈（PG/Redis/Kafka/CH/MinIO/Jaeger/Grafana）
 dev-down:  ## 停止开发栈（保留 volume）
 	$(COMPOSE) down
 
-dev-up-multi:  ## 启动双区测试栈（2×PG/Kafka/CH/Redis，region-labeled 端口）
+dev-up-multi:  ## 启动双区测试栈（2×PG/CH/Redis，region-labeled 端口）
 	docker compose -f docker-compose.multi-region.yml up -d
 	sleep 5
-	@echo "pg-sh:15432 pg-bj:5433 redis-sh:6379 redis-bj:6380 kafka-sh:9092 kafka-bj:9093 ch-sh:8123 ch-bj:8124"
+	@echo "pg-sh:15432 pg-bj:5433 redis-sh:6379 redis-bj:6380 ch-sh:8123 ch-bj:8124"
 
 dev-logs:  ## 看开发栈日志（tail -f）
 	$(COMPOSE) logs -f --tail=100
