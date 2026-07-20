@@ -151,15 +151,34 @@ def query_union_peer(
     两查询拼接而非 SQL remote()——peer 凭证留在 client 不入 SQL（安全）。
     去重/聚合由调用方 SQL 负责。admin 低流量场景下 ORDER BY/LIMIT 跨区语义
     由 app 端拼接近似处理（YAGNI）。
+
+    安全护栏：
+      - peer_sql 要求 admin scope（force_tenant_id=None）：peer leg 不过滤 tenant，
+        若调用方传了 force_tenant_id=str/sentinel，本地被 tenant 限流而对端不限→跨租户泄漏，
+        直接 ValueError 拒绝。
+      - peer leg 失败（对端 CH 不可达等）→ log + degrade-to-local（返回已收集的 local 行）。
     """
     if _client is None:
         raise RuntimeError("ClickHouse not initialized. Call init_clickhouse first.")
+    # peer_sql 走 admin scope 才允许：force_tenant_id 非 None（含 sentinel）一律拒绝。
+    if peer_sql and force_tenant_id is not None:
+        raise ValueError(
+            "peer_sql requires admin scope (force_tenant_id=None); "
+            "peer queries are unscoped"
+        )
     with ch_session(force_tenant_id=force_tenant_id) as ch_local:
         result = ch_local.query(local_sql, parameters=params or {})
         cols = result.column_names
         rows = [dict(zip(cols, row, strict=False)) for row in result.result_rows]
+    # peer_client 复用 settings.ch_database —— 假设两 Region CH 同名 database（部署约束）。
     if peer_sql and _peer_client is not None:
-        result_p = _peer_client.query(peer_sql, parameters=params or {})
-        cols_p = result_p.column_names
-        rows += [dict(zip(cols_p, row, strict=False)) for row in result_p.result_rows]
+        try:
+            result_p = _peer_client.query(peer_sql, parameters=params or {})
+            cols_p = result_p.column_names
+            rows += [
+                dict(zip(cols_p, row, strict=False)) for row in result_p.result_rows
+            ]
+        except Exception as e:  # noqa: BLE001 — degrade-to-local，不向上抛
+            log.warning("clickhouse_peer_query_failed", error=repr(e))
+            # 已收集的 local 行原样返回（true degrade-to-local）
     return rows

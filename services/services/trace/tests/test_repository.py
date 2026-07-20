@@ -157,12 +157,21 @@ class TestGetCall:
 
 class TestStats:
     async def test_full_aggregation(self, fake_ch, monkeypatch):
-        """stats 跑 3 个查询：base / top_apis / by_hour。"""
+        """stats admin 路径走 query_union_peer 3 次（base/top_apis/by_hour），merge 后聚合。
+
+        base query_union_peer 返回单行（本地 Region proxy）；top_apis / by_hour 返回单行。
+        验证 merge 后 base counts/quantiles + top_apis success_rate + by_hour。
+        """
         call_count = {"n": 0}
 
-        def _query_one(sql, params=None, *, force_tenant_id="sentinel"):
+        def _query_union_peer(local_sql, peer_sql=None, params=None, *, force_tenant_id="sentinel"):
             call_count["n"] += 1
-            return {
+            if "GROUP BY api_id" in local_sql:
+                return [{"api_id": "api_a", "path": "/echo", "n": 500, "success_n": 490}]
+            if "GROUP BY toStartOfHour(ts)" in local_sql:
+                return [{"hour": "2026-07-01 00:00:00", "n": 100, "success_n": 95}]
+            # base
+            return [{
                 "total": 1000,
                 "success_count": 950,
                 "failed_count": 50,
@@ -171,26 +180,11 @@ class TestStats:
                 "p95_latency_ms": 100.0,
                 "p99_latency_ms": 500.0,
                 "avg_latency_ms": 25.0,
-            }
-
-        def _query_all(sql, params=None, *, force_tenant_id="sentinel"):
-            call_count["n"] += 1
-            if "GROUP BY api_id" in sql:
-                return [{"api_id": "api_a", "path": "/echo", "n": 500, "success_n": 490}]
-            if "GROUP BY toStartOfHour(ts)" in sql:
-                return [{"hour": "2026-07-01 00:00:00", "n": 100, "success_n": 95}]
-            return []
+            }]
 
         from apihub_core import clickhouse as ch_mod
 
-        monkeypatch.setattr(ch_mod, "query_one", _query_one)
-        monkeypatch.setattr(ch_mod, "query_all", _query_all)
-        # admin 路径走 query_union_peer → 复用 _query_all 的路由逻辑
-        monkeypatch.setattr(
-            ch_mod,
-            "query_union_peer",
-            lambda ls, ps, p, *, force_tenant_id="sentinel": _query_all(ls, p, force_tenant_id=force_tenant_id),
-        )
+        monkeypatch.setattr(ch_mod, "query_union_peer", _query_union_peer)
 
         result = await repo.stats(CallQuery(), use_admin_session=True)
         assert result["total"] == 1000
@@ -200,15 +194,57 @@ class TestStats:
         assert len(result["top_apis"]) == 1
         assert result["top_apis"][0]["success_rate"] == 0.98
         assert len(result["by_hour"]) == 1
-        # 3 个查询
+        # 3 个查询全走 query_union_peer
         assert call_count["n"] == 3
+
+    async def test_stats_merges_cross_region_counts(self, fake_ch, monkeypatch):
+        """I-1/I-2: 双 Region base counts 求和、top_apis/by_hour 按 key 合并。"""
+        def _query_union_peer(local_sql, peer_sql=None, params=None, *, force_tenant_id="sentinel"):
+            if "GROUP BY api_id" in local_sql:
+                # 两 Region 都有 api_a，by_hour 也各有同一小时
+                return [
+                    {"api_id": "api_a", "path": "/echo", "n": 500, "success_n": 490},
+                    {"api_id": "api_a", "path": "/echo", "n": 300, "success_n": 290},
+                    {"api_id": "api_b", "path": "/x", "n": 100, "success_n": 90},
+                ]
+            if "GROUP BY toStartOfHour(ts)" in local_sql:
+                return [
+                    {"hour": "2026-07-01 00:00:00", "n": 100, "success_n": 95},
+                    {"hour": "2026-07-01 00:00:00", "n": 50, "success_n": 45},
+                ]
+            return [
+                {"total": 600, "success_count": 580, "failed_count": 20, "timeout_count": 2,
+                 "p50_latency_ms": 10.0, "p95_latency_ms": 100.0, "p99_latency_ms": 500.0, "avg_latency_ms": 25.0},
+                {"total": 400, "success_count": 370, "failed_count": 30, "timeout_count": 3,
+                 "p50_latency_ms": 8.0, "p95_latency_ms": 90.0, "p99_latency_ms": 400.0, "avg_latency_ms": 20.0},
+            ]
+
+        from apihub_core import clickhouse as ch_mod
+        monkeypatch.setattr(ch_mod, "query_union_peer", _query_union_peer)
+
+        result = await repo.stats(CallQuery(), use_admin_session=True)
+        # counts 跨区求和
+        assert result["total"] == 1000
+        assert result["success_count"] == 950
+        assert result["failed_count"] == 50
+        assert result["timeout_count"] == 5
+        # quantiles 取首行（本地）proxy
+        assert result["p95_latency_ms"] == 100.0
+        # top_apis: api_a 合并 n=800, api_b n=100 → 排序后 api_a 在前
+        assert result["top_apis"][0]["api_id"] == "api_a"
+        assert result["top_apis"][0]["n"] == 800
+        assert result["top_apis"][1]["api_id"] == "api_b"
+        # by_hour: 同 hour 合并 n=150
+        assert len(result["by_hour"]) == 1
+        assert result["by_hour"][0]["n"] == 150
 
     async def test_empty_when_ch_down(self, monkeypatch):
         from apihub_core import clickhouse as ch_mod
 
-        def _raise(sql, params=None, *, force_tenant_id="sentinel"):
+        def _raise(*args, **kwargs):
             raise RuntimeError("down")
 
+        monkeypatch.setattr(ch_mod, "query_union_peer", _raise)
         monkeypatch.setattr(ch_mod, "query_one", _raise)
         monkeypatch.setattr(ch_mod, "query_all", _raise)
 
@@ -219,11 +255,13 @@ class TestStats:
         assert result["by_hour"] == []
 
     async def test_qps_with_explicit_window(self, fake_ch, monkeypatch):
-        """since + until 决定 qps 时间窗口。"""
+        """since + until 决定 qps 时间窗口（admin 路径 base 走 query_union_peer）。"""
         from apihub_core import clickhouse as ch_mod
 
-        def _query_one(sql, params=None, *, force_tenant_id="sentinel"):
-            return {
+        def _query_union_peer(local_sql, peer_sql=None, params=None, *, force_tenant_id="sentinel"):
+            if "GROUP BY" in local_sql:
+                return []
+            return [{
                 "total": 600,
                 "success_count": 600,
                 "failed_count": 0,
@@ -232,13 +270,9 @@ class TestStats:
                 "p95_latency_ms": 20,
                 "p99_latency_ms": 50,
                 "avg_latency_ms": 10,
-            }
+            }]
 
-        def _query_all(sql, params=None, *, force_tenant_id="sentinel"):
-            return []
-
-        monkeypatch.setattr(ch_mod, "query_one", _query_one)
-        monkeypatch.setattr(ch_mod, "query_all", _query_all)
+        monkeypatch.setattr(ch_mod, "query_union_peer", _query_union_peer)
 
         q = CallQuery(
             since=datetime(2026, 7, 1, 0, 0, 0),

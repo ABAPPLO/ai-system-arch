@@ -76,28 +76,51 @@ _LIST_COLUMNS = """
 """
 
 
+# 跨区拼接后，admin 侧需要全局 merge：list_calls 按 ts DESC 合并后再全局切片；
+# stats 的 base/top_apis/by_hour 也各自 merge（见下）。单 Region 路径不走这些 helper。
+
+_LIST_PER_REGION_CAP = 1000  # 跨区查询时每 Region 的行数上限，全局 offset/limit 在 merge 后切片
+
+
 async def list_calls(
     query: CallQuery,
     *,
     viewer_tenant_id: str | None = None,
     use_admin_session: bool = False,
 ) -> list[dict[str, Any]]:
-    """列表查询 —— 默认按 ts 倒序。"""
+    """列表查询 —— 默认按 ts 倒序。
+
+    admin 跨区路径：每 Region 跑 `LIMIT %(cap)s`（无 OFFSET），拼接后按 ts DESC
+    全局 merge-sort，再对全局 [offset:offset+limit] 切片——保证翻页是全局语义。
+    单 Region 普通路径仍走 query_all，SQL 内 LIMIT/OFFSET 不变。
+    """
     where, params = _build_where(query, viewer_tenant_id=viewer_tenant_id)
-    params["limit"] = query.limit
-    params["offset"] = query.offset
+    params["cap"] = _LIST_PER_REGION_CAP
 
     sql = f"""
         SELECT {_LIST_COLUMNS.strip()}
         FROM api_call_log
         {where}
         ORDER BY ts DESC
-        LIMIT %(limit)s OFFSET %(offset)s
+        LIMIT %(cap)s
     """  # noqa: S608
     try:
         if use_admin_session:
-            return ch.query_union_peer(sql, sql, params, force_tenant_id=None)
-        return ch.query_all(sql, params, force_tenant_id="sentinel")
+            rows = ch.query_union_peer(sql, sql, params, force_tenant_id=None)
+            # 跨区拼接后按 ts DESC 全局排序，再切片全局 offset/limit
+            rows.sort(key=lambda r: r.get("ts"), reverse=True)
+            return rows[query.offset : query.offset + query.limit]
+        # 单 Region：SQL LIMIT/OFFSET 语义即全局，直接用
+        params["limit"] = query.limit
+        params["offset"] = query.offset
+        local_sql = f"""
+            SELECT {_LIST_COLUMNS.strip()}
+            FROM api_call_log
+            {where}
+            ORDER BY ts DESC
+            LIMIT %(limit)s OFFSET %(offset)s
+        """  # noqa: S608
+        return ch.query_all(local_sql, params, force_tenant_id="sentinel")
     except RuntimeError as e:
         log.warning("trace_list_clickhouse_unavailable", error=str(e))
         return []
@@ -153,6 +176,72 @@ async def get_call(
     return row
 
 
+# ---------- 跨区 merge helpers (admin 路径专用) ----------
+
+
+_BASE_COUNT_FIELDS = ("total", "success_count", "failed_count", "timeout_count")
+_BASE_QUANTILE_FIELDS = (
+    "p50_latency_ms",
+    "p95_latency_ms",
+    "p99_latency_ms",
+    "avg_latency_ms",
+)
+
+
+def _merge_base_rows(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Merge base_sql rows across regions.
+
+    counts (total/success/failed/timeout) are SUM'd across regions;
+    p50/p95/p99/avg_latency are taken from the FIRST (local) row as a proxy —
+    true cross-region quantiles need SQL remote() UNION (deferred per spec §8-R4).
+    """
+    if not rows:
+        return {}
+    merged: dict[str, Any] = {}
+    for f in _BASE_COUNT_FIELDS:
+        merged[f] = sum(int(r.get(f, 0) or 0) for r in rows)
+    for f in _BASE_QUANTILE_FIELDS:
+        merged[f] = rows[0].get(f, 0)
+    return merged
+
+
+def _merge_top_apis(rows: list[dict[str, Any]], *, limit: int = 10) -> list[dict[str, Any]]:
+    """跨区 top_apis：按 (api_id, path) 合并 n/success_n 求和，再按 n DESC 排序，截 limit。"""
+    by_key: dict[tuple, dict[str, Any]] = {}
+    for r in rows:
+        key = (r.get("api_id"), r.get("path"))
+        agg = by_key.get(key)
+        if agg is None:
+            agg = {
+                "api_id": r.get("api_id"),
+                "path": r.get("path"),
+                "n": 0,
+                "success_n": 0,
+            }
+            by_key[key] = agg
+        agg["n"] += int(r.get("n", 0) or 0)
+        agg["success_n"] += int(r.get("success_n", 0) or 0)
+    merged = list(by_key.values())
+    merged.sort(key=lambda x: int(x.get("n", 0) or 0), reverse=True)
+    return merged[:limit]
+
+
+def _merge_by_hour(rows: list[dict[str, Any]], *, limit: int = 168) -> list[dict[str, Any]]:
+    """跨区 by_hour：按 hour 合并 n/success_n 求和，再按 hour DESC 排序（对齐 SQL 原序），截 limit。"""
+    by_key: dict[str, dict[str, Any]] = {}
+    for r in rows:
+        h = r.get("hour")
+        agg = by_key.get(h)
+        if agg is None:
+            agg = {"hour": h, "n": 0, "success_n": 0}
+            by_key[h] = agg
+        agg["n"] += int(r.get("n", 0) or 0)
+        agg["success_n"] += int(r.get("success_n", 0) or 0)
+    merged = list(by_key.values())
+    merged.sort(key=lambda x: x.get("hour") or "", reverse=True)
+    return merged[:limit]
+
+
 # ---------- 统计 ----------
 
 
@@ -164,7 +253,9 @@ async def stats(
 ) -> dict[str, Any]:
     """聚合统计 —— total / 成功率 / 分位延迟 / top APIs / by hour。
 
-    响应结构对齐 CallStats。
+    响应结构对齐 CallStats。admin 路径走 query_union_peer 后 merge：
+      - base: counts 跨区求和、quantiles 取本地行（proxy）
+      - top_apis / by_hour: 按 key 合并求和后重排
     """
     where, params = _build_where(query, viewer_tenant_id=viewer_tenant_id)
 
@@ -190,14 +281,14 @@ async def stats(
             window_seconds = delta
 
     try:
-        base = (
-            ch.query_one(
-                base_sql,
-                params,
-                force_tenant_id=None if use_admin_session else "sentinel",
+        if use_admin_session:
+            base = _merge_base_rows(
+                ch.query_union_peer(base_sql, base_sql, params, force_tenant_id=None)
             )
-            or {}
-        )
+        else:
+            base = (
+                ch.query_one(base_sql, params, force_tenant_id="sentinel") or {}
+            )
     except RuntimeError as e:
         log.warning("trace_stats_clickhouse_unavailable", error=str(e))
         return _empty_stats()
@@ -219,8 +310,11 @@ async def stats(
     """  # noqa: S608
     try:
         if use_admin_session:
-            top_apis_raw = ch.query_union_peer(
-                top_apis_sql, top_apis_sql, params, force_tenant_id=None
+            top_apis_raw = _merge_top_apis(
+                ch.query_union_peer(
+                    top_apis_sql, top_apis_sql, params, force_tenant_id=None
+                ),
+                limit=10,
             )
         else:
             top_apis_raw = ch.query_all(top_apis_sql, params, force_tenant_id="sentinel")
@@ -250,8 +344,11 @@ async def stats(
     """  # noqa: S608
     try:
         if use_admin_session:
-            by_hour_raw = ch.query_union_peer(
-                by_hour_sql, by_hour_sql, params, force_tenant_id=None
+            by_hour_raw = _merge_by_hour(
+                ch.query_union_peer(
+                    by_hour_sql, by_hour_sql, params, force_tenant_id=None
+                ),
+                limit=168,
             )
         else:
             by_hour_raw = ch.query_all(by_hour_sql, params, force_tenant_id="sentinel")
