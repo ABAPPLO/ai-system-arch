@@ -119,6 +119,10 @@ func New(rdb *redis.Client, region string, splitRatio float64) *Limiter {
 	if splitRatio <= 0 {
 		splitRatio = parseFloat64(os.Getenv("QUOTA_REGION_SPLIT_RATIO"), 1.0)
 	}
+	// 单区守卫：MULTI_REGION_ACTIVE != "1" 时强制 1.0（修「单区把 prod 砍 60%」潜伏 bug）。
+	if os.Getenv("MULTI_REGION_ACTIVE") != "1" {
+		splitRatio = 1.0
+	}
 	return &Limiter{
 		redis:      rdb,
 		region:     region,
