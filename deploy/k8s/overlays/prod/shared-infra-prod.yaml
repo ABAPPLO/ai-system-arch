@@ -18,6 +18,10 @@ data:
   REDIS_HOST: "apihub-redis.internal"         # ← terraform output redis_host
   REDIS_PORT: "6379"
   KAFKA_BROKERS: "apihub-kafka.internal:9092" # ← terraform output kafka_brokers
+  # R3b S3 MM2：两区 broker 地址（MM2 Deployment envFrom 读取，双向复制 sh<->bj）。
+  # 两 region 都需同时知道双方 broker（MM2 在任一 region 跑都要连得上双集群）。
+  KAFKA_SH: "kafka-sh.apihub-system:9092"     # ← terraform output kafka_sh_brokers
+  KAFKA_BJ: "kafka-bj.apihub-system:9092"     # ← terraform output kafka_bj_brokers
   CH_HOST: "apihub-clickhouse.internal"
   CH_PORT: "8123"
   CH_USERNAME: "apihub"

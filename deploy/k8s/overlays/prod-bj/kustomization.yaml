@@ -9,6 +9,8 @@ kind: Kustomization
 resources:
   - ../../base/namespaces/namespaces.yaml
   - ../../base/shared/argo-rollouts/analysis-templates.yaml
+  # R3b S3：MM2 双向 Kafka 复制（sh<->bj，IdentityReplicationPolicy，5 topic allowlist）
+  - ../../base/shared/mirrormaker-deployment.yaml
   - ../../services/api-registry/configmap.yaml
   - ../../services/api-registry/deployment.yaml
   # dispatcher 走 Argo Rollouts canary（详见 docs/05-core-flows.md §8）
@@ -304,6 +306,18 @@ patches:
     target: { kind: Deployment, name: retry }
   - path: patches/workflow-envfrom.yaml
     target: { kind: Deployment, name: workflow }
+  # R3b S3 MM2：prod-bj shared-infra CM 名为 apihub-shared-infra-bj（非 apihub-shared-infra）。
+  # 修 MM2 Deployment 的 env configMapKeyRef.name 指向 bj 区 CM（否则 env 为空 → MM2 崩）。
+  - target:
+      kind: Deployment
+      name: mirrormaker2
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/env/0/valueFrom/configMapKeyRef/name
+        value: apihub-shared-infra-bj
+      - op: replace
+        path: /spec/template/spec/containers/0/env/1/valueFrom/configMapKeyRef/name
+        value: apihub-shared-infra-bj
 
 # images transformer：11 服务镜像 → ACR 同 registry，tag=prod-bj-latest
 images:

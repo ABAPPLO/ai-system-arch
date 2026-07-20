@@ -40,6 +40,11 @@ data:
   REDIS_HOST: "host.docker.internal"
   REDIS_PORT: "6379"
   KAFKA_BROKERS: "host.docker.internal:9094"
+  # R3b S3 MM2：dev/kind 双 Kafka compose 占位（多 region active-active compose 中
+  # kafka-sh:9092 / kafka-bj:9093）。kind 单实例时两者同址——S3-T4 live e2e 时若 kind
+  # 仅跑一个 kafka，两个 env 指向同一 broker（host.docker.internal:9094）即可。
+  KAFKA_SH: "host.docker.internal:9092"
+  KAFKA_BJ: "host.docker.internal:9093"
   CH_HOST: "host.docker.internal"
   CH_PORT: "8123"
   CH_USERNAME: "apihub"

@@ -96,6 +96,21 @@ kind 双实例 harness：`pg-sh:5432` / `pg-bj:5433`、`kafka-sh` / `kafka-bj` +
 - **S3-T3** 消费者 `event_id` 去重核查 + 文档。
 - **S3-T4** 双 Kafka + MM2 e2e：produce sh topic→consume bj；反向；**count 断言无重复**。
 
+**S3-T3 event_id 去重核查（2026-07-19）**：
+
+`grep -rn "event_id\|ON CONFLICT\|idempot" services/services/{executor,retry,trace,quota}/src` 结论：
+
+- **R0b 契约实际未定义 `event_id` 字段**——`apihub_core/events.py` 的 4 个 typed 事件（`TaskRequest`/`TaskStatus`/`TaskFailure`/`CallEvent`）均无 `event_id`。下游去重靠业务主键，不是 `event_id`。
+- **executor**：无 `event_id`；去重靠 `repository.mark_running` 原子 `pending→running`（`processor.py:4` 注释、`repository.py:14` 注释明示 at-least-once）+ 消费侧 commit-after-process（`consumer.py:5`）。重复投递命中 `UPDATE...WHERE status='pending'` 返回 0 → 跳过。
+- **retry**：无 `event_id`；去重靠 `INSERT...ON CONFLICT DO NOTHING` 命中 partial unique index `idx_retry_task_active_dedup`（`UNIQUE(task_instance_id) WHERE status IN ('pending','running')`，`repository.py:45/65`）。活跃态重投静默跳过；dead/succeeded 后再失败可建新行。
+- **trace**：**无任何去重**——CH-writer（Kafka→ClickHouse）无幂等保护，重复事件会写重复行。
+- **quota**：无消费者去重——仅 `kafka.emit` 生产 `billing-events`（`routes.py:62`），无消费者。
+
+**MM2 幂等约定**：MM2 `IdentityReplicationPolicy` 防 topic 改名回环（`sh.topic` 不会再被复制成 `bj.sh.topic`），但跨区消费仍 **at-least-once**——网络分区/MM2 重启都会产生重复投递。所有 Kafka 消费者须按事件业务主键去重：
+
+- executor/retry 现状靠 `task_id` / `task_instance_id` + `ON CONFLICT` / 状态机原子转换已满足（不依赖 `event_id`）。
+- **trace（CH-writer）是缺口**：MM2 双向复制后，同一 `CallEvent` 可能在 sh 和 bj 各消费一次 → ClickHouse 重复行。S3-T4 e2e 的「count 断言无重复」会暴露此缺口；follow-up 需给 `CallEvent` 加 `event_id`（或用 `request_id`+`trace_id` 复合键）+ CH ReplacingMergeTree/幂等写入。列为 §9 follow-up（非本轮）。
+
 ### S4 · CH 跨区查询（trace-svc remote()）
 
 **设计决策**：

@@ -1,4 +1,7 @@
 #!/bin/bash
+# DEPRECATED: replaced by deploy/k8s/base/shared/mirrormaker-deployment.yaml (MM2).
+# 保留作历史归档——原 MM1 docker 脚本存在未定义变量（$SH2BJ_TOPICS/$BIDIR_TOPICS）、
+# 弃用 --whitelist、无 k8s manifest。新部署走 MM2 k8s Deployment。
 set -euo pipefail
 
 KAFKA_SH="${KAFKA_SH:-kafka-sh-1:9092,kafka-sh-2:9092,kafka-sh-3:9092}"
