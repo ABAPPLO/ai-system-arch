@@ -245,7 +245,53 @@ async def test_publish_route_includes_keyauth_and_ingress_header(monkeypatch):
         "X-Ingress-Auth": "s3cr3t-ingress",
     }
     assert "limit-count" not in plugins  # 无 rate_limit
+    # R3b 承重墙：每条 published 路由必须启用 tenant-affinity（write-affinity），覆盖所有写
+    assert "tenant-affinity" in plugins
+    assert plugins["tenant-affinity"] == {}
     get_settings.cache_clear()
+
+
+async def test_publish_route_always_enables_tenant_affinity(monkeypatch):
+    """R3b 承重墙：无论有无 rate_limit，published route 的 plugins 必含 tenant-affinity。
+
+    S1 已把 consumer.labels.home_region wire 到 plugin；这里保证 publish 时 plugin 真被打开。
+    """
+    captured = {}
+
+    class _FakeResp:
+        status_code = 201
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def request(self, method, url, **kw):
+            captured["json"] = kw.get("json")
+            return _FakeResp()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+    from apihub_core import apisix_client
+
+    # 带 rate_limit 的路径也要保留 tenant-affinity
+    await apisix_client.publish_route(
+        version_id="ver_abc",
+        method="POST",
+        path="/u",
+        base_path="/v1",
+        rate_limit={"count": 10, "window_seconds": 60},
+    )
+    plugins = captured["json"]["plugins"]
+    assert plugins["tenant-affinity"] == {}
+    # 同时不丢 limit-count
+    assert "limit-count" in plugins
+    assert "key-auth" in plugins
+    assert "proxy-rewrite" in plugins
 
 
 async def test_publish_route_includes_limit_count_when_rate_limit_set(monkeypatch):

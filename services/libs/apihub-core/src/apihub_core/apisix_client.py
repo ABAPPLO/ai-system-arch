@@ -73,6 +73,9 @@ async def publish_route(
             "regex_uri": ["^/(.*)$", "/dispatch/$1"],
             "headers": {"set": set_headers},
         },
+        # 启用 write-affinity：插件读 ctx.consumer.labels.home_region（S1-T1/T2/T3 已 wire），
+        # 把写请求粘到 home region，覆盖所有 published 路由（R3b 承重墙）。
+        "tenant-affinity": {},
     }
     if rate_limit and rate_limit.get("count"):
         plugins["limit-count"] = {
