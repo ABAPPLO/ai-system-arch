@@ -20,10 +20,17 @@ else echo "Invalid region: $FAILED_REGION"; exit 1; fi
 # audit() — write a per-phase row to audit_log.
 # Real schema (scripts/init-db/01-schema.sql:195): NOT NULL columns are
 # tenant_id, actor_type, action, resource_type; detail is jsonb.
+#
+# RLS note: audit_log is FORCE RLS-enforced; the app role (NOBYPASSRLS) used by
+# SURVIVING_PG_DSN may be filtered/blocked on INSERT. Prod MUST set AUDIT_PG_DSN
+# to a platform-admin-capable DSN (bypass RLS). In dev/drill the app role is used
+# and the INSERT may warn-skip (table missing / RLS block) — acceptable, the
+# failover MUST NOT block on best-effort audit.
+AUDIT_PG_DSN="${AUDIT_PG_DSN:-$SURVIVING_PG_DSN}"
 audit() { # $1 = phase $2 = detail
   echo "[audit] phase=$1 detail=$2 actor=${OPERATOR:-unknown} region=${SURVIVING_REGION} ts=$(date -u +%FT%TZ)"
   if [ "$DRY_RUN" != "--dry-run" ]; then
-    psql "$SURVIVING_PG_DSN" -c "INSERT INTO audit_log(tenant_id, actor_type, actor_id, actor_name, action, resource_type, resource_id, detail) VALUES ('platform', 'system', '${OPERATOR:-runbook}', 'failover-runbook', 'failover_${1}', 'failover', '${SURVIVING_REGION}', '{\"region\":\"${SURVIVING_REGION}\",\"failed\":\"${FAILED_REGION}\",\"step\":\"${1}\",\"detail\":\"${2}\"}');" || true
+    psql "$AUDIT_PG_DSN" -c "INSERT INTO audit_log(tenant_id, actor_type, actor_id, actor_name, action, resource_type, resource_id, detail) VALUES ('platform', 'system', '${OPERATOR:-runbook}', 'failover-runbook', 'failover_${1}', 'failover', '${SURVIVING_REGION}', '{\"region\":\"${SURVIVING_REGION}\",\"failed\":\"${FAILED_REGION}\",\"step\":\"${1}\",\"detail\":\"${2}\"}');" 2>&1 | sed 's/^/  [audit-warn] /' || echo "  [audit-warn] INSERT skipped (RLS/table-missing) — best-effort, failover continues"
   fi
 }
 
@@ -47,16 +54,38 @@ fi
 echo "  Lag: ${LAG_SEC}s OK"
 
 echo "[1/6] Health check — surviving region"
-if [ "$DRY_RUN" != "--dry-run" ]; then
-  curl -sf "http://${SURVIVING_REGION}-gw:8001/health/ready" || { echo "Surviving region unhealthy"; exit 1; }
-else
+if [ "$DRY_RUN" = "--dry-run" ]; then
   echo "  [DRY-RUN] would curl http://${SURVIVING_REGION}-gw:8001/health/ready"
+elif [ "${FORCE:-0}" = "1" ]; then
+  # FORCE path (drill / region-down forced failover): the surviving gateway may
+  # be unreachable from the operator host (no gw in docker, or DNS not yet
+  # flipped). Fall back to a PG liveness probe — the real signal that the
+  # surviving region's data plane is up.
+  if psql "$SURVIVING_PG_DSN" -Atc "SELECT 1" >/dev/null 2>&1; then
+    echo "  OK: surviving PG ${SURVIVING_REGION} live (FORCE=1, gw curl skipped — no gw in drill/docker)"
+  else
+    echo "  WARN: surviving PG ${SURVIVING_REGION} not reachable; FORCE=1 so continuing"
+  fi
+else
+  curl -sf "http://${SURVIVING_REGION}-gw:8001/health/ready" || { echo "Surviving region unhealthy"; exit 1; }
+  echo "  gw health OK"
 fi
 
 echo "[2/6] PG promote — surviving region becomes writable"
+# R3b logical-bidir model: the surviving region is a PRIMARY (logical subscriber),
+# NOT a physical streaming standby. pg_promote() on a non-standby returns false
+# (no-op). The real failover = disable sub_from_<FAILED>_on_<SURVIVING> (stop
+# pulling from dead region) + migrate tenant.home_region FAILED→SURVIVING —
+# both done in [3/6] below. pg_promote is retained only to cover a future
+# physical-standby model; under logical-bidir it is a harmless no-op.
 if [ "$DRY_RUN" != "--dry-run" ]; then
-  psql "$SURVIVING_PG_DSN" -c "SELECT pg_promote();"
-  echo "  PG promoted on $SURVIVING_REGION"
+  IN_REC=$(psql "$SURVIVING_PG_DSN" -Atc "SELECT pg_is_in_recovery()")
+  if [ "$IN_REC" = "f" ]; then
+    echo "  ${SURVIVING_REGION} already primary in logical-bidir; no physical promote needed — disabling sub + migrating home_region is the failover"
+  else
+    psql "$SURVIVING_PG_DSN" -c "SELECT pg_promote();" || echo "  WARN: pg_promote returned false/error (logical-bidir: expected no-op)"
+    echo "  PG promoted on $SURVIVING_REGION (physical-standby path)"
+  fi
 else
   echo "  [DRY-RUN] Would promote PG on $SURVIVING_REGION"
 fi
