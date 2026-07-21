@@ -30,6 +30,7 @@ def test_ok_in_prod_with_custom_secrets(monkeypatch):
         jwt_secret="real-jwt-secret",
         pii_encryption_key="ab" * 32,  # 64 hex = 32 字节
         oss_secret_key="real-oss-secret",
+        hmac_secret_key="cd" * 32,  # R2e: HMAC secret 加密 key，prod 必须注入
     )
     s.validate_security()  # 不抛
 
