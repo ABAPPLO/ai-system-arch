@@ -6,6 +6,7 @@ verify_* 函数用 admin_db_session（跨租户），CRUD 用 db_session（同�
 import contextlib
 from datetime import UTC, datetime
 
+from apihub_core import crypto as crypto_mod
 from apihub_core import db
 from apihub_core.errors import ApiError, ErrorCode
 
@@ -84,8 +85,20 @@ async def create_api_key(
     display_prefix: str,
     scopes: list[str],
     expires_at: datetime | None,
+    signing: bool = False,
 ) -> dict:
-    """插入新 APIKey（同租户 RLS 校验：调用方必须属于 app_id 的租户）。"""
+    """插入新 APIKey（同租户 RLS 校验：调用方必须属于 app_id 的租户）。
+
+    signing=True：额外生成 hmac_secret（明文仅返回一次），DB 存 AESGCM 加密列。
+    """
+    import secrets
+
+    hmac_plaintext: str | None = None
+    hmac_encrypted: str | None = None
+    if signing:
+        hmac_plaintext = secrets.token_urlsafe(32)
+        hmac_encrypted = crypto_mod.encrypt_secret(hmac_plaintext)
+
     async with db.db_session() as conn:
         # 先校验 app 属于本租户（RLS 自动过滤）
         app = await conn.fetchrow("SELECT id, tenant_id FROM app WHERE id = $1", app_id)
@@ -99,8 +112,8 @@ async def create_api_key(
             """
             INSERT INTO api_key (
                 id, tenant_id, app_id, key_prefix, key_hash,
-                name, scopes, status, expires_at, created_at
-            ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, NOW())
+                name, scopes, status, expires_at, created_at, hmac_secret_encrypted
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, 'active', $8, NOW(), $9)
             """,
             key_id,
             tenant_id,
@@ -110,6 +123,7 @@ async def create_api_key(
             name,
             scopes,
             expires_at,
+            hmac_encrypted,
         )
 
         return {
@@ -120,6 +134,7 @@ async def create_api_key(
             "display_prefix": display_prefix,
             "expires_at": expires_at,
             "created_at": datetime.now(UTC).isoformat(),
+            "hmac_secret": hmac_plaintext,
         }
 
 
@@ -159,9 +174,52 @@ async def revoke_api_key(key_id: str) -> dict:
     return dict(row)
 
 
-async def create_app(
-    *, app_id: str, tenant_id: str, name: str, app_type: str
-) -> dict:
+async def get_hmac_secret_plaintext(key_id: str) -> str | None:
+    """跨租户取 key 的 HMAC secret 明文（admin_db_session，bypass RLS）。
+
+    dispatcher 冷路径调用。未 enrolled（列 NULL）或 key 非 active → None。
+    """
+    async with db.admin_db_session(audit_reason="cross-tenant hmac-secret fetch") as conn:
+        row = await conn.fetchrow(
+            "SELECT hmac_secret_encrypted FROM api_key WHERE id = $1 AND status = 'active'",
+            key_id,
+        )
+    if not row or not row["hmac_secret_encrypted"]:
+        return None
+    return crypto_mod.decrypt_secret(row["hmac_secret_encrypted"])
+
+
+async def rotate_hmac_secret(key_id: str) -> dict:
+    """轮换 HMAC secret → 新明文（返一次）+ RETURNING key_hash 供 caller 失效缓存。
+
+    audit_log 由 admin_db_session 写（audit_reason=hmac_secret_rotation）。
+    key_hash = sha256(plaintext api_key)，与 identity.hmac_secret_cache_key 一致，
+    caller 据此 invalidate `hmac_secret:{key_hash}` Redis 缓存。
+    只轮换已 enrolled 的 active key（hmac_secret_encrypted IS NOT NULL）。
+    """
+    import secrets
+
+    new_plaintext = secrets.token_urlsafe(32)
+    new_encrypted = crypto_mod.encrypt_secret(new_plaintext)
+    async with db.admin_db_session(audit_reason="hmac_secret_rotation") as conn:
+        row = await conn.fetchrow(
+            """
+            UPDATE api_key SET hmac_secret_encrypted = $2
+            WHERE id = $1 AND status = 'active' AND hmac_secret_encrypted IS NOT NULL
+            RETURNING id, key_hash
+            """,
+            key_id,
+            new_encrypted,
+        )
+    if not row:
+        raise ApiError(
+            ErrorCode.NOT_FOUND,
+            f"active enrolled api_key {key_id} not found",
+        )
+    return {"key_id": row["id"], "key_hash": row["key_hash"], "hmac_secret": new_plaintext}
+
+
+async def create_app(*, app_id: str, tenant_id: str, name: str, app_type: str) -> dict:
     """插入新 app（同租户 RLS 由 db_session 的 SET LOCAL app.tenant_id 保证）。"""
     async with db.db_session() as conn:
         await conn.execute(
