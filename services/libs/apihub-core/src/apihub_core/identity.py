@@ -41,3 +41,23 @@ async def write_identity(api_key: str, data: dict[str, Any], ttl: int) -> None:
 
 async def delete_identity(api_key: str) -> None:
     await redis.raw_client().delete(identity_cache_key(api_key))
+
+
+def hmac_secret_cache_key(api_key: str) -> str:
+    """hmac_secret:{sha256(api_key)} —— 与 identity 分键，便于 rotate 只清 secret。"""
+    return "hmac_secret:" + hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+
+
+async def write_hmac_secret(api_key: str, secret_encrypted: str, ttl: int) -> None:
+    """写加密 secret blob（不存明文）。caller = auth create/rotate。"""
+    await redis.raw_client().setex(hmac_secret_cache_key(api_key), ttl, secret_encrypted)
+
+
+async def read_hmac_secret(api_key: str) -> str | None:
+    """读加密 secret blob（miss/损坏返 None）。caller = dispatcher，须自行 decrypt。"""
+    raw = await redis.raw_client().get(hmac_secret_cache_key(api_key))
+    return raw if isinstance(raw, str) else None
+
+
+async def delete_hmac_secret(api_key: str) -> None:
+    await redis.raw_client().delete(hmac_secret_cache_key(api_key))
