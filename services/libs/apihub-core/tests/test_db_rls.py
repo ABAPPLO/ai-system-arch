@@ -41,6 +41,48 @@ async def _connect():
         await conn.close()
 
 
+@asynccontextmanager
+async def _rls_conn():
+    """连 superuser 后退到 app role —— 让 RLS 真生效。
+
+    superuser `apihub` 默认 BYPASSRLS，直接连会看到所有租户 → RLS 断言全 fail
+    （见模块 RED 证据：~10 fail）。`SET LOCAL ROLE apihub_app`（NOSUPERUSER
+    NOBYPASSRLS，见 99-grants.sql）把有效 role 切到 app role，RLS 强制生效；
+    SET LOCAL ROLE 事务级，COMMIT 后自动还原 session_user=apihub，无跨测试污染。
+    免 apihub_app 密码（superuser 可 SET ROLE 到任意角色）。custom GUC
+    （app.tenant_id / app.is_platform_admin）不受 SET ROLE 影响，各测试体内照常 SET LOCAL。
+    """
+    async with _connect() as conn, conn.transaction():
+        await conn.execute("SET LOCAL ROLE apihub_app")
+        yield conn
+
+
+async def _init_app_role(conn: asyncpg.Connection) -> None:
+    """create_pool 的 init 回调：注册 jsonb codec 后退到 apihub_app。
+
+    生产 pool 以 app role 连（PG_USER 非 superuser）→ RLS 强制。测试若直连
+    superuser `apihub` 建 pool，`db_session()` 只 SET GUC 不 SET ROLE，连接仍
+    BYPASSRLS → db_session 的 RLS 断言全 fail。在 init 里 SET ROLE apihub_app
+    （session 级，免密码）使每条 acquire 的连接以 app role 运行，`db_session()` /
+    `meta_db_session()` 真过 RLS —— 复刻生产行为。
+    """
+    from apihub_core import db
+
+    await db._init_jsonb_codec(conn)
+    await conn.execute("SET ROLE apihub_app")
+
+
+async def _app_pool(*, min_size: int = 1, max_size: int = 2) -> asyncpg.Pool:
+    """RLS-app-role pool —— db_session/meta_db_session 端到端测试用。
+
+    取代测试里 `asyncpg.create_pool(PG_DSN, ..., init=db._init_jsonb_codec)`：
+    连接以 app role 运行，让 RLS 在 db_session 路径上真过滤。
+    """
+    return await asyncpg.create_pool(
+        PG_DSN, min_size=min_size, max_size=max_size, init=_init_app_role,
+    )
+
+
 async def _pg_available() -> bool:
     try:
         async with _connect() as conn:
@@ -61,7 +103,7 @@ class TestRLSIsolation:
     """关键集成测试：证明 RLS 真隔离租户数据。"""
 
     async def test_tenant_a_cannot_see_tenant_b(self):
-        async with _connect() as conn, conn.transaction():
+        async with _rls_conn() as conn:
             await conn.execute("SET LOCAL app.tenant_id = 'tenant_a'")
             rows = await conn.fetch("SELECT id, tenant_id FROM api ORDER BY id")
 
@@ -69,7 +111,7 @@ class TestRLSIsolation:
         assert tenant_ids == {"tenant_a"}, f"泄漏了其他租户: {tenant_ids - {'tenant_a'}}"
 
     async def test_tenant_b_cannot_see_tenant_a(self):
-        async with _connect() as conn, conn.transaction():
+        async with _rls_conn() as conn:
             await conn.execute("SET LOCAL app.tenant_id = 'tenant_b'")
             rows = await conn.fetch("SELECT id, tenant_id FROM api")
 
@@ -78,7 +120,7 @@ class TestRLSIsolation:
 
     async def test_external_tenant_isolation(self):
         """外部租户看不到任何 internal 接口。"""
-        async with _connect() as conn, conn.transaction():
+        async with _rls_conn() as conn:
             await conn.execute("SET LOCAL app.tenant_id = 'tenant_ext_1'")
             rows = await conn.fetch("SELECT id FROM api")
 
@@ -86,7 +128,7 @@ class TestRLSIsolation:
 
     async def test_no_tenant_context_sees_nothing(self):
         """没 set tenant_id 时应看不到任何数据（不是看全部！）。"""
-        async with _connect() as conn, conn.transaction():
+        async with _rls_conn() as conn:
             # 不 set，current_setting 默认空字符串
             rows = await conn.fetch("SELECT id FROM api")
 
@@ -96,7 +138,7 @@ class TestRLSIsolation:
 
 class TestPlatformAdminBypass:
     async def test_admin_sees_all_tenants(self):
-        async with _connect() as conn, conn.transaction():
+        async with _rls_conn() as conn:
             await conn.execute("SET LOCAL app.tenant_id = ''")
             await conn.execute("SET LOCAL app.is_platform_admin = 'true'")
             rows = await conn.fetch("SELECT tenant_id, count(*) FROM api GROUP BY tenant_id")
@@ -106,7 +148,7 @@ class TestPlatformAdminBypass:
 
     async def test_admin_can_insert_any_tenant(self):
         """超管可跨租户写入（运维场景）。"""
-        async with _connect() as conn, conn.transaction():
+        async with _rls_conn() as conn:
             await conn.execute("SET LOCAL app.tenant_id = ''")
             await conn.execute("SET LOCAL app.is_platform_admin = 'true'")
             await conn.execute(
@@ -125,7 +167,7 @@ class TestRLSEnforcement:
 
     async def test_unqualified_select_filters_automatically(self):
         """业务代码忘写 WHERE 时，RLS 兜底。"""
-        async with _connect() as conn, conn.transaction():
+        async with _rls_conn() as conn:
             await conn.execute("SET LOCAL app.tenant_id = 'tenant_a'")
             # 没写 WHERE —— 但 RLS 仍然只返回 tenant_a 的
             rows = await conn.fetch("SELECT * FROM api")
@@ -135,7 +177,7 @@ class TestRLSEnforcement:
 
     async def test_cross_tenant_insert_rejected(self):
         """tenant_a 的会话不能插入 tenant_b 的数据（WITH CHECK 阻断）。"""
-        async with _connect() as conn, conn.transaction():
+        async with _rls_conn() as conn:
             await conn.execute("SET LOCAL app.tenant_id = 'tenant_a'")
             with pytest.raises(Exception) as exc:
                 await conn.execute(
@@ -157,10 +199,8 @@ class TestRLSViaDbSession:
         from apihub_core import db
         from apihub_core.tenant import set_tenant_context
 
-        # 用真实 pool 连到 dev PG
-        pool = await asyncpg.create_pool(
-            PG_DSN, min_size=1, max_size=2, init=db._init_jsonb_codec,
-        )
+        # _app_pool：每条连接退到 apihub_app（RLS 真生效，复刻生产 app-role pool）
+        pool = await _app_pool()
         monkeypatch.setattr(db, "_pool", pool)
 
         try:
@@ -184,9 +224,7 @@ class TestRLSViaDbSession:
         from apihub_core import db
         from apihub_core.tenant import clear_tenant_context, set_tenant_context
 
-        pool = await asyncpg.create_pool(
-            PG_DSN, min_size=1, max_size=2, init=db._init_jsonb_codec,
-        )
+        pool = await _app_pool()
         monkeypatch.setattr(db, "_pool", pool)
 
         try:
@@ -217,9 +255,7 @@ class TestRLSInjectionHardened:
         from apihub_core import db
         from apihub_core.tenant import TenantContext, set_tenant_context
 
-        pool = await asyncpg.create_pool(
-            PG_DSN, min_size=1, max_size=2, init=db._init_jsonb_codec,
-        )
+        pool = await _app_pool()
         monkeypatch.setattr(db, "_pool", pool)
         # 尝试 SQL 注入：旧 f-string 实现会拼进 SQL 破坏语句或改写 RLS
         evil = TenantContext(
@@ -240,9 +276,7 @@ class TestRLSInjectionHardened:
         from apihub_core import db
         from apihub_core.tenant import set_tenant_context
 
-        pool = await asyncpg.create_pool(
-            PG_DSN, min_size=1, max_size=2, init=db._init_jsonb_codec,
-        )
+        pool = await _app_pool()
         monkeypatch.setattr(db, "_pool", pool)
         try:
             set_tenant_context(tenant_a)
