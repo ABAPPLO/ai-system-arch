@@ -14,8 +14,25 @@ import json
 
 from apihub_core import db, redis
 from apihub_core.errors import ApiError, ErrorCode
+from apihub_core.l1 import TTLCache
 
 from dispatcher.models import ApiVersionSnapshot
+
+# 进程内 L1（opt-in，默认 None → 行为与未引入 L1 前完全一致）。
+# 短 TTL（~5s）削峰：高频相同 version_id 的 resolve 走 L1，绕过 Redis + PK
+# status 兜底查询。代价：retire 后最多 L1 TTL 窗口内仍可能命中陈旧快照 ——
+# 由 (a) L1 TTL 严格上界，(b) Redis-hit 路径检测到 stale 时同步 invalidate L1
+# 两点共同收敛。Redis 仍是真相源；L1 仅缓存 _from_json 直接消费的 dict 形态。
+_snapshot_l1: TTLCache | None = None
+
+
+def configure_snapshot_l1(cache: TTLCache | None) -> None:
+    """注入或清除进程内 snapshot L1（默认 None = 关闭）。
+
+    服务启动期由 lifespan 调用注入；测试逐个用例复位为 None。
+    """
+    global _snapshot_l1
+    _snapshot_l1 = cache
 
 
 async def resolve_by_header(version_id: str) -> ApiVersionSnapshot:
@@ -24,8 +41,14 @@ async def resolve_by_header(version_id: str) -> ApiVersionSnapshot:
     生命周期：published/deprecated 可路由；retired → 410 Gone；其余 → 404。
     """
     cache_key = f"snapshot:{version_id}"
+    # L1 命中：直接还原返回，绕过 Redis 与 PK status 兜底查询（opt-in staleness 窗口）。
+    if _snapshot_l1 is not None:
+        hit = _snapshot_l1.get(cache_key)
+        if isinstance(hit, dict):
+            return _from_json(hit)
     cached = await redis.t_get(cache_key)
     if cached:
+        data = json.loads(cached)
         # 防缓存陈旧：cached snapshot 无 status，retire 后最多 5 分钟仍命中。
         # 命中时用一次 PK 状态查询兜底：retired→410，并清 stale 缓存。
         async with db.meta_db_session() as conn:
@@ -34,13 +57,20 @@ async def resolve_by_header(version_id: str) -> ApiVersionSnapshot:
             )
         if status == "retired":
             await redis.t_delete(cache_key)
+            if _snapshot_l1 is not None:
+                _snapshot_l1.invalidate(cache_key)
             raise ApiError(ErrorCode.API_RETIRED, f"version {version_id} retired")
         if status not in ("published", "deprecated"):
             await redis.t_delete(cache_key)
+            if _snapshot_l1 is not None:
+                _snapshot_l1.invalidate(cache_key)
             raise ApiError(
                 ErrorCode.API_NOT_PUBLISHED, f"version {version_id} not published"
             )
-        return _from_json(json.loads(cached))
+        # Redis 命中且状态有效 → 回填 L1（与 t_set 同源 dict 形态）。
+        if _snapshot_l1 is not None:
+            _snapshot_l1.set(cache_key, data)
+        return _from_json(data)
 
     async with db.meta_db_session() as conn:
         row = await conn.fetchrow(
@@ -64,6 +94,9 @@ async def resolve_by_header(version_id: str) -> ApiVersionSnapshot:
     _, visibility = await _get_api_meta(row["api_id"])
     snapshot = _from_row(row, visibility=visibility)
     await redis.t_set(cache_key, json.dumps(dataclasses.asdict(snapshot)), ex=300)
+    # DB 回源写 Redis 后同步回填 L1（asdict(snapshot) 与 _from_json 同源）。
+    if _snapshot_l1 is not None:
+        _snapshot_l1.set(cache_key, dataclasses.asdict(snapshot))
     return snapshot
 
 
