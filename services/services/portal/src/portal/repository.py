@@ -76,7 +76,7 @@ async def list_portal_apis(
     all_tags: set[str] = set()
     for r in rows:
         raw_tags = r.get("tags") or []
-        tags_list: list[str] = [str(t) for t in raw_tags] if isinstance(raw_tags, (list, tuple)) else []
+        tags_list: list[str] = [str(t) for t in raw_tags] if isinstance(raw_tags, list | tuple) else []
         items.append(PortalApiItem(
             api_id=str(r["id"]),
             name=r["name"],
@@ -127,7 +127,7 @@ async def get_api_detail(api_id: str) -> PortalApiDetail:
         )
 
     raw_tags = api_row.get("tags") or []
-    tags_list: list[str] = [str(t) for t in raw_tags] if isinstance(raw_tags, (list, tuple)) else []
+    tags_list: list[str] = [str(t) for t in raw_tags] if isinstance(raw_tags, list | tuple) else []
     versions: list[PortalVersionItem] = []
     for vr in ver_rows:
         versions.append(PortalVersionItem(
