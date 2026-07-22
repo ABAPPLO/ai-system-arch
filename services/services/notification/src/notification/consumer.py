@@ -1,8 +1,6 @@
 """Kafka 消费者 —— 从 api-call-events topic 消费 → 推 Webhook。"""
 
 import asyncio
-import hashlib
-import hmac
 import json
 from contextlib import asynccontextmanager, suppress
 
@@ -10,7 +8,9 @@ import aiokafka
 import httpx
 from apihub_core import db
 from apihub_core.config import get_settings
+from apihub_core.crypto import decrypt_secret
 from apihub_core.logging import get_logger
+from apihub_core.signing import sign_webhook
 
 log = get_logger(__name__)
 
@@ -19,26 +19,37 @@ BACKOFF_SECONDS = [5, 30, 120]
 
 
 async def _deliver(url: str, payload: dict, secret: str) -> bool:
-    """推送到 Webhook URL（带 HMAC 签名）。"""
+    """推送到 Webhook URL（带 HMAC-SHA256 over raw body）。
+
+    secret 空 → 不签名（向后兼容无 secret 的旧订阅）。签名头格式
+    `X-Webhook-Signature: hmac-sha256=<hex>`，client 用 signing.verify_webhook 验。
+    """
     body = json.dumps(payload).encode()
-    sig = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest() if secret else ""
+    headers = {"Content-Type": "application/json"}
+    if secret:
+        headers["X-Webhook-Signature"] = f"hmac-sha256={sign_webhook(secret, body)}"
     try:
         async with httpx.AsyncClient(timeout=10.0) as c:
-            r = await c.post(url, content=body,
-                             headers={"Content-Type": "application/json",
-                                      "X-Webhook-Signature": sig})
+            r = await c.post(url, content=body, headers=headers)
             return r.status_code < 500
     except httpx.RequestError:
         return False
 
 
 async def _get_active_webhooks() -> list[dict]:
-    """取所有 active 的 webhook 订阅。"""
+    """取所有 active webhook 订阅（含解密 secret）。"""
     async with db.admin_db_session() as conn:
         rows = await conn.fetch(
-            "SELECT id, tenant_id, url, events, secret FROM webhook_subscription WHERE status = 'active'"
+            "SELECT id, tenant_id, url, events, secret_encrypted"
+            " FROM webhook_subscription WHERE status = 'active'"
         )
-    return [dict(r) for r in rows]
+    out = []
+    for r in rows:
+        d = dict(r)
+        enc = d.pop("secret_encrypted", None)
+        d["secret"] = decrypt_secret(enc) if enc else ""
+        out.append(d)
+    return out
 
 
 async def process_event(event: dict) -> None:

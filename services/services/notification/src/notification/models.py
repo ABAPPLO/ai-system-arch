@@ -23,6 +23,8 @@ class WebhookResponse(BaseModel):
     events: list[str]
     status: str
     created_at: str
+    # R2e：HMAC 签名 secret 明文（仅创建时返回一次），缺省 None
+    hmac_secret: str | None = None
 
 
 class WebhookTestResult(BaseModel):
