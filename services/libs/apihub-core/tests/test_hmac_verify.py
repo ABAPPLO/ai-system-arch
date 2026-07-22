@@ -271,3 +271,36 @@ async def test_identity_miss_cold_recovers_via_verify(fake_redis, monkeypatch):
     ctx = await authenticate_request(req, get_settings(), api_key="ak_enrolledkey")
     assert ctx.tenant_id == "t1"
     assert called["n"] == 1  # identity miss 触发了一次回源暖缓存
+
+
+async def test_verify_hmac_uses_pipeline_read(fake_redis, monkeypatch):
+    """_verify_hmac 经 read_identity_and_hmac_secret 一次取 identity+secret（pipeline，非两次 GET）。"""
+    import apihub_core.identity as ident_mod
+    from apihub_core import crypto, identity
+    from apihub_core.auth import _verify_hmac
+    from apihub_core.config import get_settings
+    from apihub_core.l1 import TTLCache
+
+    identity.configure_l1(identity=TTLCache(ttl=5), secret=TTLCache(ttl=5))
+    await identity.write_identity("ak_enrolledkey", {
+        "is_active": True, "tenant_id": "t1", "tenant_type": "internal",
+        "app_id": "app1", "key_id": "key_1", "hmac_enrolled": True,
+    }, ttl=300)
+    await identity.write_hmac_secret("ak_enrolledkey", crypto.encrypt_secret("the_secret"), ttl=300)
+    identity._identity_l1.clear()
+    identity._secret_l1.clear()
+
+    calls = {"n": 0}
+    real = ident_mod.read_identity_and_hmac_secret
+
+    async def _spy(api_key):
+        calls["n"] += 1
+        return await real(api_key)
+
+    monkeypatch.setattr(ident_mod, "read_identity_and_hmac_secret", _spy)
+
+    req = _make_request()
+    ctx = await _verify_hmac(req, get_settings(), "ak_enrolledkey")
+    assert ctx.tenant_id == "t1"
+    assert calls["n"] == 1
+    identity.configure_l1(identity=None, secret=None)

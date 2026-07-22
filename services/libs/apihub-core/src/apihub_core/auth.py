@@ -17,6 +17,16 @@ from apihub_core.config import Settings
 from apihub_core.errors import ApiError, ErrorCode
 from apihub_core.tenant import TenantContext, set_tenant_context
 
+_auth_httpx_client: httpx.AsyncClient | None = None
+
+
+def _get_auth_httpx_client() -> httpx.AsyncClient:
+    """进程级共享 httpx client（冷路径连接复用）。lazy 单例，遇 closed 重建。"""
+    global _auth_httpx_client
+    if _auth_httpx_client is None or _auth_httpx_client.is_closed:
+        _auth_httpx_client = httpx.AsyncClient(timeout=5.0)
+    return _auth_httpx_client
+
 
 async def authenticate_request(
     request: Request,
@@ -105,20 +115,20 @@ async def _verify_via_auth_service(api_key: str, settings: Settings) -> dict:
     bearer 路径与 _verify_hmac 的 identity 冷回源（C4）共用：成功返回即意味着 identity 缓存
     已被 auth 服务端 cache_positive 暖好，caller 再 read_identity 即得。失败抛 401/503。
     """
-    async with httpx.AsyncClient(timeout=5.0) as client:
-        try:
-            resp = await client.post(
-                settings.auth_service_url,
-                json={"api_key": api_key},
-                headers={"X-Internal-Service": settings.app_name},
-            )
-        except httpx.RequestError as e:
-            raise ApiError(
-                ErrorCode.INTERNAL,
-                # 带异常类型 + repr：httpx 超时类异常 str 常为空串，否则日志里只剩 "unreachable: " 无法定位。
-                f"Auth service unreachable: {type(e).__name__}: {e!r}",
-                http_status=503,
-            ) from e
+    client = _get_auth_httpx_client()
+    try:
+        resp = await client.post(
+            settings.auth_service_url,
+            json={"api_key": api_key},
+            headers={"X-Internal-Service": settings.app_name},
+        )
+    except httpx.RequestError as e:
+        raise ApiError(
+            ErrorCode.INTERNAL,
+            # 带异常类型 + repr：httpx 超时类异常 str 常为空串，否则日志里只剩 "unreachable: " 无法定位。
+            f"Auth service unreachable: {type(e).__name__}: {e!r}",
+            http_status=503,
+        ) from e
 
     if resp.status_code == 404:
         raise ApiError(ErrorCode.UNAUTHORIZED, "Invalid API Key")
@@ -145,12 +155,12 @@ async def _verify_hmac(request: Request, settings: Settings, api_key: str) -> Te
     from apihub_core import identity, signing
     from apihub_core.redis import raw_client
 
-    cached = await identity.read_identity(api_key)
+    cached, secret_blob = await identity.read_identity_and_hmac_secret(api_key)
     if cached is None:
         # C4: identity miss（HMAC-only key 长闲过期 / 冷启动）→ 回源 auth verify 暖缓存再续。
         # 否则 create_key 写的 identity（TTL 300s）过期后 HMAC key 自砖、client 无法自愈。
         await _verify_via_auth_service(api_key, settings)  # 失败抛 401/503；成功即暖 identity
-        cached = await identity.read_identity(api_key)
+        cached, secret_blob = await identity.read_identity_and_hmac_secret(api_key)
     if cached is None or cached.get("invalid"):
         raise ApiError(ErrorCode.UNAUTHORIZED, "invalid api key")
     if not cached.get("is_active"):
@@ -172,8 +182,7 @@ async def _verify_hmac(request: Request, settings: Settings, api_key: str) -> Te
     if abs(int(time.time()) - ts) > settings.hmac_timestamp_window_seconds:
         raise ApiError(ErrorCode.UNAUTHORIZED, "stale timestamp")
 
-    # 取 secret：warm Redis 加密 blob + in-process decrypt；cold 回源 auth /v1/internal/hmac-secret
-    secret_blob = await identity.read_hmac_secret(api_key)
+    # 取 secret：secret_blob 已由 pipeline 随 identity 一次取回（warm）；None → 冷回源。
     if secret_blob is not None:
         try:
             secret = crypto_mod.decrypt_secret(secret_blob)
@@ -186,19 +195,19 @@ async def _verify_hmac(request: Request, settings: Settings, api_key: str) -> Te
             raise ApiError(
                 ErrorCode.INTERNAL, "hmac secret fetch: missing key_id", http_status=503
             )
-        async with httpx.AsyncClient(timeout=5.0) as client:
-            try:
-                resp = await client.post(
-                    settings.hmac_secret_service_url,
-                    json={"key_id": key_id},
-                    headers={"X-Internal-Service": settings.app_name},
-                )
-            except httpx.RequestError as e:
-                raise ApiError(
-                    ErrorCode.INTERNAL,
-                    f"auth unreachable: {type(e).__name__}: {e!r}",
-                    http_status=503,
-                ) from e
+        client = _get_auth_httpx_client()
+        try:
+            resp = await client.post(
+                settings.hmac_secret_service_url,
+                json={"key_id": key_id},
+                headers={"X-Internal-Service": settings.app_name},
+            )
+        except httpx.RequestError as e:
+            raise ApiError(
+                ErrorCode.INTERNAL,
+                f"auth unreachable: {type(e).__name__}: {e!r}",
+                http_status=503,
+            ) from e
         if resp.status_code != 200:
             raise ApiError(ErrorCode.UNAUTHORIZED, "hmac secret fetch failed")
         secret = resp.json().get("hmac_secret")
