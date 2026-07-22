@@ -27,6 +27,10 @@ def _env(monkeypatch):
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
+    # R3e review-fix: 清 identity L1，避免某用例 configure_l1 后断言先抛（跳过自身的末尾清理行）造成 L1 跨用例泄漏。
+    from apihub_core import identity
+
+    identity.configure_l1(identity=None, secret=None)
 
 
 @pytest.fixture

@@ -186,8 +186,8 @@ async def _verify_hmac(request: Request, settings: Settings, api_key: str) -> Te
     if secret_blob is not None:
         try:
             secret = crypto_mod.decrypt_secret(secret_blob)
-        except Exception:  # InvalidTag / binascii / RuntimeError(缺 key) —— 非客户端错，503 + DEL 缓存
-            await raw_client().delete(identity.hmac_secret_cache_key(api_key))
+        except Exception:  # InvalidTag / binascii / RuntimeError(缺 key) —— 非客户端错，503 + 清 L1 + DEL Redis（防 R3e 后损坏 blob 在 L1 TTL 内持续 503）
+            await identity.delete_hmac_secret(api_key)  # T3: 一次清 _secret_l1 + Redis key（pre-R3e 自愈语义）
             raise ApiError(ErrorCode.INTERNAL, "hmac secret cache corrupt", http_status=503) from None
     else:
         key_id = cached.get("key_id")
