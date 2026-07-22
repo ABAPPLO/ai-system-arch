@@ -17,6 +17,9 @@ app = create_app(
         # /internal/auth/check: APISIX tenant-affinity 调用，body 里带 api_key，
         # 与 /v1/apikey/verify 同属内部跨租户校验入口（R0a §3.10）
         "/internal/auth/check",
+        # R2e: dispatcher 冷路径取 HMAC secret（集群内 NetworkPolicy 限制来源，
+        # 同 /v1/apikey/verify 的冷回源语义）
+        "/v1/internal/hmac-secret",
         # 外部开发者身份端点：注册/验证/登录发生在鉴权之前（无凭证），必须跳过 APIKey middleware
         "/v1/auth/register",
         "/v1/auth/verify-email",

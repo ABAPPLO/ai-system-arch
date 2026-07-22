@@ -31,6 +31,8 @@ class ApiKeyCreate(BaseModel):
     name: str = Field(min_length=2, max_length=64)
     scopes: list[str] = Field(default_factory=list)
     expires_at: datetime | None = None
+    # R2e：True = 该 key 走 HMAC 签名模式（平台验签 + secret 加密存）
+    signing: bool = False
 
 
 class ApiKeyResponse(BaseModel):
@@ -44,6 +46,20 @@ class ApiKeyResponse(BaseModel):
     display_prefix: str  # 后续列表只展示这个
     expires_at: datetime | None = None
     created_at: datetime
+    # R2e：HMAC 签名 secret 明文（仅 signing=True 创建时返回一次），否则 None
+    hmac_secret: str | None = None
+
+
+class HmacSecretRequest(BaseModel):
+    """dispatcher 冷路径取 HMAC secret 请求（集群内 /v1/internal/hmac-secret）。"""
+
+    key_id: str = Field(min_length=5)
+
+
+class HmacSecretResponse(BaseModel):
+    """HMAC secret 响应 —— None = key 未 enrolled（非错）。"""
+
+    hmac_secret: str | None
 
 
 class ApiKeyListItem(BaseModel):

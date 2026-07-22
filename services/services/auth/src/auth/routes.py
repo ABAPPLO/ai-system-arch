@@ -29,6 +29,8 @@ from auth.models import (
     ConsentWithdrawResponse,
     DeleteAccountResponse,
     ExportResponse,
+    HmacSecretRequest,
+    HmacSecretResponse,
     LoginRequest,
     RefreshRequest,
     RegisterRequest,
@@ -38,10 +40,12 @@ from auth.models import (
 from auth.repository import (
     create_api_key,
     create_app,
+    get_hmac_secret_plaintext,
     get_tenant_home_region,
     list_api_keys_for_app,
     list_apps_for_tenant,
     revoke_api_key,
+    rotate_hmac_secret,
     verify_api_key_record,
 )
 
@@ -165,12 +169,15 @@ def register_routes(app: FastAPI) -> None:
             display_prefix=display_prefix,
             scopes=payload.scopes,
             expires_at=payload.expires_at,
+            signing=payload.signing,
         )
 
         # R1d：随 key 生命周期同步 APISIX consumer（edge 校验）+ 预热 Redis 身份缓存
         # （dispatcher 信任路径命中即不回源 auth）。best-effort：失败仅记日志，不回滚 key
         # （key 仍可用——dispatcher 回落 HTTP auth）。
         # R3b S1-T3：consumer labels 注入 tenant.home_region（多区写亲和 consumer 侧）。
+        # R2e：identity 缓存带 key_id（cold-path /v1/internal/hmac-secret 入参）+
+        #      hmac_enrolled；signing key 额外预热加密 secret 缓存（dispatcher 验签暖路径）。
         try:
             from apihub_core import identity
 
@@ -179,21 +186,28 @@ def register_routes(app: FastAPI) -> None:
             await _inject_home_region_on_create(
                 key_id=key_id, key=plaintext, tenant_id=ctx.tenant_id
             )
-            await identity.write_identity(
-                plaintext,
-                {
-                    "is_active": True,
-                    "tenant_id": ctx.tenant_id,
-                    "tenant_type": ctx.tenant_type,
-                    "app_id": app_id,
-                    "is_platform_admin": ctx.is_platform_admin,
-                    "scopes": payload.scopes,
-                    "expires_at": payload.expires_at.isoformat()
-                    if payload.expires_at
-                    else None,
-                },
-                ttl=POSITIVE_CACHE_TTL,
-            )
+            identity_payload = {
+                "is_active": True,
+                "tenant_id": ctx.tenant_id,
+                "tenant_type": ctx.tenant_type,
+                "app_id": app_id,
+                "is_platform_admin": ctx.is_platform_admin,
+                "scopes": payload.scopes,
+                "expires_at": payload.expires_at.isoformat()
+                if payload.expires_at
+                else None,
+                "key_id": key_id,  # R2e: cold path /v1/internal/hmac-secret 入参
+                "hmac_enrolled": payload.signing,
+            }
+            await identity.write_identity(plaintext, identity_payload, ttl=POSITIVE_CACHE_TTL)
+            if payload.signing and record.get("hmac_secret"):
+                from apihub_core.crypto import encrypt_secret
+
+                await identity.write_hmac_secret(
+                    plaintext,
+                    encrypt_secret(record["hmac_secret"]),
+                    ttl=POSITIVE_CACHE_TTL,
+                )
         except Exception:  # noqa: BLE001
             log.warning("apisix_consumer_upsert_failed", key_id=key_id, app_id=app_id, exc_info=True)
 
@@ -242,6 +256,37 @@ def register_routes(app: FastAPI) -> None:
             tenant_id=ctx.tenant_id,
         )
         return {"id": key_id, "status": "revoked"}
+
+    # ========== HMAC 签名 secret 生命周期（R2e）==========
+
+    @app.post("/v1/api-keys/{key_id}/hmac-secret/rotate")
+    async def rotate_hmac(key_id: str):
+        """轮换 HMAC secret → 新明文仅返回一次 + 失效 secret Redis 缓存（identity 不动）。
+
+        identity 缓存保留（tenant_id/scopes/key_id/hmac_enrolled 不变），只清加密 secret
+        缓存，使下一次签名请求走 cold path 重新取并回填新 secret。key_hash 仅内部用于
+        失效缓存，不回传 client。
+        """
+        ctx = require_tenant()
+        from apihub_core import redis
+
+        result = await rotate_hmac_secret(key_id)
+        # 失效 warm secret 缓存：hmac_secret_cache_key = "hmac_secret:" + sha256(明文 api_key)
+        # = key_hash（rotate_hmac_secret RETURNING key_hash，与 identity.hmac_secret_cache_key 一致）。
+        await redis.raw_client().delete("hmac_secret:" + result["key_hash"])
+        log.info("hmac_secret_rotated", key_id=key_id, tenant_id=ctx.tenant_id)
+        return {"key_id": result["key_id"], "hmac_secret": result["hmac_secret"]}
+
+    @app.post("/v1/internal/hmac-secret", response_model=HmacSecretResponse)
+    async def fetch_hmac_secret(payload: HmacSecretRequest):
+        """dispatcher 冷路径取 HMAC secret 明文（集群内 + admin_db_session bypass RLS）。
+
+        等价 /v1/apikey/verify 的冷回源。未 enrolled（列 NULL）→ hmac_secret=None（非 401；
+        dispatcher 据此判定该 key 不走签名模式）。在 skip_auth_paths，靠 K8s NetworkPolicy
+        限集群内来源（同 /v1/apikey/verify）。
+        """
+        secret = await get_hmac_secret_plaintext(payload.key_id)
+        return HmacSecretResponse(hmac_secret=secret)
 
     # ========== app 管理（受保护端点；portal 转发用户 JWT 到此）==========
 
