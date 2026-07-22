@@ -26,7 +26,6 @@ decrypt) → mock-backend(OpenAI 风格 SSE)。
 """
 
 import json
-import os
 import subprocess
 import sys
 import time
@@ -274,7 +273,7 @@ def seed():
     out = sh(
         "docker exec -i apihub-pg psql -U apihub -d apihub -v ON_ERROR_STOP=1 < /tmp/_r2c_seed.sql"
     )
-    last = [l for l in out.strip().splitlines() if l.strip()][-1:] or ["?"]
+    last = [line for line in out.strip().splitlines() if line.strip()][-1:] or ["?"]
     print(f"  seed ok: {last[0]}")
 
     # 清掉 dispatcher 的 snapshot cache（resolver redis t_set 5min；旧 status='draft' 不可达）
@@ -336,14 +335,14 @@ def assert_billing():
     print(f"  [wait] CH token_total TIMEOUT; last={last!r}; fallback → Kafka dump")
     dump = sh(
         "docker exec apihub-kafka kafka-console-consumer.sh --bootstrap-server localhost:9094 "
-        f"--topic api-call-events --from-beginning --max-messages 50 --timeout-ms 8000 2>&1",
+        "--topic api-call-events --from-beginning --max-messages 50 --timeout-ms 8000 2>&1",
         check=False,
     )
     matches = [
-        l for l in dump.splitlines()
-        if f'"api_id": "{AI_API_ID}"' in l or f'"api_id":"{AI_API_ID}"' in l
+        line for line in dump.splitlines()
+        if f'"api_id": "{AI_API_ID}"' in line or f'"api_id":"{AI_API_ID}"' in line
     ]
-    token_hits = [l for l in matches if '"token_total":' in l and '"token_total": 0' not in l]
+    token_hits = [line for line in matches if '"token_total":' in line and '"token_total": 0' not in line]
     if token_hits:
         print(f"  [R2C-B] Kafka fallback OK —— {len(token_hits)} 条 token>0 event: "
               f"{token_hits[-1][:160]}")

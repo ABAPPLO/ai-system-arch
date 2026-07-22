@@ -32,7 +32,7 @@ class TestPiiEncryptDecrypt:
         fake = type("s", (), {"pii_encryption_key": "0000000000000000000000000000000000000000000000000000000000000000"})
         monkeypatch.setattr("apihub_core.pii.get_settings", lambda: fake())
         import pytest
-        with pytest.raises(Exception):
+        with pytest.raises(Exception):  # noqa: B017  解密失败异常类型依后端实现，保持宽匹配避免漏捕
             decrypt_pii(encrypted)
 
     def test_empty_string(self):

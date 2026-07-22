@@ -8,7 +8,15 @@ from apihub_core.tenant import require_tenant
 from fastapi import FastAPI, Request
 
 from portal import repository
-from portal.models import ApiKeyCreate, ApiKeyResponse, AppCreate, AppResponse, PlanInfo, SubscribeRequest, TryRequest
+from portal.models import (
+    ApiKeyCreate,
+    ApiKeyResponse,
+    AppCreate,
+    AppResponse,
+    PlanInfo,
+    SubscribeRequest,
+    TryRequest,
+)
 
 log = get_logger(__name__)
 
@@ -205,7 +213,7 @@ def register_routes(app: FastAPI) -> None:
     async def portal_delete_webhook(webhook_id: str):
         require_tenant()
         async with httpx.AsyncClient(timeout=5.0) as c:
-            r = await c.delete(f"{notif_base}/webhooks/{webhook_id}")
+            await c.delete(f"{notif_base}/webhooks/{webhook_id}")
         return {"status": "deleted"}
 
     @app.post("/v1/portal/webhooks/{webhook_id}/test")

@@ -58,8 +58,8 @@ def _apply_env(extra: dict[str, str] | None) -> None:
 
 
 def _fresh_settings_and_init():
-    from apihub_core.config import get_settings
     from apihub_core import clickhouse
+    from apihub_core.config import get_settings
     get_settings.cache_clear()
     s = get_settings()
     clickhouse.close_clickhouse()

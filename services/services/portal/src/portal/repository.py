@@ -251,7 +251,10 @@ async def try_api(payload: TryRequest) -> TryResponse:
 
 # ========== 用量/计费（Phase 3）==========
 
-from portal.models import PlanInfo, SubscriptionInfo
+from portal.models import (  # noqa: E402  分段 import（Phase 3 用量/计费段）
+    PlanInfo,
+    SubscriptionInfo,
+)
 
 
 async def get_billing_summary(tenant_id: str) -> dict:

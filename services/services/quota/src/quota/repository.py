@@ -116,8 +116,9 @@ async def load_rules(tenant_id: str, app_id: str, api_id: str) -> tuple[QuotaRul
 
 # ========== Phase 3 计费 ==========
 
-from apihub_core.clickhouse import query_all
-from quota.models import PlanSummary
+from apihub_core.clickhouse import query_all  # noqa: E402  分段 import（Phase 3 计费段）
+
+from quota.models import PlanSummary  # noqa: E402  分段 import（Phase 3 计费段）
 
 
 async def get_plan(plan_code: str) -> PlanSummary | None:

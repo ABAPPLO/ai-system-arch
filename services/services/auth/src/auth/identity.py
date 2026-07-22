@@ -5,7 +5,7 @@
 """
 
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import bcrypt
 from apihub_core import db, redis
@@ -245,7 +245,7 @@ async def export_user_data(*, user_id: str) -> dict:
 
     return {
         "user_id": row["id"],
-        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "exported_at": datetime.now(UTC).isoformat(),
         "account": {
             "email": row["email"],
             "phone": maybe_decrypt(row["phone"] or ""),

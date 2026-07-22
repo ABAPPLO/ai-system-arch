@@ -37,7 +37,6 @@ api-registry 等 caller 零改动。本脚本直连 Go quota（port-forward svc/
 """
 
 import json
-import os
 import subprocess
 import sys
 import time
@@ -393,7 +392,7 @@ def assert_redis_key():
         assert slot.isdigit(), (
             f"R3A-D redis key slot 非数字：{k!r} 末段={slot!r}（应为 unix_ts/window 整数槽）"
         )
-    print(f"  [R3A-D] Redis key 格式 OK —— 三 tier 齐全 (s/m/d)，slot 纯数字")
+    print("  [R3A-D] Redis key 格式 OK —— 三 tier 齐全 (s/m/d)，slot 纯数字")
 
 
 def assert_lua_atomic():

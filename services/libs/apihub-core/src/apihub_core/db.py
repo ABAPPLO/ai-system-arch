@@ -164,7 +164,7 @@ async def _write_admin_audit(reason: str) -> None:
                 INSERT INTO {_AUDIT_TABLE}
                     (tenant_id, actor_type, action, resource_type, detail)
                 VALUES ($1, 'system', 'admin_db_session', 'platform', $2::jsonb)
-                """,
+                """,  # noqa: S608  _AUDIT_TABLE 是模块常量非用户输入
                 tenant_id,
                 {"reason": reason},
             )

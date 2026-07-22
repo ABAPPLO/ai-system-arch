@@ -1,5 +1,6 @@
 import asyncio
 from unittest.mock import AsyncMock, patch
+
 from apihub_core.apisix_client import upsert_consumer
 
 

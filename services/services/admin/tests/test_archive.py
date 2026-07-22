@@ -1,7 +1,7 @@
 """审计归档测试 —— 路由 + repository 逻辑。"""
 
 import contextlib
-from datetime import datetime, timezone
+from datetime import datetime
 
 from admin import repository as repo_mod
 
@@ -107,7 +107,7 @@ def _patch_db(monkeypatch, conn):
 
 class TestArchiveBefore:
     async def test_no_records(self, monkeypatch):
-        rows = [
+        _rows = [
             {"id": 1, "tenant_id": "t1", "actor_id": "u1",
              "action": "a", "resource_type": "r",
              "created_at": datetime(2025, 12, 1)},
@@ -133,7 +133,7 @@ class TestArchiveBefore:
             [{"id": r["id"]} for r in rows],  # SELECT id
             rows,                              # SELECT *
         ]
-        seq = [iter(return_seq).__next__, lambda *a: []]
+        _seq = [iter(return_seq).__next__, lambda *a: []]
 
         class _SeqConn(_FakeConn):
             def __init__(self):

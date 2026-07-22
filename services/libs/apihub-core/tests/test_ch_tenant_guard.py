@@ -6,7 +6,9 @@ from apihub_core import clickhouse as ch
 def _set_client():
     ch._client = MagicMock()
     ch._peer_client = None
-    r = MagicMock(); r.column_names = ("c",); r.result_rows = [(1,)]
+    r = MagicMock()
+    r.column_names = ("c",)
+    r.result_rows = [(1,)]
     ch._client.query.return_value = r
 
 
@@ -17,7 +19,7 @@ def test_tenant_scope_missing_token_raises():
         try:
             ch.query_all("SELECT * FROM t WHERE ts>%(s)s", {"s": "x"},
                           force_tenant_id="sentinel")
-            assert False, "expected ValueError (missing %(tenant_id)s)"
+            raise AssertionError("expected ValueError (missing %(tenant_id)s)")
         except ValueError as e:
             assert "%(tenant_id)s" in str(e)
 
@@ -29,7 +31,7 @@ def test_tenant_scope_spoofed_tenant_raises():
         try:
             ch.query_all("SELECT * FROM t WHERE tenant_id=%(tenant_id)s",
                          {"tenant_id": "t_b"}, force_tenant_id="sentinel")
-            assert False, "expected ValueError (spoofed tenant_id)"
+            raise AssertionError("expected ValueError (spoofed tenant_id)")
         except ValueError as e:
             assert "tenant_id param does not match" in str(e)
 
@@ -60,6 +62,6 @@ def test_query_union_peer_still_admin_only():
         try:
             ch.query_union_peer("SELECT 1", "SELECT 1", None,
                                  force_tenant_id="sentinel")
-            assert False, "expected ValueError (M-2 guard)"
+            raise AssertionError("expected ValueError (M-2 guard)")
         except ValueError as e:
             assert "peer_sql requires admin scope" in str(e)

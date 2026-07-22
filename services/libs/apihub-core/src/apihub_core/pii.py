@@ -13,7 +13,6 @@ _NONCE_LENGTH = 12
 
 
 def _get_key() -> bytes:
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM  # noqa: PLC0415
 
     key_hex = get_settings().pii_encryption_key
     if not key_hex:

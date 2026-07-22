@@ -289,7 +289,7 @@ async def test_forward_composes_correct_auth_url(monkeypatch):
 
 async def test_list_portal_apis(client, monkeypatch):
     """GET /v1/portal/apis 返回过滤/分页后的 API 列表。"""
-    from portal.models import PortalApiListResponse, PortalApiItem
+    from portal.models import PortalApiItem, PortalApiListResponse
 
     async def fake_list(**kw):
         return PortalApiListResponse(
