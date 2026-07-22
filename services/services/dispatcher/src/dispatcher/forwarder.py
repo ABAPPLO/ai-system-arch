@@ -165,19 +165,22 @@ class HttpForwarder:
                 yield b'data: {"error":"backend error"}\n\n'
             finally:
                 latency_ms = int((time.perf_counter() - start) * 1000)
-                await _emit_stream_complete(
-                    snap,
-                    request,
-                    status_code,
-                    len(body),
-                    total_bytes,
-                    latency_ms,
-                    request_id,
-                    tokens_prompt=tokens_prompt,
-                    tokens_completion=tokens_completion,
-                )
-                with suppress(Exception):
-                    await cm.__aexit__(None, None, None)
+                try:
+                    await _emit_stream_complete(
+                        snap,
+                        request,
+                        status_code,
+                        len(body),
+                        total_bytes,
+                        latency_ms,
+                        request_id,
+                        tokens_prompt=tokens_prompt,
+                        tokens_completion=tokens_completion,
+                    )
+                finally:
+                    # 关上游连接 —— 必须保证即使 emit 抛异常也执行（否则泄漏连接）
+                    with suppress(Exception):
+                        await cm.__aexit__(None, None, None)
 
         return StreamingResponse(
             stream_and_emit(),
