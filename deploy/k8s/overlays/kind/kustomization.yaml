@@ -44,6 +44,7 @@ resources:
   - ../../base/shared/audit-archive-cronjob.yaml
   - ../../base/shared/data-cleanup-cronjob.yaml
   - ../../base/shared/admin-cron-apikey.secret.yaml
+  - ../../base/shared/apihub-hmac-key.secret.yaml  # R2e: HMAC envelope key（auth/dispatcher/notification 共享）
 
 patches:
   # kind/dev 放开 PodSecurity 到 privileged（strategic-merge patch on apihub-system Namespace）
@@ -86,6 +87,9 @@ patches:
   # （cron 专用 admin app + key 尚未建，见 PR follow-up；走通 mount/transport 即可）
   - path: patches/admin-cron-apikey.yaml
     target: { kind: Secret, name: admin-cron-apikey, namespace: apihub-system }
+  # R2e: kind/dev 注入 HMAC envelope key（prod 走 external-secrets，见 secret.yaml 注释）
+  - path: patches/apihub-hmac-key.yaml
+    target: { kind: Secret, name: apihub-hmac-key, namespace: apihub-system }
   # 副本统一压 1（kind 资源友好）
   - target: { kind: Deployment }
     patch: |-

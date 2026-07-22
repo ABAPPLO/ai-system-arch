@@ -1,0 +1,16 @@
+# kind/dev：注入 HMAC envelope key（auth/dispatcher/notification 共享）。
+#
+# base 的 apihub-hmac-key 是空壳（prod 由 external-secrets 注入），dev/kind 必须显式
+# 提供 HMAC_SECRET_KEY，否则 apihub_core/crypto.py::_get_key 抛 RuntimeError（fail-closed，
+# 启动期/首请求即报）。值与 .env.dev / apihub_core.config 的 dev hex 同款：
+# 64 hex = 32 字节 AES-256 key（非生产密钥，仅 kind/dev）。
+#
+# strategic-merge（非 JSON6902）：Secret 的 stringData 字段可被 SM 直接合并覆盖。
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apihub-hmac-key
+  namespace: apihub-system
+type: Opaque
+stringData:
+  hmac_secret_key: "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"

@@ -42,6 +42,15 @@ spec:
               containerPort: 8002
             - name: metrics
               containerPort: 9090
+          env:
+            # R2e: HMAC envelope key（AES-256-GCM，32 字节 hex）。auth 加密存/取 secret。
+            # fail-closed：缺则 secretKeyRef 解析失败 → Pod CreateContainerError（不进运行期）。
+            # dev/kind 由 overlays/kind/patches/apihub-hmac-key.yaml 注入；prod 走 external-secrets。
+            - name: HMAC_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: apihub-hmac-key
+                  key: hmac_secret_key
           envFrom:
             - configMapRef:
                 name: auth-config
