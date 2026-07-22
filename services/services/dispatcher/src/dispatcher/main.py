@@ -4,10 +4,13 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 import httpx
-from apihub_core import create_app
+from apihub_core import create_app, get_settings
+from apihub_core import identity as identity_mod
+from apihub_core.l1 import TTLCache
 from apihub_core.logging import get_logger
 from fastapi import FastAPI
 
+from dispatcher import resolver as resolver_mod
 from dispatcher.forwarder import HttpForwarder
 from dispatcher.routes import register_routes, set_forwarder
 
@@ -21,7 +24,19 @@ def _build_routes(app: FastAPI) -> None:
 
     @asynccontextmanager
     async def lifespan_with_httpclient(_app: FastAPI) -> AsyncIterator[None]:
+        settings = get_settings()
         async with original_lifespan(_app):
+            # L1 进程内缓存：identity（API key / hmac secret）+ resolver snapshot。
+            # create_app lifespan 已在此 async with 入口完成 Redis 初始化，
+            # 故此处视为“Redis 就绪后”；yield 前启用、shutdown（finally）清理。
+            if settings.dispatcher_l1_enabled:
+                _ttl = settings.dispatcher_l1_ttl_seconds
+                _max = settings.dispatcher_l1_maxsize
+                identity_mod.configure_l1(
+                    identity=TTLCache(maxsize=_max, ttl=_ttl),
+                    secret=TTLCache(maxsize=_max, ttl=_ttl),
+                )
+                resolver_mod.configure_snapshot_l1(TTLCache(maxsize=_max, ttl=_ttl))
             client = httpx.AsyncClient(
                 # 显式超时：connect/pool/write 有界防连接耗尽；read 给 300s
                 # 兼容 AI SSE 慢生成（同步转发另有 per-request timeout=snap.timeout_ms 覆盖）
@@ -44,6 +59,10 @@ def _build_routes(app: FastAPI) -> None:
             try:
                 yield
             finally:
+                # shutdown：关闭 L1 缓存（configure_l1(None) 即恢复“未启用”态，
+                # 与 startup 的 enable 对称；即便 l1 未启用，传 None 也是安全 no-op）
+                identity_mod.configure_l1(identity=None, secret=None)
+                resolver_mod.configure_snapshot_l1(None)
                 await workflow_client.aclose()
                 await client.aclose()
 

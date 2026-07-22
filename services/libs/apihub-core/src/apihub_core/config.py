@@ -104,6 +104,11 @@ class Settings(BaseSettings):
     # auth HMAC secret 冷路径（dispatcher 取 HMAC secret 用）
     hmac_secret_service_url: str = "http://auth.apihub-system/v1/internal/hmac-secret"  # noqa: S105
 
+    # R3e: dispatcher 进程内 L1 缓存（identity/snapshot，TTL=5s 削峰；Redis 仍为真相源）
+    dispatcher_l1_enabled: bool = True
+    dispatcher_l1_ttl_seconds: float = 5.0
+    dispatcher_l1_maxsize: int = 4096
+
     # PII 加密密钥（AES-256-GCM，32 字节 hex）
     pii_encryption_key: str = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 
