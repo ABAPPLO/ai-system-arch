@@ -201,17 +201,12 @@ class TestSlotIsolation:
         assert _slot(60, now=119) == 1
         assert _slot(60, now=120) == 2
 
-    def test_different_dimensions_isolated(self, fake_redis):
+    async def test_different_dimensions_isolated(self, fake_redis):
         """同租户不同 app/api 的计数互不影响。"""
-        import asyncio
-
-        async def _go():
-            r = rules(second=LimitRule(window_seconds=1, max_count=2))
-            # app1 打 2 次（达上限）
-            await check_and_consume("t1", "app1", "api1", r)
-            await check_and_consume("t1", "app1", "api1", r)
-            # app2 应该还能打
-            resp = await check_and_consume("t1", "app2", "api1", r)
-            assert resp.allowed
-
-        asyncio.run(_go())
+        r = rules(second=LimitRule(window_seconds=1, max_count=2))
+        # app1 打 2 次（达上限）
+        await check_and_consume("t1", "app1", "api1", r)
+        await check_and_consume("t1", "app1", "api1", r)
+        # app2 应该还能打
+        resp = await check_and_consume("t1", "app2", "api1", r)
+        assert resp.allowed
