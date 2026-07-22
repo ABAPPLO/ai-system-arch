@@ -77,9 +77,11 @@ def create_app(
         if path.startswith(skip_auth_paths):
             return await call_next(request)
 
-        # 从 header 取 X-API-Key 或 Authorization: Bearer
-        api_key = request.headers.get("X-API-Key") or _extract_bearer(
-            request.headers.get("Authorization")
+        # 从 header 取 X-API-Key 或 Authorization: Bearer 或 X-App-Key（HMAC 签名流，R2e）
+        api_key = (
+            request.headers.get("X-API-Key")
+            or _extract_bearer(request.headers.get("Authorization"))
+            or request.headers.get("X-App-Key")
         )
         if not api_key:
             return JSONResponse(

@@ -19,14 +19,23 @@ async def list_webhooks(*, tenant_id: str) -> list[dict]:
 
 
 async def create_webhook(*, tenant_id: str, url: str, events: list[str], secret: str | None) -> dict:
+    """创建 webhook。
+
+    secret=None → 平台生成（返明文一次，DB 存 AESGCM 加密）；
+    client-supplied secret → 加密存同值（兼容老 client 传明文 secret 的场景）。
+    """
+    from apihub_core.crypto import encrypt_secret
+
     wh_id = f"wh_{secrets.token_hex(8)}"
+    plaintext = secret if secret else secrets.token_urlsafe(32)
+    encrypted = encrypt_secret(plaintext)
     async with db.db_session() as conn:
         await conn.execute(
-            "INSERT INTO webhook_subscription (id, tenant_id, url, events, secret)"
+            "INSERT INTO webhook_subscription (id, tenant_id, url, events, secret_encrypted)"
             " VALUES ($1, $2, $3, $4, $5)",
-            wh_id, tenant_id, url, events, secret or "",
+            wh_id, tenant_id, url, events, encrypted,
         )
-    return {"id": wh_id, "url": url, "events": events, "status": "active"}
+    return {"id": wh_id, "url": url, "events": events, "status": "active", "hmac_secret": plaintext}
 
 
 async def update_webhook(*, tenant_id: str, webhook_id: str, updates: dict) -> dict:

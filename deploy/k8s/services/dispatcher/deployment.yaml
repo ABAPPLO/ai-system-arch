@@ -42,6 +42,14 @@ spec:
               containerPort: 8001
             - name: metrics
               containerPort: 9090
+          env:
+            # R2e: HMAC envelope key —— dispatcher inbound 验签暖路径 in-process decrypt 用。
+            # fail-closed：缺则 Pod 起不来。dev/kind 由 patches/apihub-hmac-key.yaml 注入；prod external-secrets。
+            - name: HMAC_SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: apihub-hmac-key
+                  key: hmac_secret_key
           envFrom:
             - configMapRef:
                 name: dispatcher-config

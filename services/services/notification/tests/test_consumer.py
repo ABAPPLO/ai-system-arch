@@ -64,7 +64,8 @@ class TestDeliver:
             return _FakeResponse(200)
 
         await self._run_deliver(monkeypatch, _post, secret="")
-        assert captured["headers"]["X-Webhook-Signature"] == ""
+        # R2e: 无 secret → 不带签名头（非空串占位）
+        assert "X-Webhook-Signature" not in captured["headers"]
 
     async def test_deliver_server_error(self, monkeypatch):
         async def _post(url, *, content, headers, timeout=None):  # noqa: ASYNC109 -- mock matches httpx post signature
@@ -106,7 +107,8 @@ class TestDeliver:
         await self._run_deliver(monkeypatch, _post, payload={"msg": "hello"}, secret=secret)
         expected_sig = hmac.new(secret.encode(), captured["content"],
                                 hashlib.sha256).hexdigest()
-        assert captured["sig"] == expected_sig
+        # R2e: 头格式 hmac-sha256=<hex>（前缀 + 与裸 HMAC 逐字节兼容）
+        assert captured["sig"] == f"hmac-sha256={expected_sig}"
 
 
 class _FakeResponse:
@@ -149,18 +151,22 @@ class TestGetActiveWebhooks:
     async def test_fetches_active_only(self, monkeypatch):
         from notification import consumer as consumer_mod
 
+        # R2e: _get_active_webhooks 读 secret_encrypted + decrypt_secret 解出 secret
+        monkeypatch.setattr(consumer_mod, "decrypt_secret", lambda enc: f"dec:{enc}")
         rows = [
             {"id": "wh_1", "tenant_id": "t1", "url": "https://a.com/hook",
-             "events": ["api.call.succeeded"], "secret": ""},
+             "events": ["api.call.succeeded"], "secret_encrypted": None},
             {"id": "wh_2", "tenant_id": "t2", "url": "https://b.com/hook",
-             "events": ["api.call.failed"], "secret": "s1"},
+             "events": ["api.call.failed"], "secret_encrypted": "enc_s1"},
         ]
         conn = self._patch_db(monkeypatch, rows)
 
         result = await consumer_mod._get_active_webhooks()
         assert len(result) == 2
         assert result[0]["id"] == "wh_1"
-        assert result[1]["secret"] == "s1"
+        assert result[0]["secret"] == ""  # secret_encrypted NULL → ""
+        assert result[1]["secret"] == "dec:enc_s1"  # 解密回填
+        assert "secret_encrypted" not in result[1]  # 加密 blob 不外泄
         assert any("status = 'active'" in sql for sql in conn.captured_sql)
 
     async def test_returns_empty_list(self, monkeypatch):

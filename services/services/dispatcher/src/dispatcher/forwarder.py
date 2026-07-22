@@ -33,6 +33,12 @@ _DROP_HEADERS = {
     "authorization",  # 调用方凭证不能给后端
     "x-tenant-id",
     "x-app-id",  # 由 dispatcher 自己注入
+    # R2e: HMAC 签名流凭证同样不能透传给上游（否则上游 middleware 见 X-App-Key 会跑 _verify_hmac，
+    # 而上游服务未必注入了 HMAC_SECRET_KEY → 500；且签名是给 dispatcher 入口验的，非后端）。
+    "x-app-key",
+    "x-signature",
+    "x-timestamp",
+    "x-nonce",
 }
 
 

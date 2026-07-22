@@ -327,3 +327,30 @@ async def test_sync_error_503(
     payload = asdict(stub_kafka[0])
     assert payload["status_code"] == 503
     assert payload["error_code"] == "API_DOWN"
+
+
+def test_build_forward_headers_strips_hmac_and_bearer_credentials():
+    """I4（review）：dispatcher 不把 HMAC 签名凭证透传给上游。
+
+    否则上游 middleware 见 X-App-Key 会跑 _verify_hmac，而上游服务未必注入了
+    HMAC_SECRET_KEY → 500；且签名是给 dispatcher 入口验的，非后端。
+    """
+    from dispatcher.forwarder import _build_forward_headers
+
+    class _Req:
+        def __init__(self, h):
+            self.headers = h
+
+    req = _Req({
+        "X-App-Key": "ak_x", "X-Signature": "deadbeef",
+        "X-Timestamp": "1", "X-Nonce": "n",
+        "X-API-Key": "ak_bearer", "Authorization": "Bearer t",
+        "Content-Type": "application/json", "X-Request-Id": "r1",
+    })
+    out = _build_forward_headers(req)
+    out_lower = {k.lower() for k in out}
+    # 调用方凭证（bearer + HMAC 签名流）全剥
+    for h in ("x-app-key", "x-signature", "x-timestamp", "x-nonce", "x-api-key", "authorization"):
+        assert h not in out_lower, f"{h} 不该透传给上游"
+    # 非凭证头保留
+    assert "x-request-id" in out_lower

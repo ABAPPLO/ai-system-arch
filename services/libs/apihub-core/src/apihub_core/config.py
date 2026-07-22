@@ -96,6 +96,14 @@ class Settings(BaseSettings):
     # AI Gateway（ai-gateway 微服务用）
     ai_gateway_encryption_key: str = ""
 
+    # HMAC 签名密钥加密 key（AES-256-GCM，32 字节 hex）——独立于 ai_gateway_encryption_key
+    hmac_secret_key: str = ""
+    # HMAC 请求验签参数
+    hmac_timestamp_window_seconds: int = 300  # ±5min
+    hmac_nonce_ttl_seconds: int = 600  # 10min
+    # auth HMAC secret 冷路径（dispatcher 取 HMAC secret 用）
+    hmac_secret_service_url: str = "http://auth.apihub-system/v1/internal/hmac-secret"  # noqa: S105
+
     # PII 加密密钥（AES-256-GCM，32 字节 hex）
     pii_encryption_key: str = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 
@@ -146,6 +154,7 @@ _INSECURE_DEFAULTS = {
     "jwt_secret": "dev-only-insecure-secret",
     "pii_encryption_key": "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
     "oss_secret_key": "apihub_dev_pwd",
+    "hmac_secret_key": "",  # prod 必须注入，缺则启动 fail-closed
 }
 
 
