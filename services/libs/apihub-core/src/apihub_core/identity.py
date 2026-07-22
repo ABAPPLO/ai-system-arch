@@ -12,6 +12,9 @@ from typing import Any
 
 from apihub_core import redis
 from apihub_core.l1 import TTLCache
+from apihub_core.logging import get_logger
+
+log = get_logger(__name__)
 
 _identity_l1: TTLCache | None = None
 _secret_l1: TTLCache | None = None
@@ -50,7 +53,9 @@ async def read_identity(api_key: str) -> dict[str, Any] | None:
     if _identity_l1 is not None:
         cached = _identity_l1.get(api_key)
         if isinstance(cached, dict):
+            log.debug("identity_l1_hit", side="identity", key=identity_cache_key(api_key)[:20])
             return cached
+        log.debug("identity_l1_miss", side="identity", key=identity_cache_key(api_key)[:20])
     raw = await redis.raw_client().get(identity_cache_key(api_key))
     parsed = await _parse_identity(api_key, raw)
     if _identity_l1 is not None and isinstance(parsed, dict):
@@ -83,7 +88,9 @@ async def read_hmac_secret(api_key: str) -> str | None:
     if _secret_l1 is not None:
         cached = _secret_l1.get(api_key)
         if isinstance(cached, str):
+            log.debug("identity_l1_hit", side="secret", key=hmac_secret_cache_key(api_key)[:20])
             return cached
+        log.debug("identity_l1_miss", side="secret", key=hmac_secret_cache_key(api_key)[:20])
     raw = await redis.raw_client().get(hmac_secret_cache_key(api_key))
     val = raw if isinstance(raw, str) else None
     if _secret_l1 is not None and val is not None:
@@ -106,11 +113,17 @@ async def read_identity_and_hmac_secret(
     if _identity_l1 is not None:
         hit = _identity_l1.get(api_key)
         if isinstance(hit, dict):
+            log.debug("identity_l1_hit", side="identity", key=identity_cache_key(api_key)[:20])
             ident = hit
+        else:
+            log.debug("identity_l1_miss", side="identity", key=identity_cache_key(api_key)[:20])
     if _secret_l1 is not None:
         hit = _secret_l1.get(api_key)
         if isinstance(hit, str):
+            log.debug("identity_l1_hit", side="secret", key=hmac_secret_cache_key(api_key)[:20])
             sec = hit
+        else:
+            log.debug("identity_l1_miss", side="secret", key=hmac_secret_cache_key(api_key)[:20])
     need: list[tuple[str, str]] = []
     if ident is None:
         need.append(("ident", identity_cache_key(api_key)))
