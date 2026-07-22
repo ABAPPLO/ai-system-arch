@@ -8,6 +8,7 @@ SSE 路径 4xx/5xx 被吞成 HTTP 200。fix = eager-open：await cm.__aenter__()
 TDD：本文件先写（红）→ 修 forwarder.py（绿）。
 """
 
+from contextlib import suppress
 from dataclasses import asdict
 
 import httpx
@@ -40,6 +41,7 @@ class _FakeStreamCM:
 
     def __init__(self, resp_or_exc):
         self._v = resp_or_exc
+        self.closed = False  # 跟踪上游连接是否被关（生命周期/泄漏测试用）
 
     async def __aenter__(self):
         if isinstance(self._v, Exception):
@@ -47,6 +49,7 @@ class _FakeStreamCM:
         return self._v
 
     async def __aexit__(self, *a):
+        self.closed = True
         return False
 
 
@@ -218,6 +221,54 @@ async def test_stream_5xx_propagated(async_client, monkeypatch, stubbed_forwarde
     )
     assert resp.status_code == 500, resp.text
     assert b"boom" in resp.content
+
+
+async def test_stream_closes_upstream_on_completion(
+    async_client, monkeypatch, stubbed_forwarder, stub_kafka
+):
+    """defer 2：流正常结束 → 上游连接（cm.__aexit__）一定被关（生命周期覆盖）。"""
+    _patch_resolve_to(monkeypatch, _streaming_snap())
+    captured = {}
+
+    def _fake_stream(*a, **kw):
+        cm = _FakeStreamCM(_FakeResp(200, chunks=[b"data: [DONE]\n\n"]))
+        captured["cm"] = cm
+        return cm
+
+    monkeypatch.setattr(stubbed_forwarder._client, "stream", _fake_stream)
+
+    resp = await async_client.post(
+        "/dispatch/llm", headers=_DISPATCH_HEADERS, json={"prompt": "hi"}
+    )
+    assert resp.status_code == 200
+    assert captured["cm"].closed is True
+
+
+async def test_stream_closes_upstream_even_if_emit_raises(
+    async_client, monkeypatch, stubbed_forwarder, stub_kafka
+):
+    """defer 1：_emit_stream_complete 抛异常时，上游连接仍须关闭（不泄漏）。"""
+    from dispatcher import forwarder
+
+    _patch_resolve_to(monkeypatch, _streaming_snap())
+    captured = {}
+
+    async def _raising_emit(*a, **kw):
+        raise RuntimeError("kafka down")
+
+    monkeypatch.setattr(forwarder, "_emit_stream_complete", _raising_emit)
+
+    def _fake_stream(*a, **kw):
+        cm = _FakeStreamCM(_FakeResp(200, chunks=[b"data: [DONE]\n\n"]))
+        captured["cm"] = cm
+        return cm
+
+    monkeypatch.setattr(stubbed_forwarder._client, "stream", _fake_stream)
+
+    # emit 抛异常可能致流异常终止 —— 关键是上游连接已关（不泄漏）
+    with suppress(Exception):
+        await async_client.post("/dispatch/llm", headers=_DISPATCH_HEADERS, json={"prompt": "hi"})
+    assert captured["cm"].closed is True, "emit 抛异常时上游连接必须仍关闭（不泄漏）"
 
 
 async def test_stream_conn_fail_503(async_client, monkeypatch, stubbed_forwarder, stub_kafka):
