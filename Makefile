@@ -251,3 +251,6 @@ dev-redis-cli:  ## 进 Redis CLI
 
 db-apply:  ## 幂等回放 init-db/*.sql 到运行中的 apihub-pg（dev/kind）
 	bash scripts/k8s/apply-db.sh
+
+bench: ## 跑 R3e latency 微基准（需 docker apihub-redis @ localhost:16380）
+	PYTHONPATH=services/services/dispatcher/src:. .venv/bin/python -m benchmarks.bench_identity
