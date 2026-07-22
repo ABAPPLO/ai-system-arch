@@ -286,9 +286,7 @@ async def stats(
                 ch.query_union_peer(base_sql, base_sql, params, force_tenant_id=None)
             )
         else:
-            base = (
-                ch.query_one(base_sql, params, force_tenant_id="sentinel") or {}
-            )
+            base = ch.query_one(base_sql, params, force_tenant_id="sentinel") or {}
     except RuntimeError as e:
         log.warning("trace_stats_clickhouse_unavailable", error=str(e))
         return _empty_stats()
@@ -311,9 +309,7 @@ async def stats(
     try:
         if use_admin_session:
             top_apis_raw = _merge_top_apis(
-                ch.query_union_peer(
-                    top_apis_sql, top_apis_sql, params, force_tenant_id=None
-                ),
+                ch.query_union_peer(top_apis_sql, top_apis_sql, params, force_tenant_id=None),
                 limit=10,
             )
         else:
@@ -345,9 +341,7 @@ async def stats(
     try:
         if use_admin_session:
             by_hour_raw = _merge_by_hour(
-                ch.query_union_peer(
-                    by_hour_sql, by_hour_sql, params, force_tenant_id=None
-                ),
+                ch.query_union_peer(by_hour_sql, by_hour_sql, params, force_tenant_id=None),
                 limit=168,
             )
         else:
@@ -420,11 +414,13 @@ async def call_funnel(
     result = []
     for r in rows:
         steps = (r.get("steps") or [])[:20]
-        result.append({
-            "trace_id": r["trace_id"],
-            "step_count": len(steps),
-            "steps": [{"api_id": s[1], "path": s[2]} for s in steps],
-        })
+        result.append(
+            {
+                "trace_id": r["trace_id"],
+                "step_count": len(steps),
+                "steps": [{"api_id": s[1], "path": s[2]} for s in steps],
+            }
+        )
     return result
 
 
@@ -465,9 +461,13 @@ async def co_occurrence(
         log.warning("cooccur_ch_unavailable", error=str(e))
         return []
     return [
-        {"api_a": r["api_a"], "path_a": r["path_a"],
-         "api_b": r["api_b"], "path_b": r["path_b"],
-         "pair_count": int(r["pair_count"])}
+        {
+            "api_a": r["api_a"],
+            "path_a": r["path_a"],
+            "api_b": r["api_b"],
+            "path_b": r["path_b"],
+            "pair_count": int(r["pair_count"]),
+        }
         for r in rows
     ]
 

@@ -151,9 +151,7 @@ async def _write_admin_audit(reason: str) -> None:
     tenant_id = ctx.tenant_id if ctx else ""
     try:
         async with _pool.acquire() as conn, conn.transaction():
-            await conn.execute(
-                "SELECT set_config('app.is_platform_admin', $1, true)", "true"
-            )
+            await conn.execute("SELECT set_config('app.is_platform_admin', $1, true)", "true")
             # 传 dict 让 asyncpg 的 jsonb codec（init_pool 注册的 encoder=_JSON_ENCODER，
             # 即 json.dumps + default=str）序列化；若在此处预先 json.dumps 得到 str，
             # codec 会再次 JSON-encode 该字符串，写入 jsonb 类型变为 JSON 字符串值
@@ -195,9 +193,7 @@ async def db_session() -> AsyncIterator[asyncpg.Connection]:
             await tr.start()
             try:
                 # 注入租户上下文给 RLS 用（参数化，防 SQL 注入 —— R0a §2.5）
-                await conn.execute(
-                    "SELECT set_config('app.tenant_id', $1, true)", ctx.tenant_id
-                )
+                await conn.execute("SELECT set_config('app.tenant_id', $1, true)", ctx.tenant_id)
                 await conn.execute(
                     "SELECT set_config('app.is_platform_admin', $1, true)",
                     "true" if ctx.is_platform_admin else "false",
@@ -212,9 +208,7 @@ async def db_session() -> AsyncIterator[asyncpg.Connection]:
 
 
 @asynccontextmanager
-async def admin_db_session(
-    *, audit_reason: str | None = None
-) -> AsyncIterator[asyncpg.Connection]:
+async def admin_db_session(*, audit_reason: str | None = None) -> AsyncIterator[asyncpg.Connection]:
     """超管 DB 会话 —— 绕过 RLS，可见所有租户数据。
 
     使用场景（仅限平台运维 + 几个特殊服务）：
@@ -235,9 +229,7 @@ async def admin_db_session(
         tr = conn.transaction()
         await tr.start()
         try:
-            await conn.execute(
-                "SELECT set_config('app.is_platform_admin', $1, true)", "true"
-            )
+            await conn.execute("SELECT set_config('app.is_platform_admin', $1, true)", "true")
             yield conn
             await tr.commit()
         except Exception:
@@ -265,9 +257,7 @@ async def meta_db_session() -> AsyncIterator[asyncpg.Connection]:
         tr = conn.transaction()
         await tr.start()
         try:
-            await conn.execute(
-                "SELECT set_config('app.is_platform_admin', $1, true)", "true"
-            )
+            await conn.execute("SELECT set_config('app.is_platform_admin', $1, true)", "true")
             yield conn
             await tr.commit()
         except Exception:

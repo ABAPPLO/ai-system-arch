@@ -158,9 +158,13 @@ class TestUpdateWebhook:
         async def _update(*, tenant_id, webhook_id, updates):
             captured["webhook_id"] = webhook_id
             captured["updates"] = updates
-            return {"id": webhook_id, "url": "https://updated.example.com/hook",
-                    "events": ["api.call.succeeded"], "status": "inactive",
-                    "created_at": "2026-07-01T00:00:00+00:00"}
+            return {
+                "id": webhook_id,
+                "url": "https://updated.example.com/hook",
+                "events": ["api.call.succeeded"],
+                "status": "inactive",
+                "created_at": "2026-07-01T00:00:00+00:00",
+            }
 
         monkeypatch.setattr(repo_mod, "update_webhook", _update)
 
@@ -170,13 +174,13 @@ class TestUpdateWebhook:
         )
         assert resp.status_code == 200
         assert captured["webhook_id"] == "wh_abc123"
-        assert captured["updates"] == {"url": "https://updated.example.com/hook",
-                                       "status": "inactive"}
+        assert captured["updates"] == {
+            "url": "https://updated.example.com/hook",
+            "status": "inactive",
+        }
 
     async def test_rejects_empty_update(self, client):
-        resp = await client.put(
-            "/v1/notification/webhooks/wh_abc123", json={}
-        )
+        resp = await client.put("/v1/notification/webhooks/wh_abc123", json={})
         assert resp.status_code == 400
         assert "no fields" in resp.text.lower()
 
@@ -185,9 +189,13 @@ class TestUpdateWebhook:
 
         async def _update(*, tenant_id, webhook_id, updates):
             captured["updates"] = updates
-            return {"id": webhook_id, "url": "https://example.com/hook",
-                    "events": updates["events"], "status": "active",
-                    "created_at": "2026-07-01T00:00:00+00:00"}
+            return {
+                "id": webhook_id,
+                "url": "https://example.com/hook",
+                "events": updates["events"],
+                "status": "active",
+                "created_at": "2026-07-01T00:00:00+00:00",
+            }
 
         monkeypatch.setattr(repo_mod, "update_webhook", _update)
 
@@ -201,6 +209,7 @@ class TestUpdateWebhook:
     async def test_update_not_found(self, client, monkeypatch):
         async def _update(*, tenant_id, webhook_id, updates):
             from apihub_core.errors import ApiError, ErrorCode
+
             raise ApiError(ErrorCode.NOT_FOUND, "webhook not found")
 
         monkeypatch.setattr(repo_mod, "update_webhook", _update)
@@ -234,6 +243,7 @@ class TestDeleteWebhook:
     async def test_delete_not_found(self, client, monkeypatch):
         async def _delete(*, tenant_id, webhook_id):
             from apihub_core.errors import ApiError, ErrorCode
+
             raise ApiError(ErrorCode.NOT_FOUND, "webhook not found")
 
         monkeypatch.setattr(repo_mod, "delete_webhook", _delete)
@@ -253,6 +263,7 @@ class TestTestWebhook:
         替换 httpx.AsyncClient 为返回 mock 的工厂函数即可。
         """
         import httpx
+
         mock = _MockAsyncClient()
         mock.set_post(handler)
         monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **kw: mock)
@@ -260,8 +271,13 @@ class TestTestWebhook:
 
     async def test_ping_success(self, client, monkeypatch):
         hooks = [
-            {"id": "wh_abc123", "url": "https://example.com/hook",
-             "events": ["api.call.succeeded"], "status": "active", "secret": ""},
+            {
+                "id": "wh_abc123",
+                "url": "https://example.com/hook",
+                "events": ["api.call.succeeded"],
+                "status": "active",
+                "secret": "",
+            },
         ]
 
         async def _list(*, tenant_id):
@@ -282,8 +298,13 @@ class TestTestWebhook:
 
     async def test_ping_target_fails(self, client, monkeypatch):
         hooks = [
-            {"id": "wh_abc123", "url": "https://example.com/hook",
-             "events": ["api.call.succeeded"], "status": "active", "secret": None},
+            {
+                "id": "wh_abc123",
+                "url": "https://example.com/hook",
+                "events": ["api.call.succeeded"],
+                "status": "active",
+                "secret": None,
+            },
         ]
 
         async def _list(*, tenant_id):
@@ -305,8 +326,13 @@ class TestTestWebhook:
 
     async def test_ping_connection_error(self, client, monkeypatch):
         hooks = [
-            {"id": "wh_abc123", "url": "https://unreachable.example.com/hook",
-             "events": ["api.call.succeeded"], "status": "active", "secret": None},
+            {
+                "id": "wh_abc123",
+                "url": "https://unreachable.example.com/hook",
+                "events": ["api.call.succeeded"],
+                "status": "active",
+                "secret": None,
+            },
         ]
 
         async def _list(*, tenant_id):
@@ -362,21 +388,34 @@ class _FakeChannel:
 class TestChannelConfigs:
     async def test_create_then_list(self, client, monkeypatch):
         created = {}
+
         async def _create(*, tenant_id, channel_type, name, config, status):
             created["t"] = tenant_id
-            return {"id": "cc_1", "channel_type": channel_type, "name": name,
-                    "config": config, "status": status}
+            return {
+                "id": "cc_1",
+                "channel_type": channel_type,
+                "name": name,
+                "config": config,
+                "status": status,
+            }
+
         monkeypatch.setattr(repo_mod, "create_channel_config", _create)
-        r = await client.post("/v1/notification/channel-configs",
-            json={"channel_type": "dingtalk",
-                  "config": {"webhook_url": "https://x/y?access_token=T", "secret": "s"}})
+        r = await client.post(
+            "/v1/notification/channel-configs",
+            json={
+                "channel_type": "dingtalk",
+                "config": {"webhook_url": "https://x/y?access_token=T", "secret": "s"},
+            },
+        )
         assert r.status_code == 201 and r.json()["id"] == "cc_1"
         assert created["t"] == "t_default"
 
     async def test_delete(self, client, monkeypatch):
         captured = {}
+
         async def _delete(*, tenant_id, config_id):
             captured["id"] = config_id
+
         monkeypatch.setattr(repo_mod, "delete_channel_config", _delete)
         r = await client.delete("/v1/notification/channel-configs/cc_1")
         assert r.status_code == 200 and captured["id"] == "cc_1"
@@ -386,13 +425,20 @@ class TestNotifySend:
     async def _setup(self, monkeypatch):
         fake = _FakeChannel()
         monkeypatch.setattr(channels_mod, "get", lambda t: fake)
+
         async def _cfg(*, tenant_id, channel_type):
             return {"webhook_url": "https://x/y?access_token=T", "secret": "s"}
+
         async def _render(*, code, channel_type, variables, locale):
             return (" subj ", " body ")
+
         log = []
-        async def _log(*, tenant_id, template_code, channel_type, recipient, status, error, provider_msg_id):
+
+        async def _log(
+            *, tenant_id, template_code, channel_type, recipient, status, error, provider_msg_id
+        ):
             log.append({"status": status, "recipient": recipient, "error": error})
+
         monkeypatch.setattr(repo_mod, "get_active_channel_config", _cfg)
         monkeypatch.setattr(repo_mod, "render_template", _render)
         monkeypatch.setattr(repo_mod, "insert_notification_log", _log)
@@ -400,9 +446,15 @@ class TestNotifySend:
 
     async def test_send_success_writes_sent_log(self, client, monkeypatch):
         _fake, log = await self._setup(monkeypatch)
-        r = await client.post("/v1/internal/notify/send", json={
-            "template_code": "task_complete", "channel_type": "dingtalk",
-            "variables": {"task_id": "t1", "task_name": "N"}, "locale": "zh-CN"})
+        r = await client.post(
+            "/v1/internal/notify/send",
+            json={
+                "template_code": "task_complete",
+                "channel_type": "dingtalk",
+                "variables": {"task_id": "t1", "task_name": "N"},
+                "locale": "zh-CN",
+            },
+        )
         assert r.status_code == 200
         body = r.json()
         assert body["success"] is True and body["provider_msg_id"] == "mid_test"
@@ -410,21 +462,38 @@ class TestNotifySend:
 
     async def test_send_failure_writes_failed_log(self, client, monkeypatch):
         _fake, log = await self._setup(monkeypatch)
-        async def _bad(self, message): return SendResult(success=False, error="boom")
+
+        async def _bad(self, message):
+            return SendResult(success=False, error="boom")
+
         monkeypatch.setattr(_FakeChannel, "send", _bad)
-        r = await client.post("/v1/internal/notify/send", json={
-            "template_code": "task_complete", "channel_type": "dingtalk",
-            "variables": {"task_id": "t1", "task_name": "N"}})
+        r = await client.post(
+            "/v1/internal/notify/send",
+            json={
+                "template_code": "task_complete",
+                "channel_type": "dingtalk",
+                "variables": {"task_id": "t1", "task_name": "N"},
+            },
+        )
         assert r.json()["success"] is False
         assert log[0]["status"] == "failed" and log[0]["error"] == "boom"
 
     async def test_batch_returns_list(self, client, monkeypatch):
         await self._setup(monkeypatch)
-        r = await client.post("/v1/internal/notify/batch", json=[
-            {"template_code": "task_complete", "channel_type": "dingtalk",
-             "variables": {"task_id": "a", "task_name": "A"}},
-            {"template_code": "task_complete", "channel_type": "dingtalk",
-             "variables": {"task_id": "b", "task_name": "B"}},
-        ])
+        r = await client.post(
+            "/v1/internal/notify/batch",
+            json=[
+                {
+                    "template_code": "task_complete",
+                    "channel_type": "dingtalk",
+                    "variables": {"task_id": "a", "task_name": "A"},
+                },
+                {
+                    "template_code": "task_complete",
+                    "channel_type": "dingtalk",
+                    "variables": {"task_id": "b", "task_name": "B"},
+                },
+            ],
+        )
         assert r.status_code == 200 and len(r.json()) == 2
         assert all(x["success"] for x in r.json())

@@ -48,8 +48,8 @@ def init_clickhouse(settings: Settings) -> None:
         peer_host = settings.peer_region_ch_host
         for pre in ("http://", "https://"):
             if peer_host.startswith(pre):
-                peer_host = peer_host[len(pre):]
-        peer_host = peer_host.split(":")[0]   # strip any :port; use settings.ch_port
+                peer_host = peer_host[len(pre) :]
+        peer_host = peer_host.split(":")[0]  # strip any :port; use settings.ch_port
         _peer_client = clickhouse_connect.get_client(
             host=peer_host,
             port=settings.ch_port,
@@ -138,9 +138,7 @@ def _assert_tenant_filter(
     else:
         effective = force_tenant_id
     if "%(tenant_id)s" not in sql:
-        raise ValueError(
-            "tenant-scoped CH query missing %(tenant_id)s filter"
-        )
+        raise ValueError("tenant-scoped CH query missing %(tenant_id)s filter")
     if params is None or params.get("tenant_id") != effective:
         raise ValueError("tenant_id param does not match context tenant")
 
@@ -198,8 +196,7 @@ def query_union_peer(
     # peer_sql 走 admin scope 才允许：force_tenant_id 非 None（含 sentinel）一律拒绝。
     if peer_sql and force_tenant_id is not None:
         raise ValueError(
-            "peer_sql requires admin scope (force_tenant_id=None); "
-            "peer queries are unscoped"
+            "peer_sql requires admin scope (force_tenant_id=None); " "peer queries are unscoped"
         )
     with ch_session(force_tenant_id=force_tenant_id) as ch_local:
         result = ch_local.query(local_sql, parameters=params or {})
@@ -210,9 +207,7 @@ def query_union_peer(
         try:
             result_p = _peer_client.query(peer_sql, parameters=params or {})
             cols_p = result_p.column_names
-            rows += [
-                dict(zip(cols_p, row, strict=False)) for row in result_p.result_rows
-            ]
+            rows += [dict(zip(cols_p, row, strict=False)) for row in result_p.result_rows]
         except Exception as e:  # noqa: BLE001 — degrade-to-local，不向上抛
             log.warning("clickhouse_peer_query_failed", error=repr(e))
             # 已收集的 local 行原样返回（true degrade-to-local）

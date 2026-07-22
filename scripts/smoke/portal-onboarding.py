@@ -33,10 +33,14 @@ def main():
     email = f"smoke_{secrets.token_hex(4)}@example.com"
 
     print("== ① 注册 ==")
-    st, body = http("POST", f"{PORTAL_URL}/v1/portal/auth/register",
-                    headers={"Content-Type": "application/json"},
-                    data=json.dumps({"email": email, "password": "smoke1234",
-                                     "phone": "13800000000", "name": "Smoke"}).encode())
+    st, body = http(
+        "POST",
+        f"{PORTAL_URL}/v1/portal/auth/register",
+        headers={"Content-Type": "application/json"},
+        data=json.dumps(
+            {"email": email, "password": "smoke1234", "phone": "13800000000", "name": "Smoke"}
+        ).encode(),
+    )
     print(f"  register -> HTTP {st} {body[:120]!r}")
     assert st == 201, f"register HTTP {st}: {body}"
     verify_token = json.loads(body)["verify_token"]
@@ -47,37 +51,48 @@ def main():
     assert st == 200 and json.loads(body)["status"] == "active", f"verify HTTP {st}: {body}"
 
     print("== ③ 登录拿 JWT ==")
-    st, body = http("POST", f"{PORTAL_URL}/v1/portal/auth/login",
-                    headers={"Content-Type": "application/json"},
-                    data=json.dumps({"email": email, "password": "smoke1234"}).encode())
+    st, body = http(
+        "POST",
+        f"{PORTAL_URL}/v1/portal/auth/login",
+        headers={"Content-Type": "application/json"},
+        data=json.dumps({"email": email, "password": "smoke1234"}).encode(),
+    )
     print(f"  login -> HTTP {st}")
     assert st == 200, f"login HTTP {st}: {body}"
     token = json.loads(body)["access_token"]
     auth_hdr = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
     print("== ④ 建应用 ==")
-    st, body = http("POST", f"{PORTAL_URL}/v1/portal/apps", headers=auth_hdr,
-                    data=json.dumps({"name": "smoke app", "type": "external"}).encode())
+    st, body = http(
+        "POST",
+        f"{PORTAL_URL}/v1/portal/apps",
+        headers=auth_hdr,
+        data=json.dumps({"name": "smoke app", "type": "external"}).encode(),
+    )
     print(f"  create app -> HTTP {st} {body[:120]!r}")
     assert st == 201, f"create app HTTP {st}: {body}"
     app_id = json.loads(body)["id"]
 
     print("== ⑤ 拿 API Key ==")
-    st, body = http("POST", f"{PORTAL_URL}/v1/portal/apps/{app_id}/api-keys", headers=auth_hdr,
-                    data=json.dumps({"name": "default"}).encode())
+    st, body = http(
+        "POST",
+        f"{PORTAL_URL}/v1/portal/apps/{app_id}/api-keys",
+        headers=auth_hdr,
+        data=json.dumps({"name": "default"}).encode(),
+    )
     print(f"  create key -> HTTP {st}")
     assert st == 201, f"create key HTTP {st}: {body}"
     api_key = json.loads(body)["api_key"]
 
     print("== ⑥ 用 Key 经 APISIX 调 smoke-sync(public) ==")
-    st, body = http("GET", f"{APISIX_URL}/dispatch{PUBLIC_API_PATH}",
-                    headers={"X-API-Key": api_key})
+    st, body = http(
+        "GET", f"{APISIX_URL}/dispatch{PUBLIC_API_PATH}", headers={"X-API-Key": api_key}
+    )
     print(f"  call public API -> HTTP {st} {body[:120]!r}")
     assert st == 200, f"call public API HTTP {st}: {body}"
 
     print("== ⑦ API 目录搜索 ==")
-    st, body = http("GET", f"{PORTAL_URL}/v1/portal/apis?search=smoke&limit=5",
-                    headers=auth_hdr)
+    st, body = http("GET", f"{PORTAL_URL}/v1/portal/apis?search=smoke&limit=5", headers=auth_hdr)
     data = json.loads(body)
     print(f"  search -> HTTP {st}, total={data['total']}")
     assert st == 200, f"目录搜索失败: {st} {body}"
@@ -95,15 +110,19 @@ def main():
             "Authorization": f"Bearer {token}",
             "Content-Type": "application/json",
         },
-        data=json.dumps({
-            "api_id": api_id,
-            "method": "POST",
-            "body": {"message": "hello"},
-            "api_key": api_key,
-        }).encode(),
+        data=json.dumps(
+            {
+                "api_id": api_id,
+                "method": "POST",
+                "body": {"message": "hello"},
+                "api_key": api_key,
+            }
+        ).encode(),
     )
     try_data = json.loads(body)
-    print(f"  try -> HTTP {st}, status={try_data.get('status')}, latency={try_data.get('latency_ms')}ms")
+    print(
+        f"  try -> HTTP {st}, status={try_data.get('status')}, latency={try_data.get('latency_ms')}ms"
+    )
     assert st == 200, f"try 端点返回非 200: {st} {body}"
     assert try_data.get("status") == 200, f"后端返回非 200: {try_data}"
     assert try_data.get("latency_ms", -1) >= 0, f"缺少 latency_ms: {try_data}"
@@ -112,7 +131,9 @@ def main():
     print("== ⑨ 查用量统计 ==")
     st, body = http("GET", f"{PORTAL_URL}/v1/portal/usage", headers=auth_hdr)
     usage = json.loads(body)
-    print(f"  usage -> HTTP {st}, plan={usage.get('plan', {}).get('code')}, calls={usage.get('total_calls')}")
+    print(
+        f"  usage -> HTTP {st}, plan={usage.get('plan', {}).get('code')}, calls={usage.get('total_calls')}"
+    )
     assert st == 200
     assert usage.get("plan", {}).get("code") in ("free", "starter", "pro", "enterprise")
 

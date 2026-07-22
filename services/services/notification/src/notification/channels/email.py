@@ -42,8 +42,10 @@ class EmailChannel(Channel):
         msg.set_content(message.body)
         try:
             async with aiosmtplib.SMTP(
-                host, int(cfg.get("smtp_port", 587)),
-                use_tls=bool(cfg.get("use_tls")), timeout=10,
+                host,
+                int(cfg.get("smtp_port", 587)),
+                use_tls=bool(cfg.get("use_tls")),
+                timeout=10,
             ) as smtp:
                 user, pwd = cfg.get("smtp_user"), cfg.get("smtp_password")
                 if user:

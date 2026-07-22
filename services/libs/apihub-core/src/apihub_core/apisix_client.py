@@ -99,9 +99,7 @@ async def publish_route(
     )
 
 
-async def upsert_consumer(
-    *, key_id: str, key: str, labels: dict[str, str] | None = None
-) -> None:
+async def upsert_consumer(*, key_id: str, key: str, labels: dict[str, str] | None = None) -> None:
     """upsert APISIX consumer（username=key_id，per-key）—— 随 APIKey 生命周期。
 
     consumer 持 key-auth 凭证（key=明文，header=X-API-Key），APISIX 在网关层秒级校验。

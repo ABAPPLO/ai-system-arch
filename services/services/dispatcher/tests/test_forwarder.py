@@ -56,9 +56,7 @@ class _FakeSyncResp:
     def __init__(self, status_code=200, content=b'{"ok": true}', headers=None):
         self.status_code = status_code
         self.content = content
-        self.headers = headers if headers is not None else {
-            "content-type": "application/json"
-        }
+        self.headers = headers if headers is not None else {"content-type": "application/json"}
 
 
 # ---- fixtures ----
@@ -166,9 +164,7 @@ async def test_stream_upstream_4xx_propagated(
     _patch_resolve_to(monkeypatch, _streaming_snap())
 
     def _fake_stream(*a, **kw):
-        return _FakeStreamCM(
-            _FakeResp(404, chunks=[b'data: {"error":"not found"}\n\n'])
-        )
+        return _FakeStreamCM(_FakeResp(404, chunks=[b'data: {"error":"not found"}\n\n']))
 
     monkeypatch.setattr(stubbed_forwarder._client, "stream", _fake_stream)
 
@@ -179,9 +175,7 @@ async def test_stream_upstream_4xx_propagated(
     assert b"not found" in resp.content
 
 
-async def test_stream_normal_200(
-    async_client, monkeypatch, stubbed_forwarder, stub_kafka
-):
+async def test_stream_normal_200(async_client, monkeypatch, stubbed_forwarder, stub_kafka):
     """上游 SSE 200 + usage chunk → 200 + body 透传 + emit_stream_complete 记 token。"""
     _patch_resolve_to(monkeypatch, _streaming_snap())
     chunks = [
@@ -210,9 +204,7 @@ async def test_stream_normal_200(
     assert payload["ai_streaming"] == 1
 
 
-async def test_stream_5xx_propagated(
-    async_client, monkeypatch, stubbed_forwarder, stub_kafka
-):
+async def test_stream_5xx_propagated(async_client, monkeypatch, stubbed_forwarder, stub_kafka):
     """上游 SSE 500 → 客户端收 500（status_code 透传）。"""
     _patch_resolve_to(monkeypatch, _streaming_snap())
 
@@ -228,9 +220,7 @@ async def test_stream_5xx_propagated(
     assert b"boom" in resp.content
 
 
-async def test_stream_conn_fail_503(
-    async_client, monkeypatch, stubbed_forwarder, stub_kafka
-):
+async def test_stream_conn_fail_503(async_client, monkeypatch, stubbed_forwarder, stub_kafka):
     """上游连接建立失败（__aenter__ 抛 ConnectError）→ 503 + _emit_failure 记 API_DOWN。"""
     _patch_resolve_to(monkeypatch, _streaming_snap())
 
@@ -262,9 +252,7 @@ async def test_stream_midstream_fail_uses_upstream_status(
     chunks = [b'data: {"choices":[{"delta":{"content":"hi"}}]}\n\n']
 
     def _fake_stream(*a, **kw):
-        return _FakeStreamCM(
-            _FakeResp(200, chunks=chunks, stream_error=httpx.ReadError("rst"))
-        )
+        return _FakeStreamCM(_FakeResp(200, chunks=chunks, stream_error=httpx.ReadError("rst")))
 
     monkeypatch.setattr(stubbed_forwarder._client, "stream", _fake_stream)
 
@@ -287,9 +275,7 @@ async def test_stream_midstream_fail_uses_upstream_status(
 _SYNC_HEADERS = {"X-API-Version-Id": "ver_sync", "X-API-Key": "ak_test_a_demo001"}
 
 
-async def test_sync_normal(
-    async_client, monkeypatch, stubbed_forwarder, stub_kafka
-):
+async def test_sync_normal(async_client, monkeypatch, stubbed_forwarder, stub_kafka):
     """_forward_sync happy path：上游 200 JSON → 透传 body + _emit_success 记 200。"""
     _patch_resolve_to(monkeypatch, _sync_snap())
 
@@ -298,9 +284,7 @@ async def test_sync_normal(
 
     monkeypatch.setattr(stubbed_forwarder._client, "request", _fake_request)
 
-    resp = await async_client.post(
-        "/dispatch/sync", headers=_SYNC_HEADERS, json={"q": "hi"}
-    )
+    resp = await async_client.post("/dispatch/sync", headers=_SYNC_HEADERS, json={"q": "hi"})
     assert resp.status_code == 200, resp.text
     assert resp.json() == {"ok": True}
     assert len(stub_kafka) == 1
@@ -308,9 +292,7 @@ async def test_sync_normal(
     assert payload["status_code"] == 200
 
 
-async def test_sync_error_503(
-    async_client, monkeypatch, stubbed_forwarder, stub_kafka
-):
+async def test_sync_error_503(async_client, monkeypatch, stubbed_forwarder, stub_kafka):
     """_forward_sync 上游连接失败 → 503 + _emit_failure 记 API_DOWN。"""
     _patch_resolve_to(monkeypatch, _sync_snap())
 
@@ -319,9 +301,7 @@ async def test_sync_error_503(
 
     monkeypatch.setattr(stubbed_forwarder._client, "request", _fake_request)
 
-    resp = await async_client.post(
-        "/dispatch/sync", headers=_SYNC_HEADERS, json={"q": "hi"}
-    )
+    resp = await async_client.post("/dispatch/sync", headers=_SYNC_HEADERS, json={"q": "hi"})
     assert resp.status_code == 503, resp.text
     assert len(stub_kafka) == 1
     payload = asdict(stub_kafka[0])
@@ -341,12 +321,18 @@ def test_build_forward_headers_strips_hmac_and_bearer_credentials():
         def __init__(self, h):
             self.headers = h
 
-    req = _Req({
-        "X-App-Key": "ak_x", "X-Signature": "deadbeef",
-        "X-Timestamp": "1", "X-Nonce": "n",
-        "X-API-Key": "ak_bearer", "Authorization": "Bearer t",
-        "Content-Type": "application/json", "X-Request-Id": "r1",
-    })
+    req = _Req(
+        {
+            "X-App-Key": "ak_x",
+            "X-Signature": "deadbeef",
+            "X-Timestamp": "1",
+            "X-Nonce": "n",
+            "X-API-Key": "ak_bearer",
+            "Authorization": "Bearer t",
+            "Content-Type": "application/json",
+            "X-Request-Id": "r1",
+        }
+    )
     out = _build_forward_headers(req)
     out_lower = {k.lower() for k in out}
     # 调用方凭证（bearer + HMAC 签名流）全剥

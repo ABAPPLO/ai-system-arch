@@ -171,16 +171,18 @@ class TestStats:
             if "GROUP BY toStartOfHour(ts)" in local_sql:
                 return [{"hour": "2026-07-01 00:00:00", "n": 100, "success_n": 95}]
             # base
-            return [{
-                "total": 1000,
-                "success_count": 950,
-                "failed_count": 50,
-                "timeout_count": 10,
-                "p50_latency_ms": 10.0,
-                "p95_latency_ms": 100.0,
-                "p99_latency_ms": 500.0,
-                "avg_latency_ms": 25.0,
-            }]
+            return [
+                {
+                    "total": 1000,
+                    "success_count": 950,
+                    "failed_count": 50,
+                    "timeout_count": 10,
+                    "p50_latency_ms": 10.0,
+                    "p95_latency_ms": 100.0,
+                    "p99_latency_ms": 500.0,
+                    "avg_latency_ms": 25.0,
+                }
+            ]
 
         from apihub_core import clickhouse as ch_mod
 
@@ -199,6 +201,7 @@ class TestStats:
 
     async def test_stats_merges_cross_region_counts(self, fake_ch, monkeypatch):
         """I-1/I-2: 双 Region base counts 求和、top_apis/by_hour 按 key 合并。"""
+
         def _query_union_peer(local_sql, peer_sql=None, params=None, *, force_tenant_id="sentinel"):
             if "GROUP BY api_id" in local_sql:
                 # 两 Region 都有 api_a，by_hour 也各有同一小时
@@ -213,13 +216,30 @@ class TestStats:
                     {"hour": "2026-07-01 00:00:00", "n": 50, "success_n": 45},
                 ]
             return [
-                {"total": 600, "success_count": 580, "failed_count": 20, "timeout_count": 2,
-                 "p50_latency_ms": 10.0, "p95_latency_ms": 100.0, "p99_latency_ms": 500.0, "avg_latency_ms": 25.0},
-                {"total": 400, "success_count": 370, "failed_count": 30, "timeout_count": 3,
-                 "p50_latency_ms": 8.0, "p95_latency_ms": 90.0, "p99_latency_ms": 400.0, "avg_latency_ms": 20.0},
+                {
+                    "total": 600,
+                    "success_count": 580,
+                    "failed_count": 20,
+                    "timeout_count": 2,
+                    "p50_latency_ms": 10.0,
+                    "p95_latency_ms": 100.0,
+                    "p99_latency_ms": 500.0,
+                    "avg_latency_ms": 25.0,
+                },
+                {
+                    "total": 400,
+                    "success_count": 370,
+                    "failed_count": 30,
+                    "timeout_count": 3,
+                    "p50_latency_ms": 8.0,
+                    "p95_latency_ms": 90.0,
+                    "p99_latency_ms": 400.0,
+                    "avg_latency_ms": 20.0,
+                },
             ]
 
         from apihub_core import clickhouse as ch_mod
+
         monkeypatch.setattr(ch_mod, "query_union_peer", _query_union_peer)
 
         result = await repo.stats(CallQuery(), use_admin_session=True)
@@ -261,16 +281,18 @@ class TestStats:
         def _query_union_peer(local_sql, peer_sql=None, params=None, *, force_tenant_id="sentinel"):
             if "GROUP BY" in local_sql:
                 return []
-            return [{
-                "total": 600,
-                "success_count": 600,
-                "failed_count": 0,
-                "timeout_count": 0,
-                "p50_latency_ms": 5,
-                "p95_latency_ms": 20,
-                "p99_latency_ms": 50,
-                "avg_latency_ms": 10,
-            }]
+            return [
+                {
+                    "total": 600,
+                    "success_count": 600,
+                    "failed_count": 0,
+                    "timeout_count": 0,
+                    "p50_latency_ms": 5,
+                    "p95_latency_ms": 20,
+                    "p99_latency_ms": 50,
+                    "avg_latency_ms": 10,
+                }
+            ]
 
         monkeypatch.setattr(ch_mod, "query_union_peer", _query_union_peer)
 

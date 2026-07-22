@@ -39,7 +39,9 @@ def _calc_overage(actual: int, quota: int, price_per_unit: int, unit_size: int) 
     return units * price_per_unit
 
 
-async def run_billing(period: str = "", dry_run: bool = False, tenant_ids: list[str] | None = None) -> BillingJobResult:
+async def run_billing(
+    period: str = "", dry_run: bool = False, tenant_ids: list[str] | None = None
+) -> BillingJobResult:
     period = period or _default_period()
     period_start, period_end = _parse_period(period)
 
@@ -77,32 +79,49 @@ async def run_billing(period: str = "", dry_run: bool = False, tenant_ids: list[
             base_cents = sub.price_cents or 0
             price_calls = 5
             price_tokens = 10
-            overage_charge = (
-                _calc_overage(actual_calls, quota_calls, price_calls, 1000)
-                + _calc_overage(actual_tokens, quota_tokens, price_tokens, 100000)
-            )
+            overage_charge = _calc_overage(
+                actual_calls, quota_calls, price_calls, 1000
+            ) + _calc_overage(actual_tokens, quota_tokens, price_tokens, 100000)
 
-            records.append(BillingPreviewRecord(
-                tenant_id=sub.tenant_id, plan_code=sub.plan_code, plan_name=sub.plan_name,
-                total_calls=actual_calls or 0, total_tokens=actual_tokens or 0,
-                quota_calls=quota_calls, quota_tokens=quota_tokens,
-                overage_calls=overage_calls, overage_tokens=overage_tokens,
-                base_cents=base_cents, overage_cents=overage_charge,
-            ))
+            records.append(
+                BillingPreviewRecord(
+                    tenant_id=sub.tenant_id,
+                    plan_code=sub.plan_code,
+                    plan_name=sub.plan_name,
+                    total_calls=actual_calls or 0,
+                    total_tokens=actual_tokens or 0,
+                    quota_calls=quota_calls,
+                    quota_tokens=quota_tokens,
+                    overage_calls=overage_calls,
+                    overage_tokens=overage_tokens,
+                    base_cents=base_cents,
+                    overage_cents=overage_charge,
+                )
+            )
 
             if not dry_run:
                 details = {
-                    "total_calls": actual_calls, "total_tokens": actual_tokens,
-                    "overage_calls": overage_calls, "overage_tokens": overage_tokens,
-                    "unit_price_calls": price_calls, "unit_price_tokens": price_tokens,
+                    "total_calls": actual_calls,
+                    "total_tokens": actual_tokens,
+                    "overage_calls": overage_calls,
+                    "overage_tokens": overage_tokens,
+                    "unit_price_calls": price_calls,
+                    "unit_price_tokens": price_tokens,
                     "plan_code": sub.plan_code,
-                    "period_start": period_start.isoformat(), "period_end": period_end.isoformat(),
+                    "period_start": period_start.isoformat(),
+                    "period_end": period_end.isoformat(),
                 }
                 await insert_billing_record(
-                    tenant_id=sub.tenant_id, period=period, plan_name=sub.plan_name,
-                    base_cents=base_cents, overage_cents=overage_charge, details=details,
+                    tenant_id=sub.tenant_id,
+                    period=period,
+                    plan_name=sub.plan_name,
+                    base_cents=base_cents,
+                    overage_cents=overage_charge,
+                    details=details,
                 )
-                await update_subscription_period(sub.tenant_id, period_end, period_end + timedelta(days=30))
+                await update_subscription_period(
+                    sub.tenant_id, period_end, period_end + timedelta(days=30)
+                )
         except Exception as e:
             log.error("billing_tenant_error", tenant_id=sub.tenant_id, error=str(e))
             if not dry_run:
@@ -112,6 +131,15 @@ async def run_billing(period: str = "", dry_run: bool = False, tenant_ids: list[
     total_base = sum(r.base_cents for r in records)
     total_overage = sum(r.overage_cents for r in records)
     if not dry_run:
-        await update_job_log(job_id, tenant_count=len(records), total_base=total_base, total_overage=total_overage)
+        await update_job_log(
+            job_id, tenant_count=len(records), total_base=total_base, total_overage=total_overage
+        )
 
-    return BillingJobResult(job_id=job_id, period=period, total_tenants=len(records), total_base_cents=total_base, total_overage_cents=total_overage, records=records)
+    return BillingJobResult(
+        job_id=job_id,
+        period=period,
+        total_tenants=len(records),
+        total_base_cents=total_base,
+        total_overage_cents=total_overage,
+        records=records,
+    )

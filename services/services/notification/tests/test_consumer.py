@@ -29,8 +29,9 @@ class _MockAsyncClient:
 class TestDeliver:
     """测试 _deliver 的 HTTP 投递逻辑。"""
 
-    async def _run_deliver(self, monkeypatch, post_fn, url="https://example.com/hook",
-                           payload=None, secret="s"):
+    async def _run_deliver(
+        self, monkeypatch, post_fn, url="https://example.com/hook", payload=None, secret="s"
+    ):
         """Helper：替换 consumer 模块的 httpx.AsyncClient 后调用 _deliver。"""
         if payload is None:
             payload = {"event": "test"}
@@ -41,6 +42,7 @@ class TestDeliver:
         monkeypatch.setattr(consumer_mod.httpx, "AsyncClient", lambda *a, **kw: mock)
 
         from notification.consumer import _deliver
+
         return await _deliver(url, payload, secret)
 
     async def test_deliver_success(self, monkeypatch):
@@ -76,6 +78,7 @@ class TestDeliver:
 
     async def test_deliver_client_error_still_ok(self, monkeypatch):
         """4xx 不看作投递失败（调用方明确拒绝），和 2xx 一样视为成功。"""
+
         async def _post(url, *, content, headers, timeout=None):  # noqa: ASYNC109 -- mock matches httpx post signature
             return _FakeResponse(404)
 
@@ -105,8 +108,7 @@ class TestDeliver:
             return _FakeResponse(200)
 
         await self._run_deliver(monkeypatch, _post, payload={"msg": "hello"}, secret=secret)
-        expected_sig = hmac.new(secret.encode(), captured["content"],
-                                hashlib.sha256).hexdigest()
+        expected_sig = hmac.new(secret.encode(), captured["content"], hashlib.sha256).hexdigest()
         # R2e: 头格式 hmac-sha256=<hex>（前缀 + 与裸 HMAC 逐字节兼容）
         assert captured["sig"] == f"hmac-sha256={expected_sig}"
 
@@ -127,6 +129,7 @@ class _FakeResponse:
 
 class _FakeConn:
     """模拟 asyncpg 连接的 fetch 方法。"""
+
     def __init__(self, rows):
         self._rows = rows
         self.captured_sql = []
@@ -154,10 +157,20 @@ class TestGetActiveWebhooks:
         # R2e: _get_active_webhooks 读 secret_encrypted + decrypt_secret 解出 secret
         monkeypatch.setattr(consumer_mod, "decrypt_secret", lambda enc: f"dec:{enc}")
         rows = [
-            {"id": "wh_1", "tenant_id": "t1", "url": "https://a.com/hook",
-             "events": ["api.call.succeeded"], "secret_encrypted": None},
-            {"id": "wh_2", "tenant_id": "t2", "url": "https://b.com/hook",
-             "events": ["api.call.failed"], "secret_encrypted": "enc_s1"},
+            {
+                "id": "wh_1",
+                "tenant_id": "t1",
+                "url": "https://a.com/hook",
+                "events": ["api.call.succeeded"],
+                "secret_encrypted": None,
+            },
+            {
+                "id": "wh_2",
+                "tenant_id": "t2",
+                "url": "https://b.com/hook",
+                "events": ["api.call.failed"],
+                "secret_encrypted": "enc_s1",
+            },
         ]
         conn = self._patch_db(monkeypatch, rows)
 
@@ -184,6 +197,7 @@ class TestGetActiveWebhooks:
 class TestProcessEvent:
     def _patch(self, monkeypatch, hooks, deliver_fn=None):
         """Patch both _get_active_webhooks and _deliver. 返回 delivered 列表。"""
+
         async def _get_hooks():
             return hooks
 
@@ -192,9 +206,11 @@ class TestProcessEvent:
         delivered = []
 
         if deliver_fn is None:
+
             async def _default_deliver(url, payload, secret):
                 delivered.append(url)
                 return True
+
             deliver_fn = _default_deliver
 
         monkeypatch.setattr("notification.consumer._deliver", deliver_fn)
@@ -204,10 +220,20 @@ class TestProcessEvent:
         from notification.consumer import process_event
 
         hooks = [
-            {"id": "wh_1", "tenant_id": "t1", "url": "https://a.com/hook",
-             "events": ["api.call.succeeded"], "secret": ""},
-            {"id": "wh_2", "tenant_id": "t1", "url": "https://b.com/hook",
-             "events": ["api.call.failed"], "secret": ""},
+            {
+                "id": "wh_1",
+                "tenant_id": "t1",
+                "url": "https://a.com/hook",
+                "events": ["api.call.succeeded"],
+                "secret": "",
+            },
+            {
+                "id": "wh_2",
+                "tenant_id": "t1",
+                "url": "https://b.com/hook",
+                "events": ["api.call.failed"],
+                "secret": "",
+            },
         ]
 
         async def _get_hooks():
@@ -234,8 +260,13 @@ class TestProcessEvent:
         from notification.consumer import process_event
 
         hooks = [
-            {"id": "wh_1", "tenant_id": "t1", "url": "https://a.com/hook",
-             "events": ["api.call.*"], "secret": ""},
+            {
+                "id": "wh_1",
+                "tenant_id": "t1",
+                "url": "https://a.com/hook",
+                "events": ["api.call.*"],
+                "secret": "",
+            },
         ]
 
         delivered = []
@@ -254,13 +285,20 @@ class TestProcessEvent:
         from notification.consumer import process_event
 
         hooks = [
-            {"id": "wh_1", "tenant_id": "t1", "url": "https://a.com/hook",
-             "events": ["api.call.failed"], "secret": ""},
+            {
+                "id": "wh_1",
+                "tenant_id": "t1",
+                "url": "https://a.com/hook",
+                "events": ["api.call.failed"],
+                "secret": "",
+            },
         ]
 
         delivered = self._patch(monkeypatch, hooks)
-        monkeypatch.setattr("notification.consumer._deliver",
-                            lambda url, payload, secret: delivered.append(url) or True)
+        monkeypatch.setattr(
+            "notification.consumer._deliver",
+            lambda url, payload, secret: delivered.append(url) or True,
+        )
 
         await process_event({"allowed": True, "api_id": "api-1"})
         assert delivered == []
@@ -269,12 +307,27 @@ class TestProcessEvent:
         from notification.consumer import process_event
 
         hooks = [
-            {"id": "wh_1", "tenant_id": "t1", "url": "https://a.com/hook",
-             "events": ["api.call.*"], "secret": ""},
-            {"id": "wh_2", "tenant_id": "t2", "url": "https://b.com/hook",
-             "events": ["api.call.succeeded"], "secret": ""},
-            {"id": "wh_3", "tenant_id": "t3", "url": "https://c.com/hook",
-             "events": ["api.call.failed"], "secret": ""},
+            {
+                "id": "wh_1",
+                "tenant_id": "t1",
+                "url": "https://a.com/hook",
+                "events": ["api.call.*"],
+                "secret": "",
+            },
+            {
+                "id": "wh_2",
+                "tenant_id": "t2",
+                "url": "https://b.com/hook",
+                "events": ["api.call.succeeded"],
+                "secret": "",
+            },
+            {
+                "id": "wh_3",
+                "tenant_id": "t3",
+                "url": "https://c.com/hook",
+                "events": ["api.call.failed"],
+                "secret": "",
+            },
         ]
 
         delivered = []
@@ -295,8 +348,13 @@ class TestProcessEvent:
         from notification.consumer import process_event
 
         hooks = [
-            {"id": "wh_1", "tenant_id": "t1", "url": "https://a.com/hook",
-             "events": ["api.call.*"], "secret": ""},
+            {
+                "id": "wh_1",
+                "tenant_id": "t1",
+                "url": "https://a.com/hook",
+                "events": ["api.call.*"],
+                "secret": "",
+            },
         ]
 
         attempt = [0]
@@ -316,8 +374,13 @@ class TestProcessEvent:
         from notification.consumer import process_event
 
         hooks = [
-            {"id": "wh_1", "tenant_id": "t1", "url": "https://a.com/hook",
-             "events": ["api.call.*"], "secret": ""},
+            {
+                "id": "wh_1",
+                "tenant_id": "t1",
+                "url": "https://a.com/hook",
+                "events": ["api.call.*"],
+                "secret": "",
+            },
         ]
 
         attempts = []
@@ -335,8 +398,13 @@ class TestProcessEvent:
         from notification.consumer import process_event
 
         hooks = [
-            {"id": "wh_1", "tenant_id": "t1", "url": "https://a.com/hook",
-             "events": ["api.call.failed"], "secret": ""},
+            {
+                "id": "wh_1",
+                "tenant_id": "t1",
+                "url": "https://a.com/hook",
+                "events": ["api.call.failed"],
+                "secret": "",
+            },
         ]
 
         delivered = []

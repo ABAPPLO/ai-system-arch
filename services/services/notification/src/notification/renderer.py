@@ -17,14 +17,17 @@ async def _fetch_template(conn, *, code: str, channel_type: str, locale: str):
         row = await conn.fetchrow(
             "SELECT subject_tpl, body_tpl, variables_schema FROM notification_template"
             " WHERE code = $1 AND channel_type = $2 AND locale = $3",
-            code, channel_type, loc,
+            code,
+            channel_type,
+            loc,
         )
         if row:
             return row
     row = await conn.fetchrow(
         "SELECT subject_tpl, body_tpl, variables_schema FROM notification_template"
         " WHERE code = $1 AND channel_type = $2 ORDER BY locale LIMIT 1",
-        code, channel_type,
+        code,
+        channel_type,
     )
     return row
 
@@ -32,10 +35,13 @@ async def _fetch_template(conn, *, code: str, channel_type: str, locale: str):
 def _substitute(tpl: str, variables: dict) -> str:
     def repl(m: re.Match) -> str:
         return str(variables.get(m.group(1), ""))
+
     return _VAR_RE.sub(repl, tpl)
 
 
-async def render(conn, *, code: str, channel_type: str, variables: dict, locale: str) -> tuple[str, str]:
+async def render(
+    conn, *, code: str, channel_type: str, variables: dict, locale: str
+) -> tuple[str, str]:
     row = await _fetch_template(conn, code=code, channel_type=channel_type, locale=locale)
     if not row:
         raise ApiError(ErrorCode.NOT_FOUND, f"template not found: {code}/{channel_type}")
@@ -44,7 +50,9 @@ async def render(conn, *, code: str, channel_type: str, variables: dict, locale:
         try:
             jsonschema.validate(variables, schema)
         except jsonschema.ValidationError as e:
-            raise ApiError(ErrorCode.INVALID_INPUT, f"invalid variables: {e.message}", http_status=400) from e
+            raise ApiError(
+                ErrorCode.INVALID_INPUT, f"invalid variables: {e.message}", http_status=400
+            ) from e
     subject = _substitute(row["subject_tpl"] or "", variables)
     body = _substitute(row["body_tpl"] or "", variables)
     return subject, body

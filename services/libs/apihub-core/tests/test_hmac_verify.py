@@ -43,8 +43,17 @@ def fake_redis(monkeypatch):
     return fake
 
 
-def _make_request(*, method="POST", path="/v1/foo", query="", body=b'{"x":1}',
-                  app_key="ak_enrolledkey", secret="the_secret", timestamp=None, nonce="n1"):
+def _make_request(
+    *,
+    method="POST",
+    path="/v1/foo",
+    query="",
+    body=b'{"x":1}',
+    app_key="ak_enrolledkey",
+    secret="the_secret",
+    timestamp=None,
+    nonce="n1",
+):
     from apihub_core.signing import sign
 
     ts = timestamp or str(int(time.time()))
@@ -74,10 +83,18 @@ def _make_request(*, method="POST", path="/v1/foo", query="", body=b'{"x":1}',
 async def _seed_enrolled(fake_redis, secret="the_secret"):
     from apihub_core import crypto, identity
 
-    await identity.write_identity("ak_enrolledkey", {
-        "is_active": True, "tenant_id": "t1", "tenant_type": "internal",
-        "app_id": "app1", "key_id": "key_1", "hmac_enrolled": True,
-    }, ttl=300)
+    await identity.write_identity(
+        "ak_enrolledkey",
+        {
+            "is_active": True,
+            "tenant_id": "t1",
+            "tenant_type": "internal",
+            "app_id": "app1",
+            "key_id": "key_1",
+            "hmac_enrolled": True,
+        },
+        ttl=300,
+    )
     await identity.write_hmac_secret("ak_enrolledkey", crypto.encrypt_secret(secret), ttl=300)
 
 
@@ -97,10 +114,18 @@ async def test_unenrolled_key_with_signature_rejected(fake_redis):
     from apihub_core.config import get_settings
     from apihub_core.errors import ApiError
 
-    await identity.write_identity("ak_plain", {
-        "is_active": True, "tenant_id": "t1", "tenant_type": "internal",
-        "app_id": "app1", "key_id": "key_2", "hmac_enrolled": False,
-    }, ttl=300)
+    await identity.write_identity(
+        "ak_plain",
+        {
+            "is_active": True,
+            "tenant_id": "t1",
+            "tenant_type": "internal",
+            "app_id": "app1",
+            "key_id": "key_2",
+            "hmac_enrolled": False,
+        },
+        ttl=300,
+    )
     req = _make_request(app_key="ak_plain", secret="x")
     with pytest.raises(ApiError, match="not enrolled"):
         await authenticate_request(req, get_settings(), api_key="ak_plain")
@@ -199,8 +224,12 @@ async def test_enrolled_key_rejected_on_bearer_path(monkeypatch):
 
     async def _fake_verify(api_key, settings):
         return {
-            "is_active": True, "tenant_id": "t1", "tenant_type": "internal",
-            "app_id": "app1", "hmac_enrolled": True, "key_id": "key_1",
+            "is_active": True,
+            "tenant_id": "t1",
+            "tenant_type": "internal",
+            "app_id": "app1",
+            "hmac_enrolled": True,
+            "key_id": "key_1",
         }
 
     monkeypatch.setattr(auth_mod, "_verify_via_auth_service", _fake_verify)
@@ -231,6 +260,7 @@ async def test_enrolled_key_rejected_on_ingress_fast_path(fake_redis, monkeypatc
 
     settings = get_settings()
     monkeypatch.setattr(settings, "ingress_shared_secret", "shh", raising=False)
+
     # 不需走 _verify_via_auth_service；快路径命中 identity 即返/拒
     class _Req:
         pass
@@ -263,10 +293,18 @@ async def test_identity_miss_cold_recovers_via_verify(fake_redis, monkeypatch):
     async def _fake_verify(api_key, settings):
         called["n"] += 1
         # 模拟 auth /v1/apikey/verify 服务端 cache_positive：暖 identity（含 hmac_enrolled/key_id）
-        await identity.write_identity(api_key, {
-            "is_active": True, "tenant_id": "t1", "tenant_type": "internal",
-            "app_id": "app1", "key_id": "key_1", "hmac_enrolled": True,
-        }, ttl=300)
+        await identity.write_identity(
+            api_key,
+            {
+                "is_active": True,
+                "tenant_id": "t1",
+                "tenant_type": "internal",
+                "app_id": "app1",
+                "key_id": "key_1",
+                "hmac_enrolled": True,
+            },
+            ttl=300,
+        )
         return {"is_active": True, "tenant_id": "t1", "hmac_enrolled": True}
 
     monkeypatch.setattr(auth_mod, "_verify_via_auth_service", _fake_verify)
@@ -286,10 +324,18 @@ async def test_verify_hmac_uses_pipeline_read(fake_redis, monkeypatch):
     from apihub_core.l1 import TTLCache
 
     identity.configure_l1(identity=TTLCache(ttl=5), secret=TTLCache(ttl=5))
-    await identity.write_identity("ak_enrolledkey", {
-        "is_active": True, "tenant_id": "t1", "tenant_type": "internal",
-        "app_id": "app1", "key_id": "key_1", "hmac_enrolled": True,
-    }, ttl=300)
+    await identity.write_identity(
+        "ak_enrolledkey",
+        {
+            "is_active": True,
+            "tenant_id": "t1",
+            "tenant_type": "internal",
+            "app_id": "app1",
+            "key_id": "key_1",
+            "hmac_enrolled": True,
+        },
+        ttl=300,
+    )
     await identity.write_hmac_secret("ak_enrolledkey", crypto.encrypt_secret("the_secret"), ttl=300)
     identity._identity_l1.clear()
     identity._secret_l1.clear()

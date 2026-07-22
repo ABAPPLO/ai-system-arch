@@ -24,9 +24,7 @@ async def cache_positive(api_key_plaintext: str, data: dict[str, Any]) -> None:
 
 
 async def cache_negative(api_key_plaintext: str) -> None:
-    await identity.write_identity(
-        api_key_plaintext, {"invalid": True}, ttl=NEGATIVE_CACHE_TTL
-    )
+    await identity.write_identity(api_key_plaintext, {"invalid": True}, ttl=NEGATIVE_CACHE_TTL)
 
 
 async def get_cached(api_key_plaintext: str) -> dict[str, Any] | None:

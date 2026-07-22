@@ -17,8 +17,7 @@ def test_tenant_scope_missing_token_raises():
     with patch("apihub_core.clickhouse.get_tenant_context") as gtc:
         gtc.return_value = MagicMock(tenant_id="t_a")
         try:
-            ch.query_all("SELECT * FROM t WHERE ts>%(s)s", {"s": "x"},
-                          force_tenant_id="sentinel")
+            ch.query_all("SELECT * FROM t WHERE ts>%(s)s", {"s": "x"}, force_tenant_id="sentinel")
             raise AssertionError("expected ValueError (missing %(tenant_id)s)")
         except ValueError as e:
             assert "%(tenant_id)s" in str(e)
@@ -29,8 +28,11 @@ def test_tenant_scope_spoofed_tenant_raises():
     with patch("apihub_core.clickhouse.get_tenant_context") as gtc:
         gtc.return_value = MagicMock(tenant_id="t_a")
         try:
-            ch.query_all("SELECT * FROM t WHERE tenant_id=%(tenant_id)s",
-                         {"tenant_id": "t_b"}, force_tenant_id="sentinel")
+            ch.query_all(
+                "SELECT * FROM t WHERE tenant_id=%(tenant_id)s",
+                {"tenant_id": "t_b"},
+                force_tenant_id="sentinel",
+            )
             raise AssertionError("expected ValueError (spoofed tenant_id)")
         except ValueError as e:
             assert "tenant_id param does not match" in str(e)
@@ -40,8 +42,11 @@ def test_tenant_scope_valid_passes():
     _set_client()
     with patch("apihub_core.clickhouse.get_tenant_context") as gtc:
         gtc.return_value = MagicMock(tenant_id="t_a")
-        rows = ch.query_all("SELECT c FROM t WHERE tenant_id=%(tenant_id)s",
-                            {"tenant_id": "t_a"}, force_tenant_id="sentinel")
+        rows = ch.query_all(
+            "SELECT c FROM t WHERE tenant_id=%(tenant_id)s",
+            {"tenant_id": "t_a"},
+            force_tenant_id="sentinel",
+        )
         assert rows == [{"c": 1}]
 
 
@@ -60,8 +65,7 @@ def test_query_union_peer_still_admin_only():
     with patch("apihub_core.clickhouse.get_tenant_context") as gtc:
         gtc.return_value = MagicMock(tenant_id="t_a")
         try:
-            ch.query_union_peer("SELECT 1", "SELECT 1", None,
-                                 force_tenant_id="sentinel")
+            ch.query_union_peer("SELECT 1", "SELECT 1", None, force_tenant_id="sentinel")
             raise AssertionError("expected ValueError (M-2 guard)")
         except ValueError as e:
             assert "peer_sql requires admin scope" in str(e)

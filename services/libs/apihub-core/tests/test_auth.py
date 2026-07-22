@@ -55,9 +55,7 @@ async def test_jwt_branch_valid_token():
 
 async def test_jwt_branch_wrong_secret():
     """secret 'A' 签 token，settings.jwt_secret='B' → UNAUTHORIZED 401。"""
-    token = jwt_utils.issue_token(
-        user_id="u", tenant_id="t", secret="secret-A", ttl_seconds=60
-    )
+    token = jwt_utils.issue_token(user_id="u", tenant_id="t", secret="secret-A", ttl_seconds=60)
     settings = _make_settings(jwt_secret="secret-B")
 
     with pytest.raises(ApiError) as exc_info:
@@ -71,9 +69,7 @@ async def test_jwt_branch_expired():
     """ttl_seconds=-1（exp 在过去）→ 本地验签失败 → UNAUTHORIZED 401。"""
     secret = "test-secret-A"
     settings = _make_settings(secret)
-    token = jwt_utils.issue_token(
-        user_id="u", tenant_id="t", secret=secret, ttl_seconds=-1
-    )
+    token = jwt_utils.issue_token(user_id="u", tenant_id="t", secret=secret, ttl_seconds=-1)
 
     with pytest.raises(ApiError) as exc_info:
         await authenticate_request(_UNUSED_REQUEST, settings, token)

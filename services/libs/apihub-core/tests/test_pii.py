@@ -29,9 +29,16 @@ class TestPiiEncryptDecrypt:
 
     def test_decrypt_wrong_key_raises(self, monkeypatch):
         encrypted = encrypt_pii("test")
-        fake = type("s", (), {"pii_encryption_key": "0000000000000000000000000000000000000000000000000000000000000000"})
+        fake = type(
+            "s",
+            (),
+            {
+                "pii_encryption_key": "0000000000000000000000000000000000000000000000000000000000000000"
+            },
+        )
         monkeypatch.setattr("apihub_core.pii.get_settings", lambda: fake())
         import pytest
+
         with pytest.raises(Exception):  # noqa: B017  解密失败异常类型依后端实现，保持宽匹配避免漏捕
             decrypt_pii(encrypted)
 

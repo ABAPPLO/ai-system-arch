@@ -97,6 +97,7 @@ class TestArchiveRoute:
 
 def _patch_db(monkeypatch, conn):
     """替换 db.admin_db_session 为返回给定 conn 的 async context manager。"""
+
     @contextlib.asynccontextmanager
     async def _session():
         yield conn
@@ -108,9 +109,14 @@ def _patch_db(monkeypatch, conn):
 class TestArchiveBefore:
     async def test_no_records(self, monkeypatch):
         _rows = [
-            {"id": 1, "tenant_id": "t1", "actor_id": "u1",
-             "action": "a", "resource_type": "r",
-             "created_at": datetime(2025, 12, 1)},
+            {
+                "id": 1,
+                "tenant_id": "t1",
+                "actor_id": "u1",
+                "action": "a",
+                "resource_type": "r",
+                "created_at": datetime(2025, 12, 1),
+            },
         ]
 
         # 第一次 SELECT id 返回空 → 立即退出
@@ -122,16 +128,21 @@ class TestArchiveBefore:
 
     async def test_archives_one_batch(self, monkeypatch):
         rows = [
-            {"id": i + 1, "tenant_id": "t1", "actor_id": "u1",
-             "action": "create_api", "resource_type": "api",
-             "created_at": datetime(2025, 12, 1)}
+            {
+                "id": i + 1,
+                "tenant_id": "t1",
+                "actor_id": "u1",
+                "action": "create_api",
+                "resource_type": "api",
+                "created_at": datetime(2025, 12, 1),
+            }
             for i in range(3)
         ]
 
         # 第一次 SELECT → 有 id → 第二次 SELECT * → 有完整数据
         return_seq = [
             [{"id": r["id"]} for r in rows],  # SELECT id
-            rows,                              # SELECT *
+            rows,  # SELECT *
         ]
         _seq = [iter(return_seq).__next__, lambda *a: []]
 
@@ -174,9 +185,14 @@ class TestArchiveBefore:
 
     async def test_upload_failure_skips_delete(self, monkeypatch):
         rows = [
-            {"id": 1, "tenant_id": "t1", "actor_id": "u1",
-             "action": "create_api", "resource_type": "api",
-             "created_at": datetime(2025, 12, 1)},
+            {
+                "id": 1,
+                "tenant_id": "t1",
+                "actor_id": "u1",
+                "action": "create_api",
+                "resource_type": "api",
+                "created_at": datetime(2025, 12, 1),
+            },
         ]
 
         return_seq = [
@@ -214,12 +230,22 @@ class TestArchiveBefore:
 
     async def test_multiple_tenants(self, monkeypatch):
         rows = [
-            {"id": 1, "tenant_id": "t1", "actor_id": "u1",
-             "action": "a", "resource_type": "r",
-             "created_at": datetime(2025, 12, 1)},
-            {"id": 2, "tenant_id": "t2", "actor_id": "u2",
-             "action": "b", "resource_type": "r",
-             "created_at": datetime(2025, 12, 1)},
+            {
+                "id": 1,
+                "tenant_id": "t1",
+                "actor_id": "u1",
+                "action": "a",
+                "resource_type": "r",
+                "created_at": datetime(2025, 12, 1),
+            },
+            {
+                "id": 2,
+                "tenant_id": "t2",
+                "actor_id": "u2",
+                "action": "b",
+                "resource_type": "r",
+                "created_at": datetime(2025, 12, 1),
+            },
         ]
 
         return_seq = [
@@ -262,25 +288,40 @@ class TestArchiveBefore:
 
     async def test_multi_batch(self, monkeypatch):
         batch1 = [
-            {"id": i + 1, "tenant_id": "t1", "actor_id": "u1",
-             "action": "a", "resource_type": "r",
-             "created_at": datetime(2025, 12, 1)}
+            {
+                "id": i + 1,
+                "tenant_id": "t1",
+                "actor_id": "u1",
+                "action": "a",
+                "resource_type": "r",
+                "created_at": datetime(2025, 12, 1),
+            }
             for i in range(1000)
         ]
         batch2 = [
-            {"id": 1001, "tenant_id": "t1", "actor_id": "u1",
-             "action": "a", "resource_type": "r",
-             "created_at": datetime(2025, 12, 1)},
-            {"id": 1002, "tenant_id": "t2", "actor_id": "u2",
-             "action": "b", "resource_type": "r",
-             "created_at": datetime(2025, 12, 1)},
+            {
+                "id": 1001,
+                "tenant_id": "t1",
+                "actor_id": "u1",
+                "action": "a",
+                "resource_type": "r",
+                "created_at": datetime(2025, 12, 1),
+            },
+            {
+                "id": 1002,
+                "tenant_id": "t2",
+                "actor_id": "u2",
+                "action": "b",
+                "resource_type": "r",
+                "created_at": datetime(2025, 12, 1),
+            },
         ]
 
         return_seq = [
             [{"id": r["id"]} for r in batch1],  # 第一批 SELECT id
-            batch1,                              # 第一批 SELECT *
+            batch1,  # 第一批 SELECT *
             [{"id": r["id"]} for r in batch2],  # 第二批 SELECT id
-            batch2,                              # 第二批 SELECT *
+            batch2,  # 第二批 SELECT *
         ]
 
         class _SeqConn(_FakeConn):

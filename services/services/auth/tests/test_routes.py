@@ -402,8 +402,10 @@ class TestExportAccount:
     async def test_export_ok(self, client, monkeypatch):
         async def _fake(request, settings, api_key, required_scopes=None):
             ctx = TenantContext(
-                tenant_id="external-public", tenant_type="external",
-                app_id=None, user_id="u_testexport",
+                tenant_id="external-public",
+                tenant_type="external",
+                app_id=None,
+                user_id="u_testexport",
                 is_platform_admin=False,
             )
             set_tenant_context(ctx)
@@ -418,9 +420,14 @@ class TestExportAccount:
             return {
                 "user_id": user_id,
                 "exported_at": "2026-07-14T00:00:00+00:00",
-                "account": {"email": "test@example.com", "phone": "138", "name": "T",
-                            "verification_level": "email", "status": "active",
-                            "created_at": "2026-01-01T00:00:00"},
+                "account": {
+                    "email": "test@example.com",
+                    "phone": "138",
+                    "name": "T",
+                    "verification_level": "email",
+                    "status": "active",
+                    "created_at": "2026-01-01T00:00:00",
+                },
                 "tenants": [{"tenant_id": "external-public", "role": "developer"}],
                 "apps": [],
                 "api_keys": [],
@@ -451,8 +458,10 @@ class TestConsent:
     async def test_list_ok(self, client, monkeypatch):
         async def _fake(request, settings, api_key, required_scopes=None):
             ctx = TenantContext(
-                tenant_id="external-public", tenant_type="external",
-                app_id=None, user_id="u_testconsent",
+                tenant_id="external-public",
+                tenant_type="external",
+                app_id=None,
+                user_id="u_testconsent",
                 is_platform_admin=False,
             )
             set_tenant_context(ctx)
@@ -462,8 +471,15 @@ class TestConsent:
 
         async def _list(*, user_id):
             assert user_id == "u_testconsent"
-            return [{"purpose": "account_management", "description": "desc",
-                     "status": "granted", "granted_at": "2026-01-01", "updated_at": "2026-01-01"}]
+            return [
+                {
+                    "purpose": "account_management",
+                    "description": "desc",
+                    "status": "granted",
+                    "granted_at": "2026-01-01",
+                    "updated_at": "2026-01-01",
+                }
+            ]
 
         from auth import identity as identity_mod
 
@@ -485,8 +501,10 @@ class TestConsent:
     async def test_withdraw_ok(self, client, monkeypatch):
         async def _fake(request, settings, api_key, required_scopes=None):
             ctx = TenantContext(
-                tenant_id="external-public", tenant_type="external",
-                app_id=None, user_id="u_testwithdraw",
+                tenant_id="external-public",
+                tenant_type="external",
+                app_id=None,
+                user_id="u_testwithdraw",
                 is_platform_admin=False,
             )
             set_tenant_context(ctx)
@@ -524,8 +542,10 @@ class TestDeleteAccount:
     async def test_delete_account_ok(self, client, monkeypatch):
         async def _fake(request, settings, api_key, required_scopes=None):
             ctx = TenantContext(
-                tenant_id="external-public", tenant_type="external",
-                app_id=None, user_id="u_testuser",
+                tenant_id="external-public",
+                tenant_type="external",
+                app_id=None,
+                user_id="u_testuser",
                 is_platform_admin=False,
             )
             set_tenant_context(ctx)
@@ -606,10 +626,15 @@ class TestCreateApp:
         repo mock 确保若 Pydantic 漏放，请求会落到 mock 返回 200（而非打 DB），
         这样 422 只能来自 type 的 Literal 校验。
         """
+
         async def _create(**kwargs):  # pragma: no cover - 不应被调用
-            return {"id": kwargs["app_id"], "name": kwargs["name"],
-                    "tenant_id": kwargs["tenant_id"], "type": kwargs["app_type"],
-                    "status": "active"}
+            return {
+                "id": kwargs["app_id"],
+                "name": kwargs["name"],
+                "tenant_id": kwargs["tenant_id"],
+                "type": kwargs["app_type"],
+                "status": "active",
+            }
 
         from auth import repository as r
 
@@ -629,9 +654,13 @@ class TestCreateApp:
 
         async def _create(**kwargs):
             captured.update(kwargs)
-            return {"id": kwargs["app_id"], "name": kwargs["name"],
-                    "tenant_id": kwargs["tenant_id"], "type": kwargs["app_type"],
-                    "status": "active"}
+            return {
+                "id": kwargs["app_id"],
+                "name": kwargs["name"],
+                "tenant_id": kwargs["tenant_id"],
+                "type": kwargs["app_type"],
+                "status": "active",
+            }
 
         from auth import repository as r
 
@@ -639,7 +668,8 @@ class TestCreateApp:
         routes_mod.create_app = r.create_app
 
         resp = await client.post(
-            "/v1/apps", json={"name": "no type"},
+            "/v1/apps",
+            json={"name": "no type"},
             headers={"Authorization": "Bearer eyJtest"},
         )
         assert resp.status_code == 200
@@ -671,9 +701,7 @@ class TestListApps:
         monkeypatch.setattr(r, "list_apps_for_tenant", _list)
         routes_mod.list_apps_for_tenant = r.list_apps_for_tenant
 
-        resp = await client.get(
-            "/v1/apps", headers={"Authorization": "Bearer eyJtest"}
-        )
+        resp = await client.get("/v1/apps", headers={"Authorization": "Bearer eyJtest"})
 
         assert resp.status_code == 200
         body = resp.json()

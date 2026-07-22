@@ -18,7 +18,9 @@ class ErrorCode(IntEnum):
     NOT_FOUND = 10004
     RATE_LIMITED = 10005
     CONFLICT = 10006  # 状态机非法转换 / 唯一约束冲突
-    INVALID_INPUT = 10007  # 语义级输入错误（如 token 失效/过期），区别于 INVALID_PARAMS（字段格式校验）
+    INVALID_INPUT = (
+        10007  # 语义级输入错误（如 token 失效/过期），区别于 INVALID_PARAMS（字段格式校验）
+    )
     INTERNAL = 10000
 
     # 租户 2xxxx

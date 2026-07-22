@@ -16,6 +16,7 @@
 运行：repo 根 `.venv/bin/python scripts/multi-region/e2e-ch-cross-region.py`
 前置：先跑 e2e-ch-cross-region.sh 建表 + 写行 + 可达性校验。
 """
+
 from __future__ import annotations
 
 import os
@@ -25,7 +26,9 @@ import sys
 # Settings 必填项（pg_*/redis_* 无默认值）给 dummy 值——init_clickhouse 只碰 CH，不碰 PG/Redis。
 _BASE_ENV = {
     "ENV": "dev",  # 避免 prod secure-secret 校验
-    "PG_HOST": "dummy", "PG_USER": "dummy", "PG_PASSWORD": "dummy",
+    "PG_HOST": "dummy",
+    "PG_USER": "dummy",
+    "PG_PASSWORD": "dummy",
     "REDIS_HOST": "dummy",
     "HOME_REGION": "sh",
     # 本地 Region CH（ch-sh）
@@ -52,14 +55,14 @@ def _apply_env(extra: dict[str, str] | None) -> None:
         for k in _PEER_ENV:
             os.environ.pop(k, None)
     # 绕过宿主机 socks5/http 代理（会劫持 127.x 请求返回 502）
-    for k in ("http_proxy", "https_proxy", "all_proxy",
-              "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
+    for k in ("http_proxy", "https_proxy", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
         os.environ[k] = ""
 
 
 def _fresh_settings_and_init():
     from apihub_core import clickhouse
     from apihub_core.config import get_settings
+
     get_settings.cache_clear()
     s = get_settings()
     clickhouse.close_clickhouse()
@@ -75,9 +78,12 @@ def main() -> int:
     _apply_env(_PEER_ENV)
     s = _fresh_settings_and_init()
     from apihub_core import clickhouse as ch
+
     assert ch._peer_client is not None, "peer_client 未创建（PEER_REGION_CH_HOST 未生效？）"
     print(f"  local CH : {s.ch_host}:{s.ch_port}")
-    print(f"  peer  CH : {s.peer_region_ch_host}  peer_client alive = {ch._peer_client is not None}")
+    print(
+        f"  peer  CH : {s.peer_region_ch_host}  peer_client alive = {ch._peer_client is not None}"
+    )
     rows = ch.query_union_peer(
         "SELECT x FROM e2e_t ORDER BY x",
         "SELECT x FROM e2e_t ORDER BY x",
@@ -116,7 +122,9 @@ def main() -> int:
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("ALL PASS: peer_client live 连接 + query_union_peer 真行拼接（双区）/ 单区降级 均验证通过")
+    print(
+        "ALL PASS: peer_client live 连接 + query_union_peer 真行拼接（双区）/ 单区降级 均验证通过"
+    )
     return 0
 
 

@@ -9,8 +9,15 @@ from ai_gateway.providers import BaseProvider
 
 class OpenAICompatibleProvider(BaseProvider):
     async def chat_completion(
-        self, messages, model, api_key, base_url, stream=True,
-        temperature=None, max_tokens=None, extra_body=None,
+        self,
+        messages,
+        model,
+        api_key,
+        base_url,
+        stream=True,
+        temperature=None,
+        max_tokens=None,
+        extra_body=None,
     ) -> AsyncIterator[SSEChunk]:
         url = f"{base_url.rstrip('/')}/chat/completions"
         headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}

@@ -359,7 +359,10 @@ async def db_pool(monkeypatch):
     from apihub_core import db
 
     pool = await asyncpg.create_pool(
-        PG_DSN, min_size=1, max_size=2, init=db._init_jsonb_codec,
+        PG_DSN,
+        min_size=1,
+        max_size=2,
+        init=db._init_jsonb_codec,
     )
     monkeypatch.setattr(db, "_pool", pool)
     try:
@@ -440,9 +443,9 @@ class TestRecordJsonbIntegration:
                 )
             assert len(rows) == 3
             for r in rows:
-                assert r["kind"] == "object", (
-                    f"record_many detail 应为 jsonb object，实际 {r['kind']!r}"
-                )
+                assert (
+                    r["kind"] == "object"
+                ), f"record_many detail 应为 jsonb object，实际 {r['kind']!r}"
                 assert r["idx"] is not None and r["label"] is not None
         finally:
             async with db_pool.acquire() as conn:

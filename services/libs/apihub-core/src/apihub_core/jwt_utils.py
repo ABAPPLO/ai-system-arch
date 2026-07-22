@@ -46,6 +46,7 @@ def issue_refresh_token(
 ) -> str:
     """签发 refresh token（含唯一 jti，用于 Redis 吊销追踪）。"""
     import uuid
+
     payload = {
         "user_id": user_id,
         "tenant_id": tenant_id,

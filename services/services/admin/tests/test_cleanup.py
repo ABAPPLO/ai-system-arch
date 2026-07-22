@@ -14,12 +14,18 @@ class _FakeConn:
         self.executed.append(("fetch", sql[:100]))
         if "pg_class" in sql:
             return [
-                {"partition_name": "task_instance_2025_06",
-                 "bound_expr": "FOR VALUES FROM ('2025-06-01') TO ('2025-07-01')"},
-                {"partition_name": "task_instance_2025_07",
-                 "bound_expr": "FOR VALUES FROM ('2025-07-01') TO ('2025-08-01')"},
-                {"partition_name": "task_instance_2026_07",
-                 "bound_expr": "FOR VALUES FROM ('2026-07-01') TO ('2026-08-01')"},
+                {
+                    "partition_name": "task_instance_2025_06",
+                    "bound_expr": "FOR VALUES FROM ('2025-06-01') TO ('2025-07-01')",
+                },
+                {
+                    "partition_name": "task_instance_2025_07",
+                    "bound_expr": "FOR VALUES FROM ('2025-07-01') TO ('2025-08-01')",
+                },
+                {
+                    "partition_name": "task_instance_2026_07",
+                    "bound_expr": "FOR VALUES FROM ('2026-07-01') TO ('2026-08-01')",
+                },
             ]
         return []
 

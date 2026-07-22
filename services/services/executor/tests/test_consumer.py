@@ -146,8 +146,22 @@ class TestRun:
 
         fake = _FakeConsumer(
             [
-                _FakeKafkaMsg(value={"task_id": "task_aaaaaaaa", "api_id": "", "api_version_id": "", "backend_url": "http://b/1"}),
-                _FakeKafkaMsg(value={"task_id": "task_bbbbbbbb", "api_id": "", "api_version_id": "", "backend_url": "http://b/2"}),
+                _FakeKafkaMsg(
+                    value={
+                        "task_id": "task_aaaaaaaa",
+                        "api_id": "",
+                        "api_version_id": "",
+                        "backend_url": "http://b/1",
+                    }
+                ),
+                _FakeKafkaMsg(
+                    value={
+                        "task_id": "task_bbbbbbbb",
+                        "api_id": "",
+                        "api_version_id": "",
+                        "backend_url": "http://b/2",
+                    }
+                ),
             ]
         )
 
@@ -182,8 +196,22 @@ class TestRun:
 
         fake = _FakeConsumer(
             [
-                _FakeKafkaMsg(value={"task_id": "task_aaaaaaaa", "api_id": "", "api_version_id": "", "backend_url": "http://b/1"}),
-                _FakeKafkaMsg(value={"task_id": "task_bbbbbbbb", "api_id": "", "api_version_id": "", "backend_url": "http://b/2"}),
+                _FakeKafkaMsg(
+                    value={
+                        "task_id": "task_aaaaaaaa",
+                        "api_id": "",
+                        "api_version_id": "",
+                        "backend_url": "http://b/1",
+                    }
+                ),
+                _FakeKafkaMsg(
+                    value={
+                        "task_id": "task_bbbbbbbb",
+                        "api_id": "",
+                        "api_version_id": "",
+                        "backend_url": "http://b/2",
+                    }
+                ),
             ]
         )
         c = mod.TaskConsumer(fake_settings)

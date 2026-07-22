@@ -7,6 +7,7 @@
 
 退出码：0 OK / 1 assert fail / 2 env unavailable。
 """
+
 import subprocess
 import sys
 import time
@@ -24,16 +25,22 @@ def sh(cmd):
 
 def app_status():
     # jsonpath 必须用 shell 双引号包住（python 单引号串），否则 {a.b.c} 被 brace expansion 破坏 → 空。
-    sync = sh(f"kubectl --context kind-apihub -n {NS_ARGO} get application {APP} "
-              '-o jsonpath="{.status.sync.status}"').stdout.strip()
-    health = sh(f"kubectl --context kind-apihub -n {NS_ARGO} get application {APP} "
-                '-o jsonpath="{.status.health.status}"').stdout.strip()
+    sync = sh(
+        f"kubectl --context kind-apihub -n {NS_ARGO} get application {APP} "
+        '-o jsonpath="{.status.sync.status}"'
+    ).stdout.strip()
+    health = sh(
+        f"kubectl --context kind-apihub -n {NS_ARGO} get application {APP} "
+        '-o jsonpath="{.status.health.status}"'
+    ).stdout.strip()
     return sync, health
 
 
 def replicas():
-    out = sh(f"kubectl --context kind-apihub -n {NS_APP} get deploy {DEPLOY} "
-             '-o jsonpath="{.spec.replicas}"').stdout.strip()
+    out = sh(
+        f"kubectl --context kind-apihub -n {NS_APP} get deploy {DEPLOY} "
+        '-o jsonpath="{.spec.replicas}"'
+    ).stdout.strip()
     return int(out) if out.isdigit() else None
 
 

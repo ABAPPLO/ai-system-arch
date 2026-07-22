@@ -11,7 +11,10 @@ def build_app():
         service_name="notification",
         build_routes=routes.register_routes,
         skip_auth_paths=(
-            "/health", "/metrics", "/docs", "/openapi.json",
+            "/health",
+            "/metrics",
+            "/docs",
+            "/openapi.json",
         ),
         extra_lifespan=start_consumer,
     )
@@ -21,4 +24,5 @@ app = build_app()
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("notification.main:app", host="0.0.0.0", port=8012, workers=2, log_level="info")

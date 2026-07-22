@@ -23,19 +23,38 @@ def _no_cache(monkeypatch):
 
 async def _row(status):
     return {
-        "id": "ver_1", "api_id": "api_1", "tenant_id": "t1", "version": "v1",
-        "backend_type": "http", "backend_url": "http://up/v1", "method": "GET",
-        "path": "/x", "masking": None, "rate_limit": None, "retry_policy": None,
-        "cache_policy": None, "ai_model": None, "ai_streaming": False, "ai_params": None,
-        "sla_p99_ms": None, "sla_availability": None, "status": status,
+        "id": "ver_1",
+        "api_id": "api_1",
+        "tenant_id": "t1",
+        "version": "v1",
+        "backend_type": "http",
+        "backend_url": "http://up/v1",
+        "method": "GET",
+        "path": "/x",
+        "masking": None,
+        "rate_limit": None,
+        "retry_policy": None,
+        "cache_policy": None,
+        "ai_model": None,
+        "ai_streaming": False,
+        "ai_params": None,
+        "sla_p99_ms": None,
+        "sla_availability": None,
+        "status": status,
     }
 
 
 def _meta_session(fetchrow):
     class _CM:
         async def __aenter__(self):
-            return type("C", (), {"fetchrow": staticmethod(fetchrow),
-                                  "fetchval": staticmethod(lambda *a, **k: None)})()
+            return type(
+                "C",
+                (),
+                {
+                    "fetchrow": staticmethod(fetchrow),
+                    "fetchval": staticmethod(lambda *a, **k: None),
+                },
+            )()
 
         async def __aexit__(self, *e):
             return False
@@ -104,9 +123,7 @@ async def test_resolve_retired_returns_410(monkeypatch):
 
 async def test_dispatch_missing_header_returns_400(async_client):
     """resolve_by_path 已删；无 X-API-Version-Id → 400（需 X-API-Key 过 auth）。"""
-    r = await async_client.get(
-        "/dispatch/v1/x", headers={"X-API-Key": "ak_test_a_demo001"}
-    )
+    r = await async_client.get("/dispatch/v1/x", headers={"X-API-Key": "ak_test_a_demo001"})
     assert r.status_code == 400
 
 
@@ -126,12 +143,25 @@ async def test_resolve_cache_hit_stale_retired_returns_410(monkeypatch):
     from dispatcher import resolver
 
     cached_snapshot = {
-        "id": "ver_1", "api_id": "api_1", "tenant_id": "t1", "version": "v1",
-        "backend_type": "http", "backend_url": "http://up/v1", "method": "GET",
-        "path": "/x", "masking": None, "rate_limit": None, "retry_policy": None,
-        "cache_policy": None, "ai_model": None, "ai_streaming": False,
-        "ai_params": None, "sla_p99_ms": None, "sla_availability": None,
-        "timeout_ms": 30000, "visibility": "public",
+        "id": "ver_1",
+        "api_id": "api_1",
+        "tenant_id": "t1",
+        "version": "v1",
+        "backend_type": "http",
+        "backend_url": "http://up/v1",
+        "method": "GET",
+        "path": "/x",
+        "masking": None,
+        "rate_limit": None,
+        "retry_policy": None,
+        "cache_policy": None,
+        "ai_model": None,
+        "ai_streaming": False,
+        "ai_params": None,
+        "sla_p99_ms": None,
+        "sla_availability": None,
+        "timeout_ms": 30000,
+        "visibility": "public",
     }
 
     # 覆盖 autouse _no_cache：让 t_get 命中（返回缓存快照 JSON）。
@@ -178,12 +208,25 @@ async def test_resolve_cache_hit_stale_other_status_returns_404(monkeypatch):
     from dispatcher import resolver
 
     cached_snapshot = {
-        "id": "ver_2", "api_id": "api_1", "tenant_id": "t1", "version": "v1",
-        "backend_type": "http", "backend_url": "http://up/v1", "method": "GET",
-        "path": "/x", "masking": None, "rate_limit": None, "retry_policy": None,
-        "cache_policy": None, "ai_model": None, "ai_streaming": False,
-        "ai_params": None, "sla_p99_ms": None, "sla_availability": None,
-        "timeout_ms": 30000, "visibility": "public",
+        "id": "ver_2",
+        "api_id": "api_1",
+        "tenant_id": "t1",
+        "version": "v1",
+        "backend_type": "http",
+        "backend_url": "http://up/v1",
+        "method": "GET",
+        "path": "/x",
+        "masking": None,
+        "rate_limit": None,
+        "retry_policy": None,
+        "cache_policy": None,
+        "ai_model": None,
+        "ai_streaming": False,
+        "ai_params": None,
+        "sla_p99_ms": None,
+        "sla_availability": None,
+        "timeout_ms": 30000,
+        "visibility": "public",
     }
 
     async def _hit(key):

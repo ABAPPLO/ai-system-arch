@@ -79,7 +79,10 @@ async def _app_pool(*, min_size: int = 1, max_size: int = 2) -> asyncpg.Pool:
     连接以 app role 运行，让 RLS 在 db_session 路径上真过滤。
     """
     return await asyncpg.create_pool(
-        PG_DSN, min_size=min_size, max_size=max_size, init=_init_app_role,
+        PG_DSN,
+        min_size=min_size,
+        max_size=max_size,
+        init=_init_app_role,
     )
 
 
@@ -241,9 +244,9 @@ class TestRLSViaDbSession:
 
             tenants = {r["tenant_id"] for r in rows}
             # dev 种子至少有 tenant_a / tenant_b（见 02-seed.sql）
-            assert {"tenant_a", "tenant_b"}.issubset(tenants), (
-                f"meta_db_session 应跨租户可见，实际看到: {tenants}"
-            )
+            assert {"tenant_a", "tenant_b"}.issubset(
+                tenants
+            ), f"meta_db_session 应跨租户可见，实际看到: {tenants}"
         finally:
             await pool.close()
 
@@ -272,7 +275,9 @@ class TestRLSInjectionHardened:
         finally:
             await pool.close()
 
-    async def test_db_session_still_filters_correctly_after_param_change(self, monkeypatch, tenant_a):
+    async def test_db_session_still_filters_correctly_after_param_change(
+        self, monkeypatch, tenant_a
+    ):
         from apihub_core import db
         from apihub_core.tenant import set_tenant_context
 
@@ -294,23 +299,22 @@ class TestAdminDbSessionAudit:
         from apihub_core import db
 
         pool = await asyncpg.create_pool(
-            PG_DSN, min_size=1, max_size=2, init=db._init_jsonb_codec,
+            PG_DSN,
+            min_size=1,
+            max_size=2,
+            init=db._init_jsonb_codec,
         )
         monkeypatch.setattr(db, "_pool", pool)
         try:
             async with _connect() as c, c.transaction():
-                await c.execute(
-                    "SELECT set_config('app.is_platform_admin', $1, true)", "true"
-                )
+                await c.execute("SELECT set_config('app.is_platform_admin', $1, true)", "true")
                 before = await c.fetchval(
                     "SELECT count(*) FROM audit_log WHERE action = 'admin_db_session'"
                 )
             async with db.admin_db_session() as conn:
                 await conn.fetchval("SELECT 1")
             async with _connect() as c, c.transaction():
-                await c.execute(
-                    "SELECT set_config('app.is_platform_admin', $1, true)", "true"
-                )
+                await c.execute("SELECT set_config('app.is_platform_admin', $1, true)", "true")
                 after = await c.fetchval(
                     "SELECT count(*) FROM audit_log WHERE action = 'admin_db_session'"
                 )
@@ -323,24 +327,23 @@ class TestAdminDbSessionAudit:
         from apihub_core.tenant import set_tenant_context
 
         pool = await asyncpg.create_pool(
-            PG_DSN, min_size=1, max_size=2, init=db._init_jsonb_codec,
+            PG_DSN,
+            min_size=1,
+            max_size=2,
+            init=db._init_jsonb_codec,
         )
         monkeypatch.setattr(db, "_pool", pool)
         set_tenant_context(tenant_a)
         try:
             async with _connect() as c, c.transaction():
-                await c.execute(
-                    "SELECT set_config('app.is_platform_admin', $1, true)", "true"
-                )
+                await c.execute("SELECT set_config('app.is_platform_admin', $1, true)", "true")
                 before = await c.fetchval(
                     "SELECT count(*) FROM audit_log WHERE action = 'admin_db_session'"
                 )
             async with db.admin_db_session(audit_reason="cross-tenant key verify") as conn:
                 await conn.fetchval("SELECT 1")
             async with _connect() as c, c.transaction():
-                await c.execute(
-                    "SELECT set_config('app.is_platform_admin', $1, true)", "true"
-                )
+                await c.execute("SELECT set_config('app.is_platform_admin', $1, true)", "true")
                 after = await c.fetchval(
                     "SELECT count(*) FROM audit_log WHERE action = 'admin_db_session'"
                 )
@@ -354,7 +357,10 @@ class TestAdminDbSessionAudit:
         from apihub_core.tenant import set_tenant_context
 
         pool = await asyncpg.create_pool(
-            PG_DSN, min_size=1, max_size=2, init=db._init_jsonb_codec,
+            PG_DSN,
+            min_size=1,
+            max_size=2,
+            init=db._init_jsonb_codec,
         )
         monkeypatch.setattr(db, "_pool", pool)
         set_tenant_context(tenant_a)

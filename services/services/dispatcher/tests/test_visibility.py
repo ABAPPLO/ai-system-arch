@@ -32,4 +32,5 @@ def test_private_requires_platform_admin():
     with pytest.raises(ApiError):
         check_visibility(_snap("private", "tenant_a"), ctx)
     from dataclasses import replace
+
     check_visibility(_snap("private", "tenant_a"), replace(ctx, is_platform_admin=True))

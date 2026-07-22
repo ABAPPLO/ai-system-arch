@@ -41,29 +41,21 @@ def register_routes(app: FastAPI) -> None:
     async def register(payload: dict):
         st, body = await _forward("POST", "/v1/auth/register", json=payload)
         if st >= 400:
-            raise ApiError(
-                ErrorCode.INTERNAL, f"auth error: {body}", http_status=st
-            )
+            raise ApiError(ErrorCode.INTERNAL, f"auth error: {body}", http_status=st)
         return body
 
     @app.get("/v1/portal/auth/verify-email")
     async def verify_email(token: str):
-        st, body = await _forward(
-            "GET", "/v1/auth/verify-email", params={"token": token}
-        )
+        st, body = await _forward("GET", "/v1/auth/verify-email", params={"token": token})
         if st >= 400:
-            raise ApiError(
-                ErrorCode.INTERNAL, f"auth error: {body}", http_status=st
-            )
+            raise ApiError(ErrorCode.INTERNAL, f"auth error: {body}", http_status=st)
         return body
 
     @app.post("/v1/portal/auth/login")
     async def login(payload: dict):
         st, body = await _forward("POST", "/v1/auth/login", json=payload)
         if st >= 400:
-            raise ApiError(
-                ErrorCode.UNAUTHORIZED, "invalid credentials", http_status=st
-            )
+            raise ApiError(ErrorCode.UNAUTHORIZED, "invalid credentials", http_status=st)
         return body
 
     @app.post("/v1/portal/auth/refresh")
@@ -137,8 +129,11 @@ def register_routes(app: FastAPI) -> None:
         """API 目录列表 + 搜索/过滤/分页。"""
         require_tenant()
         return await repository.list_portal_apis(
-            search=search, category=category, tag=tag,
-            limit=min(limit, 200), offset=offset,
+            search=search,
+            category=category,
+            tag=tag,
+            limit=min(limit, 200),
+            offset=offset,
         )
 
     @app.get("/v1/portal/apis/{api_id}")

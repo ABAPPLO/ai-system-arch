@@ -30,11 +30,22 @@ def _map_stop_reason(reason: str) -> str:
 
 class AnthropicProvider(BaseProvider):
     async def chat_completion(
-        self, messages, model, api_key, base_url, stream=True,
-        temperature=None, max_tokens=None, extra_body=None,
+        self,
+        messages,
+        model,
+        api_key,
+        base_url,
+        stream=True,
+        temperature=None,
+        max_tokens=None,
+        extra_body=None,
     ) -> AsyncIterator[SSEChunk]:
         url = f"{base_url.rstrip('/')}/v1/messages"
-        headers = {"x-api-key": api_key, "anthropic-version": "2023-06-01", "content-type": "application/json"}
+        headers = {
+            "x-api-key": api_key,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+        }
 
         # Extract system message — Anthropic requires it as a top-level field
         system_content = None
@@ -64,7 +75,11 @@ class AnthropicProvider(BaseProvider):
                 data = resp.json()
                 content = _extract_text(data.get("content", []))
                 ud = data.get("usage", {})
-                usage = {"prompt_tokens": ud.get("input_tokens",0), "completion_tokens": ud.get("output_tokens",0), "total_tokens": ud.get("input_tokens",0)+ud.get("output_tokens",0)}
+                usage = {
+                    "prompt_tokens": ud.get("input_tokens", 0),
+                    "completion_tokens": ud.get("output_tokens", 0),
+                    "total_tokens": ud.get("input_tokens", 0) + ud.get("output_tokens", 0),
+                }
                 yield SSEChunk(content=content, finish_reason="stop", usage=usage)
                 return
 
@@ -86,7 +101,13 @@ class AnthropicProvider(BaseProvider):
                             yield SSEChunk(content=delta.get("text", ""))
                     elif et == "message_delta":
                         ud = data.get("usage") or {}
-                        usage = {"prompt_tokens": ud.get("input_tokens",0), "completion_tokens": ud.get("output_tokens",0), "total_tokens": ud.get("input_tokens",0)+ud.get("output_tokens",0)}
-                        yield SSEChunk(finish_reason=_map_stop_reason(data.get("stop_reason")), usage=usage)
+                        usage = {
+                            "prompt_tokens": ud.get("input_tokens", 0),
+                            "completion_tokens": ud.get("output_tokens", 0),
+                            "total_tokens": ud.get("input_tokens", 0) + ud.get("output_tokens", 0),
+                        }
+                        yield SSEChunk(
+                            finish_reason=_map_stop_reason(data.get("stop_reason")), usage=usage
+                        )
                     elif et == "message_stop":
                         yield SSEChunk(finish_reason="stop")
