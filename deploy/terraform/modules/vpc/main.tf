@@ -84,9 +84,9 @@ resource "alicloud_security_group" "mgmt" {
 
 # 跨 Region VPC Peering（多活架构：北京 ↔ 上海）
 resource "alicloud_vpc_peer_connection" "this" {
-  count       = var.enable_peering ? 1 : 0
-  vpc_id      = alicloud_vpc.this.id
-  peer_vpc_id = var.peer_vpc_id
-  peer_region = var.peer_region
-  bandwidth   = 1000
+  count               = var.enable_peering ? 1 : 0
+  vpc_id              = alicloud_vpc.this.id
+  accepting_vpc_id    = var.peer_vpc_id
+  accepting_region_id = var.peer_region
+  bandwidth           = 1000
 }

@@ -31,11 +31,11 @@ module "ack" {
 }
 
 module "rds" {
-  source             = "../../modules/rds"
-  environment        = var.environment
-  vswitch_id_a       = module.vpc.data_vswitch_ids[0]
-  vswitch_id_b       = module.vpc.data_vswitch_ids[1]
-  security_group_id  = module.vpc.security_group_ids.data
+  source            = "../../modules/rds"
+  environment       = var.environment
+  vswitch_id_a      = module.vpc.data_vswitch_ids[0]
+  vswitch_id_b      = module.vpc.data_vswitch_ids[1]
+  security_group_id = module.vpc.security_group_ids.data
   # prod-bj：pg.x4.large.2c（计算型升档应对跨 Region 同步压力）；存储 500GB
   # logical_replication 开启以便 DTS 做跨 Region 逻辑复制
   instance_type       = "pg.x4.large.2c"
