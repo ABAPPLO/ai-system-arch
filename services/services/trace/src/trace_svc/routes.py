@@ -166,7 +166,7 @@ def _row_to_list_item(r: dict[str, Any]) -> CallListItem:
         latency_ms=int(r.get("latency_ms", 0)),
         error_type=r.get("error_code") or None,
         error_msg=r.get("error_msg") or None,
-        ts=r.get("ts"),
+        ts=r.get("ts"),  # type: ignore
     )
 
 
@@ -208,7 +208,7 @@ def _row_to_detail(r: dict[str, Any]) -> CallDetail:
         is_retry=False,
         retry_no=None,
         task_id=None,
-        ts=r.get("ts"),
+        ts=r.get("ts"),  # type: ignore
     )
 
 

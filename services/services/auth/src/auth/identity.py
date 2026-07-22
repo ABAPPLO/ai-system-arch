@@ -213,8 +213,8 @@ async def anonymize_user(*, user_id: str) -> None:
         for pattern in ("t:refresh:*", "t:verify:*"):
             cursor: bytes | str = "0"
             while cursor:
-                cursor, keys = await redis.raw_client().scan(
-                    cursor,
+                cursor, keys = await redis.raw_client().scan(  # type: ignore
+                    cursor,  # type: ignore
                     match=pattern,
                     count=100,
                 )

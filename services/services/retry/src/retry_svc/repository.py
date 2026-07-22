@@ -333,7 +333,7 @@ async def list_failed(query: ListFailedQuery) -> list[RetryTaskRow]:
 async def _list_failed_status_single(query: ListFailedQuery) -> list[RetryTaskRow]:
     """精确查某个状态（覆盖 list_failed 的逻辑）。"""
     clauses = ["status = $1"]
-    params: list = [query.status.value]
+    params: list = [query.status.value]  # type: ignore
     idx = 2
     if query.since:
         clauses.append(f"created_at >= ${idx}")

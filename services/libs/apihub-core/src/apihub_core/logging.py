@@ -32,7 +32,7 @@ def configure_logging(level: str = "INFO", env: str = "dev") -> None:
         processors.append(structlog.processors.JSONRenderer())
 
     structlog.configure(
-        processors=processors,
+        processors=processors,  # type: ignore
         wrapper_class=structlog.make_filtering_bound_logger(
             getattr(logging, level.upper(), logging.INFO)
         ),

@@ -37,7 +37,7 @@ async def _parse_identity(api_key: str, raw: object) -> dict[str, Any] | None:
     if raw is None:
         return None
     try:
-        data = json.loads(raw)
+        data = json.loads(raw)  # type: ignore
     except (json.JSONDecodeError, TypeError):
         await redis.raw_client().delete(identity_cache_key(api_key))
         return None

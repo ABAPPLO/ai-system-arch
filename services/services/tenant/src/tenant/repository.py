@@ -191,11 +191,11 @@ async def change_status(tenant_id: str, new_status: str) -> dict[str, Any]:
     if new_status == "closed":
         allowed_from = ("active", "suspended")
     elif new_status == "suspended":
-        allowed_from = ("active",)
+        allowed_from = ("active",)  # type: ignore
     elif new_status == "active":
-        allowed_from = ("suspended",)  # resume
+        allowed_from = ("suspended",)  # type: ignore[assignment]
     else:
-        allowed_from = ()
+        allowed_from = ()  # type: ignore
 
     if cur_status not in allowed_from:
         raise ApiError(

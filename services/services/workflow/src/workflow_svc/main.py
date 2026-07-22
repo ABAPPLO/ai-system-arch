@@ -48,7 +48,7 @@ app = create_app(
         "/docs",
         "/openapi.json",
     ),
-    extra_lifespan=argo_lifespan,
+    extra_lifespan=argo_lifespan,  # type: ignore[arg-type]
 )
 
 

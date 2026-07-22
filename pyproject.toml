@@ -57,6 +57,7 @@ ignore_missing_imports = true   # 第三方无 stub 的库太多，逐步收紧
 exclude = [
   "^build/",
   "^dist/",
+  "/tests/",  # 测试不 type-check（避免多 tests/conftest.py 重名 blocking；测试代码无需严格类型）
 ]
 
 [tool.pytest.ini_options]

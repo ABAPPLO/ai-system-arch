@@ -59,7 +59,7 @@ async def _inject_home_region_on_create(*, key_id: str, key: str, tenant_id: str
     `labels={"home_region": <hr>}`，供 APISIX tenant-affinity 插件读取以决定写路由。
     tenant 无 home_region 时传 labels=None（upsert_consumer 视为不带 labels 字段）。
     """
-    home_region = await get_tenant_home_region(tenant_id)
+    home_region = await get_tenant_home_region(tenant_id)  # type: ignore
     labels = {"home_region": home_region} if home_region else None
     await upsert_consumer(key_id=key_id, key=key, labels=labels)
 
