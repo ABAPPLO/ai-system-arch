@@ -4,7 +4,7 @@ APIHub 支持在 `api_key`（bearer）之上叠加一层 **opt-in HMAC 签名验
 必须对每个请求签名，平台 in-app 验签。它解决两类问题：
 
 - **防重放 / 防篡改**：请求体、路径、方法、时间戳都进签名；带 nonce 防重放。
-- **凭证不裸传**：enrolled key 不带签名头会被直接拒（401），无法降级回 bearer 绕过。
+- **凭证不裸传 / 防降级**：enrolled key 只能走 `X-App-Key` + 签名；用 `X-API-Key`/bearer 调用同样被拒（401），泄漏的 key 无法绕过验签。
 
 另外，平台对外推送的 **outbound webhook** 也用同一签名原语签名，客户端可验。
 
@@ -52,6 +52,7 @@ signature = HMAC-SHA256(secret, canonical).hexdigest()   # hex
 | 情况 | 状态 | 信息 |
 |---|---|---|
 | enrolled key 但**不带** `X-Signature` | 401 | `hmac signing required for this key`（防降级绕过 bearer） |
+| enrolled key 走 **bearer**（`X-API-Key`/`Authorization`，无 `X-App-Key`） | 401 | `hmac signing required for this key`（`verify_api_key_record` 返 `hmac_enrolled`，bearer 路径与 X-Ingress-Auth 快路径均拒） |
 | 未 enrolled key 却**带**签名头 | 401 | `key not enrolled for hmac` |
 | `X-Timestamp` 超出 ±300s 窗 / 非数字 | 401 | `stale timestamp` / `invalid timestamp` |
 | `X-Nonce` 重复 / 缺失 | 401 | `replay detected` / `invalid nonce` |
@@ -175,7 +176,7 @@ webhook secret 目前无独立 rotate 端点（重新创建 webhook 即得新 se
 ## 7. 安全语义小结
 
 - **fail-closed**：缺 `HMAC_SECRET_KEY`（envelope 加密 key）→ 服务启动期 `RuntimeError`，不进请求路径。
-- **enrolled 必须签名**：enrolled key 不带 `X-Signature` → 401，无法降级为 bearer 绕过验签。
+- **enrolled 必须签名**：enrolled key 不带 `X-Signature` → 401；且 **bearer 路径整体拒绝 enrolled key**（`X-API-Key` 调用 enrolled key → 401，X-Ingress-Auth 快路径亦拒），泄漏的 key 无法绕过验签。
 - **防重放**：`X-Nonce` 经 Redis `SET NX`（TTL = `hmac_nonce_ttl_seconds` = 600s），同 nonce 只能用一次。
 - **防篡改 + 防重排**：method / path+query / timestamp / body 全进 canonical。
 - **时间窗**：`X-Timestamp` 须在服务端 ±300s 内，配合 nonce TTL 收口重放窗口。

@@ -181,3 +181,93 @@ async def test_corrupt_secret_cache_returns_503(fake_redis):
     with pytest.raises(ApiError) as exc_info:
         await authenticate_request(req, get_settings(), api_key="ak_enrolledkey")
     assert exc_info.value.http_status == 503
+
+
+async def test_enrolled_key_rejected_on_bearer_path(monkeypatch):
+    """C2: enrolled key 用 X-API-Key(bearer) 调用 → 401（防泄漏 key 绕过验签）。
+
+    enrolled key 必须走 X-App-Key+签名；bearer 路径整体拒绝（含 X-Ingress-Auth 快路径）。
+    """
+    import apihub_core.auth as auth_mod
+    from apihub_core.auth import authenticate_request
+    from apihub_core.config import get_settings
+    from apihub_core.errors import ApiError
+
+    async def _fake_verify(api_key, settings):
+        return {
+            "is_active": True, "tenant_id": "t1", "tenant_type": "internal",
+            "app_id": "app1", "hmac_enrolled": True, "key_id": "key_1",
+        }
+
+    monkeypatch.setattr(auth_mod, "_verify_via_auth_service", _fake_verify)
+
+    class _Req:
+        pass
+
+    req = _Req()
+    req.headers = {"X-API-Key": "ak_enrolledkey"}  # bearer，无 X-App-Key
+    req.method = "POST"
+    req.url = type("U", (), {"path": "/v1/foo", "query": ""})()
+
+    async def _b():
+        return b"{}"
+
+    req.body = _b
+    with pytest.raises(ApiError, match="hmac signing required"):
+        await authenticate_request(req, get_settings(), api_key="ak_enrolledkey")
+
+
+async def test_enrolled_key_rejected_on_ingress_fast_path(fake_redis, monkeypatch):
+    """C2 防御纵深：enrolled key 即便带 X-Ingress-Auth（可信入口快路径）也拒。"""
+    from apihub_core.auth import authenticate_request
+    from apihub_core.config import get_settings
+    from apihub_core.errors import ApiError
+
+    await _seed_enrolled(fake_redis)  # identity 含 hmac_enrolled=True
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "ingress_shared_secret", "shh", raising=False)
+    # 不需走 _verify_via_auth_service；快路径命中 identity 即返/拒
+    class _Req:
+        pass
+
+    req = _Req()
+    req.headers = {"X-API-Key": "ak_enrolledkey", "X-Ingress-Auth": "shh"}
+    req.method = "POST"
+    req.url = type("U", (), {"path": "/v1/foo", "query": ""})()
+
+    async def _b():
+        return b"{}"
+
+    req.body = _b
+    with pytest.raises(ApiError, match="hmac signing required"):
+        await authenticate_request(req, settings, api_key="ak_enrolledkey")
+
+
+async def test_identity_miss_cold_recovers_via_verify(fake_redis, monkeypatch):
+    """C4: identity miss（HMAC-only key 长闲过期）→ 回源 verify 暖缓存 → 验签通过（不自砖）。"""
+    import apihub_core.auth as auth_mod
+    from apihub_core import crypto, identity
+    from apihub_core.auth import authenticate_request
+    from apihub_core.config import get_settings
+
+    # 只 seed warm secret，不 seed identity（模拟 identity 过期 miss）
+    await identity.write_hmac_secret("ak_enrolledkey", crypto.encrypt_secret("the_secret"), ttl=300)
+
+    called = {"n": 0}
+
+    async def _fake_verify(api_key, settings):
+        called["n"] += 1
+        # 模拟 auth /v1/apikey/verify 服务端 cache_positive：暖 identity（含 hmac_enrolled/key_id）
+        await identity.write_identity(api_key, {
+            "is_active": True, "tenant_id": "t1", "tenant_type": "internal",
+            "app_id": "app1", "key_id": "key_1", "hmac_enrolled": True,
+        }, ttl=300)
+        return {"is_active": True, "tenant_id": "t1", "hmac_enrolled": True}
+
+    monkeypatch.setattr(auth_mod, "_verify_via_auth_service", _fake_verify)
+
+    req = _make_request()  # 默认 enrolledkey + 正确签名 + X-App-Key
+    ctx = await authenticate_request(req, get_settings(), api_key="ak_enrolledkey")
+    assert ctx.tenant_id == "t1"
+    assert called["n"] == 1  # identity miss 触发了一次回源暖缓存

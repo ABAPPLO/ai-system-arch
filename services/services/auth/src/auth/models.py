@@ -93,6 +93,9 @@ class VerifyResponse(BaseModel):
     is_platform_admin: bool = False
     scopes: list[str] = Field(default_factory=list)
     expires_at: datetime | None = None
+    # R2e: enrolled key 不可走 bearer（authenticate_request 据此拒）；key_id 供 _verify_hmac nonce_key
+    hmac_enrolled: bool = False
+    key_id: str | None = None
 
 
 # ---------- 外部开发者身份（注册 / 登录）----------

@@ -6,6 +6,7 @@
 详见 docs/08-observability-security.md §7
 """
 
+import hashlib
 import secrets
 import time
 
@@ -54,6 +55,9 @@ async def authenticate_request(
         if cached is not None:
             if cached.get("invalid") or not cached.get("is_active"):
                 raise ApiError(ErrorCode.UNAUTHORIZED, "Invalid API Key")
+            # R2e C2: enrolled key 不可走 bearer 快路径（须带 X-App-Key 走 _verify_hmac 验签）。
+            if cached.get("hmac_enrolled"):
+                raise ApiError(ErrorCode.UNAUTHORIZED, "hmac signing required for this key")
             ctx = TenantContext(
                 tenant_id=cached["tenant_id"],
                 tenant_type=cached.get("tenant_type", "internal"),
@@ -79,12 +83,28 @@ async def authenticate_request(
         )
         set_tenant_context(ctx)
         return ctx
-    # 否则：原 API Key 流程（以下 httpx 调 auth verify 代码不变）
+    # 否则：API Key 流程 —— HTTP 回源 auth /v1/apikey/verify（cache-miss 时）。
+    data = await _verify_via_auth_service(api_key, settings)
+    # R2e C2: enrolled key 不可走 bearer（防泄漏的 key 绕过验签）—— 须带 X-App-Key 走 _verify_hmac。
+    if data.get("hmac_enrolled"):
+        raise ApiError(ErrorCode.UNAUTHORIZED, "hmac signing required for this key")
 
-    # 缓存查询（生产环境强烈推荐）：`ak:{sha256(api_key)}` -> json
-    # 这里直接调 auth 服务
-    # timeout 5s：auth verify 可能回源 PG（cache-miss），2s 在依赖冷启动/抖动时偏紧，
-    # 曾稳定触发 503 "Auth service unreachable"（见 db.init_pool 的 pool 预热注释）。
+    ctx = TenantContext(
+        tenant_id=data["tenant_id"],
+        tenant_type=data["tenant_type"],
+        app_id=data["app_id"],
+        is_platform_admin=data.get("is_platform_admin", False),
+    )
+    set_tenant_context(ctx)
+    return ctx
+
+
+async def _verify_via_auth_service(api_key: str, settings: Settings) -> dict:
+    """HTTP 回源 auth /v1/apikey/verify → 返回 VerifyResponse dict（auth 侧已暖 identity 缓存）。
+
+    bearer 路径与 _verify_hmac 的 identity 冷回源（C4）共用：成功返回即意味着 identity 缓存
+    已被 auth 服务端 cache_positive 暖好，caller 再 read_identity 即得。失败抛 401/503。
+    """
     async with httpx.AsyncClient(timeout=5.0) as client:
         try:
             resp = await client.post(
@@ -105,20 +125,10 @@ async def authenticate_request(
     if resp.status_code != 200:
         raise ApiError(ErrorCode.UNAUTHORIZED, "API Key verify failed")
 
-    # auth-svc 直接返回 VerifyResponse（无 envelope）：
-    #   {is_active, tenant_id, tenant_type, app_id, is_platform_admin, scopes, expires_at}
     data = resp.json()
     if not data.get("is_active"):
         raise ApiError(ErrorCode.UNAUTHORIZED, "API Key disabled")
-
-    ctx = TenantContext(
-        tenant_id=data["tenant_id"],
-        tenant_type=data["tenant_type"],
-        app_id=data["app_id"],
-        is_platform_admin=data.get("is_platform_admin", False),
-    )
-    set_tenant_context(ctx)
-    return ctx
+    return data
 
 
 async def _verify_hmac(request: Request, settings: Settings, api_key: str) -> TenantContext:
@@ -136,6 +146,11 @@ async def _verify_hmac(request: Request, settings: Settings, api_key: str) -> Te
     from apihub_core.redis import raw_client
 
     cached = await identity.read_identity(api_key)
+    if cached is None:
+        # C4: identity miss（HMAC-only key 长闲过期 / 冷启动）→ 回源 auth verify 暖缓存再续。
+        # 否则 create_key 写的 identity（TTL 300s）过期后 HMAC key 自砖、client 无法自愈。
+        await _verify_via_auth_service(api_key, settings)  # 失败抛 401/503；成功即暖 identity
+        cached = await identity.read_identity(api_key)
     if cached is None or cached.get("invalid"):
         raise ApiError(ErrorCode.UNAUTHORIZED, "invalid api key")
     if not cached.get("is_active"):
@@ -148,12 +163,21 @@ async def _verify_hmac(request: Request, settings: Settings, api_key: str) -> Te
     if not enrolled and has_sig:
         raise ApiError(ErrorCode.UNAUTHORIZED, "key not enrolled for hmac")
 
-    # 取 secret：warm 走 Redis 加密 blob（in-process decrypt），cold 回源 auth /v1/internal/hmac-secret
+    # I3: timestamp ±window 前置 —— 廉价校验先做，避免海量伪造签名打爆 secret fetch 的 Redis/auth RTT。
+    ts_raw = request.headers.get("X-Timestamp", "")
+    try:
+        ts = int(ts_raw)
+    except ValueError:
+        raise ApiError(ErrorCode.UNAUTHORIZED, "invalid timestamp") from None
+    if abs(int(time.time()) - ts) > settings.hmac_timestamp_window_seconds:
+        raise ApiError(ErrorCode.UNAUTHORIZED, "stale timestamp")
+
+    # 取 secret：warm Redis 加密 blob + in-process decrypt；cold 回源 auth /v1/internal/hmac-secret
     secret_blob = await identity.read_hmac_secret(api_key)
     if secret_blob is not None:
         try:
             secret = crypto_mod.decrypt_secret(secret_blob)
-        except Exception:  # InvalidTag / binascii —— 非客户端错，503 + DEL 缓存
+        except Exception:  # InvalidTag / binascii / RuntimeError(缺 key) —— 非客户端错，503 + DEL 缓存
             await raw_client().delete(identity.hmac_secret_cache_key(api_key))
             raise ApiError(ErrorCode.INTERNAL, "hmac secret cache corrupt", http_status=503) from None
     else:
@@ -180,25 +204,24 @@ async def _verify_hmac(request: Request, settings: Settings, api_key: str) -> Te
         secret = resp.json().get("hmac_secret")
         if not secret:
             raise ApiError(ErrorCode.UNAUTHORIZED, "key not enrolled for hmac")
-        # 回填 warm 缓存（加密），后续命中即免回源
+        # I2: 回填 warm 缓存。encrypt 缺 HMAC_SECRET_KEY 抛 RuntimeError → 转 503（非裸 500）
+        try:
+            enc = crypto_mod.encrypt_secret(secret)
+        except Exception:
+            raise ApiError(
+                ErrorCode.INTERNAL, "hmac encryption key not configured", http_status=503
+            ) from None
         await identity.write_hmac_secret(
-            api_key, crypto_mod.encrypt_secret(secret), ttl=settings.hmac_nonce_ttl_seconds
+            api_key, enc, ttl=settings.hmac_nonce_ttl_seconds
         )
 
-    # timestamp ±window（防重放第一步：过期请求直接拒）
-    ts_raw = request.headers.get("X-Timestamp", "")
-    try:
-        ts = int(ts_raw)
-    except ValueError:
-        raise ApiError(ErrorCode.UNAUTHORIZED, "invalid timestamp") from None
-    if abs(int(time.time()) - ts) > settings.hmac_timestamp_window_seconds:
-        raise ApiError(ErrorCode.UNAUTHORIZED, "stale timestamp")
-
-    # nonce SETNX（防重放第二步：同一 nonce 在 TTL 内只能用一次）
+    # nonce SETNX（防重放：同一 nonce TTL 内只能用一次）。
+    # C3: nonce_key 用 key_id，不把明文 api_key 写进 Redis（identity/secret 缓存都 hash，nonce 对齐）。
     nonce = request.headers.get("X-Nonce", "")
     if not nonce:
         raise ApiError(ErrorCode.UNAUTHORIZED, "invalid nonce")
-    nonce_key = f"t:{cached['tenant_id']}:hmac:nonce:{api_key}:{nonce}"
+    nonce_subject = cached.get("key_id") or hashlib.sha256(api_key.encode("utf-8")).hexdigest()
+    nonce_key = f"t:{cached['tenant_id']}:hmac:nonce:{nonce_subject}:{nonce}"
     set_ok = await raw_client().set(
         nonce_key, "1", ex=settings.hmac_nonce_ttl_seconds, nx=True
     )

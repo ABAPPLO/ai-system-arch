@@ -25,7 +25,7 @@ async def verify_api_key_record(api_key_plaintext: str) -> dict | None:
             """
             SELECT
                 ak.id, ak.app_id, ak.scopes, ak.status, ak.expires_at,
-                ak.tenant_id,
+                ak.tenant_id, ak.hmac_secret_encrypted,
                 t.type  AS tenant_type,
                 t.metadata->>'is_platform_admin' AS platform_admin_flag
             FROM api_key ak
@@ -51,6 +51,8 @@ async def verify_api_key_record(api_key_plaintext: str) -> dict | None:
                 row["id"],
             )
 
+        # R2e: hmac_enrolled + key_id 进 record → cache_positive 暖的缓存条目完整
+        # （authenticate_request bearer 路径据此拒 enrolled key；_verify_hmac 据 key_id 构造 nonce_key）。
         return {
             "is_active": True,
             "tenant_id": row["tenant_id"],
@@ -59,6 +61,8 @@ async def verify_api_key_record(api_key_plaintext: str) -> dict | None:
             "is_platform_admin": row["platform_admin_flag"] == "true",
             "scopes": list(row["scopes"] or []),
             "expires_at": row["expires_at"].isoformat() if row["expires_at"] else None,
+            "key_id": row["id"],
+            "hmac_enrolled": row["hmac_secret_encrypted"] is not None,
         }
 
 
@@ -189,12 +193,13 @@ async def get_hmac_secret_plaintext(key_id: str) -> str | None:
     return crypto_mod.decrypt_secret(row["hmac_secret_encrypted"])
 
 
-async def rotate_hmac_secret(key_id: str) -> dict:
-    """轮换 HMAC secret → 新明文（返一次）+ RETURNING key_hash 供 caller 失效缓存。
+async def rotate_hmac_secret(key_id: str, tenant_id: str) -> dict:
+    """同租户轮换 HMAC secret → 新明文（返一次）+ RETURNING key_hash 供 caller 失效缓存。
 
-    audit_log 由 admin_db_session 写（audit_reason=hmac_secret_rotation）。
-    key_hash = sha256(plaintext api_key)，与 identity.hmac_secret_cache_key 一致，
-    caller 据此 invalidate `hmac_secret:{key_hash}` Redis 缓存。
+    admin_db_session（bypass RLS 写 audit_log，audit_reason=hmac_secret_rotation）
+    + 显式 `tenant_id` 过滤防跨租户劫持（review C1：否则任意 caller 可 rotate 别租户 key
+    并拿回明文）。key_hash = sha256(plaintext api_key)，与 identity.hmac_secret_cache_key
+    一致，caller 据此 invalidate `hmac_secret:{key_hash}` Redis 缓存。
     只轮换已 enrolled 的 active key（hmac_secret_encrypted IS NOT NULL）。
     """
     import secrets
@@ -204,17 +209,19 @@ async def rotate_hmac_secret(key_id: str) -> dict:
     async with db.admin_db_session(audit_reason="hmac_secret_rotation") as conn:
         row = await conn.fetchrow(
             """
-            UPDATE api_key SET hmac_secret_encrypted = $2
-            WHERE id = $1 AND status = 'active' AND hmac_secret_encrypted IS NOT NULL
+            UPDATE api_key SET hmac_secret_encrypted = $3
+            WHERE id = $1 AND tenant_id = $2
+              AND status = 'active' AND hmac_secret_encrypted IS NOT NULL
             RETURNING id, key_hash
             """,
             key_id,
+            tenant_id,
             new_encrypted,
         )
     if not row:
         raise ApiError(
             ErrorCode.NOT_FOUND,
-            f"active enrolled api_key {key_id} not found",
+            f"active enrolled api_key {key_id} not found in your tenant",
         )
     return {"key_id": row["id"], "key_hash": row["key_hash"], "hmac_secret": new_plaintext}
 

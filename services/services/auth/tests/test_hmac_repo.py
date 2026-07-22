@@ -155,7 +155,7 @@ async def test_rotate_hmac_secret_enrolled_active_returns_new_plaintext(monkeypa
         yield _Conn()
 
     monkeypatch.setattr(repository.db, "admin_db_session", _admin_db_session)
-    result = await repository.rotate_hmac_secret("key_1")
+    result = await repository.rotate_hmac_secret("key_1", "tenant_a")
 
     assert result["key_id"] == "key_1"
     assert result["key_hash"] == "keyhash_abc"
@@ -163,10 +163,11 @@ async def test_rotate_hmac_secret_enrolled_active_returns_new_plaintext(monkeypa
     assert isinstance(new_secret, str) and len(new_secret) >= 32
     # 新明文 ≠ 已知旧值
     assert new_secret != old_plaintext
-    # UPDATE 收到的是加密 blob（非明文），且可解密回新明文
+    # UPDATE args = (key_id, tenant_id, encrypted_blob)
     update_args = captured["update_args"]
     assert update_args[0] == "key_1"
-    encrypted_blob = update_args[1]
+    assert update_args[1] == "tenant_a"  # C1: tenant_id 进 WHERE 过滤防跨租户 rotate 劫持
+    encrypted_blob = update_args[2]
     assert encrypted_blob != new_secret
     assert crypto.decrypt_secret(encrypted_blob) == new_secret
 
@@ -187,5 +188,5 @@ async def test_rotate_hmac_secret_non_enrolled_or_inactive_raises_not_found(monk
 
     monkeypatch.setattr(repository.db, "admin_db_session", _admin_db_session)
     with _pytest.raises(ApiError) as exc:
-        await repository.rotate_hmac_secret("key_missing")
+        await repository.rotate_hmac_secret("key_missing", "tenant_a")
     assert exc.value.code == ErrorCode.NOT_FOUND

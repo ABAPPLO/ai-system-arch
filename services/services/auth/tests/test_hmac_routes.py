@@ -135,7 +135,8 @@ class TestRotate:
         self, client, authed, fake_redis, monkeypatch
     ):
         """rotate → 新明文返回一次 + 失效 hmac_secret:{key_hash} + 不回传 key_hash。"""
-        async def _rotate(key_id):
+        async def _rotate(key_id, tenant_id):
+            assert tenant_id == "t1"  # C1: route 传 caller tenant_id 进 repo 过滤
             return {"key_id": key_id, "key_hash": "abc", "hmac_secret": "new_secret"}
 
         monkeypatch.setattr(routes_mod, "rotate_hmac_secret", _rotate)

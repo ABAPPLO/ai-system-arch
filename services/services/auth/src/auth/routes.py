@@ -270,7 +270,7 @@ def register_routes(app: FastAPI) -> None:
         ctx = require_tenant()
         from apihub_core import redis
 
-        result = await rotate_hmac_secret(key_id)
+        result = await rotate_hmac_secret(key_id, ctx.tenant_id)
         # 失效 warm secret 缓存：hmac_secret_cache_key = "hmac_secret:" + sha256(明文 api_key)
         # = key_hash（rotate_hmac_secret RETURNING key_hash，与 identity.hmac_secret_cache_key 一致）。
         await redis.raw_client().delete("hmac_secret:" + result["key_hash"])
