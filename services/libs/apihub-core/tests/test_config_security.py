@@ -40,3 +40,15 @@ def test_require_secure_secrets_flag_enforces_in_dev(monkeypatch):
     s = _mk(env="dev")  # 默认密钥 + 显式 flag
     with pytest.raises(RuntimeError, match="Insecure default"):
         s.validate_security()
+
+
+def test_dispatcher_l1_defaults(monkeypatch):
+    for k in ("DISPATCHER_L1_ENABLED", "DISPATCHER_L1_TTL_SECONDS", "DISPATCHER_L1_MAXSIZE"):
+        monkeypatch.delenv(k, raising=False)
+    from apihub_core.config import get_settings
+    get_settings.cache_clear()
+    s = get_settings()
+    assert s.dispatcher_l1_enabled is True
+    assert s.dispatcher_l1_ttl_seconds == 5.0
+    assert s.dispatcher_l1_maxsize == 4096
+    get_settings.cache_clear()
