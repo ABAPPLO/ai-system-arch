@@ -319,9 +319,9 @@ async def archive_before(cutoff: datetime) -> int:
         batch_start = datetime.now()
         async with db.admin_db_session() as conn:
             rows = await conn.fetch(
-                "SELECT id FROM audit_log WHERE created_at < $1"
-                " ORDER BY id LIMIT $2",
-                cutoff, BATCH,
+                "SELECT id FROM audit_log WHERE created_at < $1" " ORDER BY id LIMIT $2",
+                cutoff,
+                BATCH,
             )
             ids = [r["id"] for r in rows]
             if not ids:
@@ -344,20 +344,22 @@ async def archive_before(cutoff: datetime) -> int:
         ok_ids: list[int] = []
         settings = get_settings()
         for (tenant_id, yyyy, mm), recs in groups.items():
-            lines = "\n".join(
-                stdjson.dumps(r, default=str) for r in recs
-            ).encode("utf-8")
+            lines = "\n".join(stdjson.dumps(r, default=str) for r in recs).encode("utf-8")
             compressed = gzip.compress(lines)
             oss_key = f"{yyyy}/{mm}/tenant-{tenant_id}-{yyyy}-{mm}.jsonl.gz"
             uploaded = await oss.put_object(
-                settings.oss_bucket_audit, oss_key, compressed,
+                settings.oss_bucket_audit,
+                oss_key,
+                compressed,
             )
             if uploaded:
                 ok_ids.extend(r["id"] for r in recs)
             else:
                 log.warning(
                     "audit_archive_upload_skipped",
-                    tenant_id=tenant_id, key=oss_key, count=len(recs),
+                    tenant_id=tenant_id,
+                    key=oss_key,
+                    count=len(recs),
                 )
 
         if ok_ids:
@@ -372,7 +374,9 @@ async def archive_before(cutoff: datetime) -> int:
             elapsed = (datetime.now() - batch_start).total_seconds()
             log.info(
                 "audit_archive_batch_done",
-                batch_size=n, running_total=total, elapsed_seconds=round(elapsed, 2),
+                batch_size=n,
+                running_total=total,
+                elapsed_seconds=round(elapsed, 2),
             )
 
         if len(ids) < BATCH:

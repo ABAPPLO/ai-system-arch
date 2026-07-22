@@ -17,7 +17,13 @@ TEST_PG_DSN = os.environ.get(
     "postgresql://apihub:apihub_dev_pwd@localhost:15433/apihub",
 )
 # 测试用固定邮箱 —— 每个测试前后清理，保证可重跑。
-_TEST_EMAILS = ("new@example.com", "dup@example.com", "v@example.com", "l@example.com", "scrub@example.com")
+_TEST_EMAILS = (
+    "new@example.com",
+    "dup@example.com",
+    "v@example.com",
+    "l@example.com",
+    "scrub@example.com",
+)
 
 
 async def _pg_available() -> bool:
@@ -48,7 +54,10 @@ async def db_pool(monkeypatch):
     from apihub_core import db
 
     pool = await asyncpg.create_pool(
-        TEST_PG_DSN, min_size=1, max_size=2, init=db._init_jsonb_codec,
+        TEST_PG_DSN,
+        min_size=1,
+        max_size=2,
+        init=db._init_jsonb_codec,
     )
     monkeypatch.setattr(db, "_pool", pool)
     try:
@@ -105,9 +114,7 @@ async def test_register_creates_pending_user(fake_redis):
 
 @pytest.mark.asyncio
 async def test_register_duplicate_email_raises(fake_redis):
-    await identity.create_user(
-        email="dup@example.com", password="secret123", phone="138", name="A"
-    )
+    await identity.create_user(email="dup@example.com", password="secret123", phone="138", name="A")
     from apihub_core.errors import ApiError
 
     with pytest.raises(ApiError):
@@ -128,9 +135,7 @@ async def test_verify_email_activates_and_joins_external_public(fake_redis):
 
 @pytest.mark.asyncio
 async def test_login_unverified_raises(fake_redis):
-    await identity.create_user(
-        email="l@example.com", password="secret123", phone="138", name="L"
-    )
+    await identity.create_user(email="l@example.com", password="secret123", phone="138", name="L")
     from apihub_core.errors import ApiError
 
     with pytest.raises(ApiError):
@@ -168,7 +173,8 @@ async def test_anonymize_user_hides_pii(fake_redis):
 
     async with db_mod.admin_db_session() as conn:
         row = await conn.fetchrow(
-            "SELECT email, phone, name, password_hash, status FROM user_account WHERE id=$1", uid,
+            "SELECT email, phone, name, password_hash, status FROM user_account WHERE id=$1",
+            uid,
         )
     assert row["email"].endswith("@anonymized")
     assert row["phone"] == ""
@@ -189,7 +195,8 @@ async def test_anonymize_user_removes_tenant_membership(fake_redis):
 
     async with db_mod.admin_db_session() as conn:
         before = await conn.fetchval(
-            "SELECT COUNT(*) FROM tenant_member WHERE user_id = $1", uid,
+            "SELECT COUNT(*) FROM tenant_member WHERE user_id = $1",
+            uid,
         )
     assert before > 0
 
@@ -197,7 +204,8 @@ async def test_anonymize_user_removes_tenant_membership(fake_redis):
 
     async with db_mod.admin_db_session() as conn:
         after = await conn.fetchval(
-            "SELECT COUNT(*) FROM tenant_member WHERE user_id = $1", uid,
+            "SELECT COUNT(*) FROM tenant_member WHERE user_id = $1",
+            uid,
         )
     assert after == 0
 
@@ -215,7 +223,10 @@ async def test_anonymize_nonexistent_user_raises(fake_redis):
 async def test_export_user_data_returns_account(fake_redis):
     """导出包含用户账户信息。"""
     user = await identity.create_user(
-        email="new@example.com", password="secret123", phone="13800000000", name="Export",
+        email="new@example.com",
+        password="secret123",
+        phone="13800000000",
+        name="Export",
     )
     uid = user["user_id"]
     await identity.verify_email(user["verify_token"])
@@ -234,7 +245,10 @@ async def test_export_user_data_returns_account(fake_redis):
 async def test_export_user_data_includes_tenants(fake_redis):
     """导出包含租户关系。"""
     user = await identity.create_user(
-        email="new@example.com", password="secret123", phone="138", name="Tenant",
+        email="new@example.com",
+        password="secret123",
+        phone="138",
+        name="Tenant",
     )
     uid = user["user_id"]
     await identity.verify_email(user["verify_token"])
@@ -269,11 +283,22 @@ async def test_anonymize_user_scrubs_notification_log(fake_redis):
             await conn.execute(
                 "INSERT INTO notification_log (id, tenant_id, template_code, channel_type,"
                 " recipient, status) VALUES ($1,$2,$3,$4,$5,$6), ($7,$8,$9,$10,$11,$12)",
-                "nl_a", "external-public", "task_complete", "email", "scrub@example.com", "sent",
-                "nl_b", "external-public", "task_complete", "email", "other@example.com", "sent",
+                "nl_a",
+                "external-public",
+                "task_complete",
+                "email",
+                "scrub@example.com",
+                "sent",
+                "nl_b",
+                "external-public",
+                "task_complete",
+                "email",
+                "other@example.com",
+                "sent",
             )
             before = await conn.fetchval(
-                "SELECT COUNT(*) FROM notification_log WHERE recipient=$1", "scrub@example.com",
+                "SELECT COUNT(*) FROM notification_log WHERE recipient=$1",
+                "scrub@example.com",
             )
         assert before == 1
 
@@ -281,10 +306,12 @@ async def test_anonymize_user_scrubs_notification_log(fake_redis):
 
         async with db_mod.admin_db_session() as conn:
             after_target = await conn.fetchval(
-                "SELECT COUNT(*) FROM notification_log WHERE recipient=$1", "scrub@example.com",
+                "SELECT COUNT(*) FROM notification_log WHERE recipient=$1",
+                "scrub@example.com",
             )
             after_other = await conn.fetchval(
-                "SELECT COUNT(*) FROM notification_log WHERE recipient=$1", "other@example.com",
+                "SELECT COUNT(*) FROM notification_log WHERE recipient=$1",
+                "other@example.com",
             )
         assert after_target == 0
         assert after_other == 1
@@ -338,22 +365,23 @@ async def test_anonymize_does_not_revoke_api_keys(fake_redis):
                 "INSERT INTO app (id, tenant_id, name, type, status)"
                 " VALUES ($1, $2, 'R2e Test App', 'server', 'active')"
                 " ON CONFLICT (id) DO NOTHING",
-                app_id, identity.EXTERNAL_PUBLIC_TENANT,
+                app_id,
+                identity.EXTERNAL_PUBLIC_TENANT,
             )
             await conn.execute(
                 "INSERT INTO api_key (id, tenant_id, app_id, key_prefix, key_hash,"
                 " name, scopes, status)"
                 " VALUES ($1, $2, $3, 'sk_test__', 'hash_test_r2e', 'R2e Key', '{}', 'active')"
                 " ON CONFLICT (id) DO NOTHING",
-                key_id, identity.EXTERNAL_PUBLIC_TENANT, app_id,
+                key_id,
+                identity.EXTERNAL_PUBLIC_TENANT,
+                app_id,
             )
 
         await identity.anonymize_user(user_id=uid)
 
         async with db_mod.admin_db_session() as conn:
-            status = await conn.fetchval(
-                "SELECT status FROM api_key WHERE id = $1", key_id
-            )
+            status = await conn.fetchval("SELECT status FROM api_key WHERE id = $1", key_id)
         assert status == "active"
     finally:
         async with db_mod.admin_db_session() as conn:
@@ -377,4 +405,3 @@ async def test_export_excludes_tenant_scoped_data(fake_redis):
     assert "apps" not in data
     assert "api_keys" not in data
     assert "billing_records" not in data
-

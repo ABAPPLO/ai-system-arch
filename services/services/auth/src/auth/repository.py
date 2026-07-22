@@ -198,9 +198,7 @@ async def get_hmac_secret_plaintext(key_id: str) -> str | None:
     try:
         return crypto_mod.decrypt_secret(row["hmac_secret_encrypted"])
     except Exception:  # decrypt 失败（key 失配 / 损坏）—— 503，非裸 500
-        raise ApiError(
-            ErrorCode.INTERNAL, "hmac secret decrypt failed", http_status=503
-        ) from None
+        raise ApiError(ErrorCode.INTERNAL, "hmac secret decrypt failed", http_status=503) from None
 
 
 async def rotate_hmac_secret(key_id: str, tenant_id: str) -> dict:

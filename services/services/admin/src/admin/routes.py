@@ -216,8 +216,10 @@ def register_routes(app: FastAPI) -> None:
 
         log.info(
             "data_cleanup_done",
-            partitions=partitions, retry=retry,
-            task_months=payload.task_months, retry_days=payload.retry_days,
+            partitions=partitions,
+            retry=retry,
+            task_months=payload.task_months,
+            retry_days=payload.retry_days,
         )
         return CleanupResponse(dropped_partitions=partitions, deleted_retry_tasks=retry)
 

@@ -13,8 +13,6 @@ _NONCE_LENGTH = 12
 
 
 def _get_key() -> bytes:
-    from cryptography.hazmat.primitives.ciphers.aead import AESGCM  # noqa: PLC0415
-
     key_hex = get_settings().pii_encryption_key
     if not key_hex:
         msg = "PII_ENCRYPTION_KEY not configured"
@@ -51,8 +49,7 @@ def maybe_decrypt(value: str | None) -> str:
     if not value:
         return ""
     if len(value) > 24 and all(
-        c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/="
-        for c in value
+        c in "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=" for c in value
     ):
         try:
             return decrypt_pii(value)

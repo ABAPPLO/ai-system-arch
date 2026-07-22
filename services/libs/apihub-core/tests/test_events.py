@@ -9,21 +9,35 @@ from apihub_core.events import CallEvent, TaskFailure, TaskRequest, TaskStatus
 
 def _call_event(**over):
     base = {
-        "ts": "2026-07-15 10:00:00.000", "tenant_id": "t1", "tenant_type": "internal", "app_id": "a1",
-        "api_id": "api1", "api_version_id": "v1", "trace_id": "trc_1", "request_id": "req_1",
-        "method": "GET", "path": "/x", "status_code": 200, "is_success": 1, "latency_ms": 5,
-        "request_size": 10, "response_size": 20,
+        "ts": "2026-07-15 10:00:00.000",
+        "tenant_id": "t1",
+        "tenant_type": "internal",
+        "app_id": "a1",
+        "api_id": "api1",
+        "api_version_id": "v1",
+        "trace_id": "trc_1",
+        "request_id": "req_1",
+        "method": "GET",
+        "path": "/x",
+        "status_code": 200,
+        "is_success": 1,
+        "latency_ms": 5,
+        "request_size": 10,
+        "response_size": 20,
     }
     base.update(over)
     return CallEvent(**base)
 
 
-@pytest.mark.parametrize("evt", [
-    TaskRequest(task_id="tk_1", api_id="api1", api_version_id="v1", backend_url="http://b"),
-    TaskStatus(task_id="tk_1", tenant_id="t1", app_id="a1", api_id="api1", status="succeeded"),
-    TaskFailure(task_id="tk_1", tenant_id="t1", api_id="api1", backend_url="http://b"),
-    _call_event(),
-])
+@pytest.mark.parametrize(
+    "evt",
+    [
+        TaskRequest(task_id="tk_1", api_id="api1", api_version_id="v1", backend_url="http://b"),
+        TaskStatus(task_id="tk_1", tenant_id="t1", app_id="a1", api_id="api1", status="succeeded"),
+        TaskFailure(task_id="tk_1", tenant_id="t1", api_id="api1", backend_url="http://b"),
+        _call_event(),
+    ],
+)
 def test_topic_constant(evt):
     assert evt.TOPIC in {"task-requests", "task-status", "task-failures", "api-call-events"}
 
@@ -59,8 +73,14 @@ from apihub_core import kafka as core_kafka
 
 
 def test_parse_event_routes_by_topic():
-    payload = {"task_id": "tk", "tenant_id": "t", "app_id": "a", "api_id": "api",
-               "status": "failed", "future_col": "ignored"}
+    payload = {
+        "task_id": "tk",
+        "tenant_id": "t",
+        "app_id": "a",
+        "api_id": "api",
+        "status": "failed",
+        "future_col": "ignored",
+    }
     evt = core_kafka.parse_event("task-status", payload)
     assert isinstance(evt, TaskStatus)
     assert evt.status == "failed"
@@ -68,6 +88,7 @@ def test_parse_event_routes_by_topic():
 
 def test_parse_event_unknown_topic_raises():
     import pytest
+
     with pytest.raises(ValueError):
         core_kafka.parse_event("nope-topic", {"a": 1})
 
@@ -77,7 +98,9 @@ def test_emit_event_requires_topic():
     import asyncio
 
     import pytest
+
     class NoTopic:
         pass
+
     with pytest.raises(TypeError):
         asyncio.run(core_kafka.emit_event(NoTopic()))

@@ -68,23 +68,25 @@ async def put_object(bucket: str, key: str, data: bytes) -> bool:
     # Canonical Request
     canonical_headers = "".join(f"{k.lower()}:{headers[k]}\n" for k in sorted_keys)
     canonical_request = (
-        f"PUT\n/{bucket}/{key}\n\n{canonical_headers}"
-        f"{signed_headers_str}\n{content_hash}"
+        f"PUT\n/{bucket}/{key}\n\n{canonical_headers}" f"{signed_headers_str}\n{content_hash}"
     )
     canonical_request_hash = hashlib.sha256(canonical_request.encode("utf-8")).hexdigest()
 
     # String to Sign
     credential_scope = f"{date_stamp}/{_REGION}/{_SERVICE}/aws4_request"
-    string_to_sign = (
-        f"{_ALGORITHM}\n{amz_date}\n{credential_scope}\n{canonical_request_hash}"
-    )
+    string_to_sign = f"{_ALGORITHM}\n{amz_date}\n{credential_scope}\n{canonical_request_hash}"
 
     # Signing Key
     signing_key = _get_signature_key(
-        settings.oss_secret_key, date_stamp, _REGION, _SERVICE,
+        settings.oss_secret_key,
+        date_stamp,
+        _REGION,
+        _SERVICE,
     )
     signature = hmac.new(
-        signing_key, string_to_sign.encode("utf-8"), hashlib.sha256,
+        signing_key,
+        string_to_sign.encode("utf-8"),
+        hashlib.sha256,
     ).hexdigest()
 
     # Authorization Header
@@ -101,7 +103,10 @@ async def put_object(bucket: str, key: str, data: bytes) -> bool:
             return True
         log.warning(
             "oss_put_failed",
-            bucket=bucket, key=key, status=resp.status_code, body=resp.text[:200],
+            bucket=bucket,
+            key=key,
+            status=resp.status_code,
+            body=resp.text[:200],
         )
         return False
     except Exception as e:

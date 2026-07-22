@@ -38,9 +38,7 @@ async def test_create_app_forwards_to_auth(client, monkeypatch):
 
     monkeypatch.setattr(_httpx, "AsyncClient", _FakeClient)
 
-    r = await client.post(
-        "/v1/portal/apps", json={"name": "my app", "type": "external"}
-    )
+    r = await client.post("/v1/portal/apps", json={"name": "my app", "type": "external"})
     assert r.status_code == 201  # portal 契约 201
     assert r.json()["id"] == "app_new"
     # 转发到 auth /v1/apps，无 /v1/v1/ 双前缀
@@ -135,9 +133,7 @@ async def test_create_api_key_forwards_and_maps_prefix(client, monkeypatch):
 
     monkeypatch.setattr(_httpx, "AsyncClient", _FakeClient)
 
-    r = await client.post(
-        "/v1/portal/apps/app_x/api-keys", json={"name": "prod key"}
-    )
+    r = await client.post("/v1/portal/apps/app_x/api-keys", json={"name": "prod key"})
     assert r.status_code == 201  # portal 契约 201
     body = r.json()
     assert body["api_key"] == "ak_supersecret"
@@ -289,19 +285,28 @@ async def test_forward_composes_correct_auth_url(monkeypatch):
 
 async def test_list_portal_apis(client, monkeypatch):
     """GET /v1/portal/apis 返回过滤/分页后的 API 列表。"""
-    from portal.models import PortalApiListResponse, PortalApiItem
+    from portal.models import PortalApiItem, PortalApiListResponse
 
     async def fake_list(**kw):
         return PortalApiListResponse(
             items=[
                 PortalApiItem(
-                    api_id="api_1", name="Test API", category="test",
-                    tags=["foo"], base_path="/test", visibility="public",
-                    backend_type="http", version="v1", updated_at="2026-07-13T00:00:00",
+                    api_id="api_1",
+                    name="Test API",
+                    category="test",
+                    tags=["foo"],
+                    base_path="/test",
+                    visibility="public",
+                    backend_type="http",
+                    version="v1",
+                    updated_at="2026-07-13T00:00:00",
                 )
             ],
-            total=1, limit=50, offset=0,
-            categories=["test"], tags=["foo"],
+            total=1,
+            limit=50,
+            offset=0,
+            categories=["test"],
+            tags=["foo"],
         )
 
     monkeypatch.setattr("portal.routes.repository.list_portal_apis", fake_list)
@@ -321,13 +326,21 @@ async def test_get_api_detail(client, monkeypatch):
 
     async def fake_detail(api_id):
         return PortalApiDetail(
-            api_id=api_id, name="Detail API", category="test",
-            tags=[], base_path="/test", visibility="public",
+            api_id=api_id,
+            name="Detail API",
+            category="test",
+            tags=[],
+            base_path="/test",
+            visibility="public",
             api_status="published",
             versions=[
                 PortalVersionItem(
-                    version_id="ver_1", version="v1", method="GET",
-                    path="/echo", backend_type="http", status="published",
+                    version_id="ver_1",
+                    version="v1",
+                    method="GET",
+                    path="/echo",
+                    backend_type="http",
+                    status="published",
                     request_schema={"type": "object"},
                 ),
             ],
@@ -426,8 +439,19 @@ async def test_try_api_backend_timeout(client, monkeypatch):
 async def test_portal_plans(client, monkeypatch):
     """GET /v1/portal/plans 返回 plan 列表。"""
     from portal.models import PlanInfo
+
     async def fake_plans():
-        return [PlanInfo(code="free", name="Free", price_cents=0, quota_included={}, rate_limits={}, sort_order=1)]
+        return [
+            PlanInfo(
+                code="free",
+                name="Free",
+                price_cents=0,
+                quota_included={},
+                rate_limits={},
+                sort_order=1,
+            )
+        ]
+
     monkeypatch.setattr("portal.routes.repository.list_plans", fake_plans)
     r = await client.get("/v1/portal/plans")
     assert r.status_code == 200
@@ -437,9 +461,17 @@ async def test_portal_plans(client, monkeypatch):
 async def test_portal_subscription(client, monkeypatch):
     """GET /v1/portal/subscription 返回当前 plan。"""
     from portal.models import SubscriptionInfo
+
     async def fake_sub(tenant_id):
-        return SubscriptionInfo(plan_code="free", plan_name="Free", period_start="2026-01-01",
-                                period_end="2999-12-31", status="active", auto_renew=True)
+        return SubscriptionInfo(
+            plan_code="free",
+            plan_name="Free",
+            period_start="2026-01-01",
+            period_end="2999-12-31",
+            status="active",
+            auto_renew=True,
+        )
+
     monkeypatch.setattr("portal.routes.repository.get_subscription", fake_sub)
     r = await client.get("/v1/portal/subscription")
     assert r.status_code == 200
@@ -448,9 +480,18 @@ async def test_portal_subscription(client, monkeypatch):
 
 async def test_portal_usage(client, monkeypatch):
     """GET /v1/portal/usage 返回用量概览。"""
+
     async def fake_usage(tenant_id):
-        return {"tenant_id": tenant_id, "month": "2026-07", "plan": {"code": "free"},
-                "daily_usage": [], "total_calls": 0, "total_tokens": 0, "remaining_calls_today": 1000}
+        return {
+            "tenant_id": tenant_id,
+            "month": "2026-07",
+            "plan": {"code": "free"},
+            "daily_usage": [],
+            "total_calls": 0,
+            "total_tokens": 0,
+            "remaining_calls_today": 1000,
+        }
+
     monkeypatch.setattr("portal.routes.repository.get_billing_summary", fake_usage)
     r = await client.get("/v1/portal/usage")
     assert r.status_code == 200

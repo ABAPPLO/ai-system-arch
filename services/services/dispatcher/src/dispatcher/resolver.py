@@ -52,9 +52,7 @@ async def resolve_by_header(version_id: str) -> ApiVersionSnapshot:
         # 防缓存陈旧：cached snapshot 无 status，retire 后最多 5 分钟仍命中。
         # 命中时用一次 PK 状态查询兜底：retired→410，并清 stale 缓存。
         async with db.meta_db_session() as conn:
-            status = await conn.fetchval(
-                "SELECT status FROM api_version WHERE id = $1", version_id
-            )
+            status = await conn.fetchval("SELECT status FROM api_version WHERE id = $1", version_id)
         if status == "retired":
             await redis.t_delete(cache_key)
             if _snapshot_l1 is not None:
@@ -64,9 +62,7 @@ async def resolve_by_header(version_id: str) -> ApiVersionSnapshot:
             await redis.t_delete(cache_key)
             if _snapshot_l1 is not None:
                 _snapshot_l1.invalidate(cache_key)
-            raise ApiError(
-                ErrorCode.API_NOT_PUBLISHED, f"version {version_id} not published"
-            )
+            raise ApiError(ErrorCode.API_NOT_PUBLISHED, f"version {version_id} not published")
         # Redis 命中且状态有效 → 回填 L1（与 t_set 同源 dict 形态）。
         if _snapshot_l1 is not None:
             _snapshot_l1.set(cache_key, data)
@@ -84,9 +80,7 @@ async def resolve_by_header(version_id: str) -> ApiVersionSnapshot:
             version_id,
         )
         if not row:
-            status = await conn.fetchval(
-                "SELECT status FROM api_version WHERE id = $1", version_id
-            )
+            status = await conn.fetchval("SELECT status FROM api_version WHERE id = $1", version_id)
             if status == "retired":
                 raise ApiError(ErrorCode.API_RETIRED, f"version {version_id} retired")
             raise ApiError(ErrorCode.API_NOT_PUBLISHED, f"version {version_id} not published")
@@ -110,9 +104,7 @@ async def _get_api_meta(api_id: str) -> tuple[str | None, str]:
     from apihub_core import db as _db
 
     async with _db.meta_db_session() as conn:
-        row = await conn.fetchrow(
-            "SELECT base_path, visibility FROM api WHERE id = $1", api_id
-        )
+        row = await conn.fetchrow("SELECT base_path, visibility FROM api WHERE id = $1", api_id)
     if not row:
         return None, "private"
     return row["base_path"], row["visibility"]

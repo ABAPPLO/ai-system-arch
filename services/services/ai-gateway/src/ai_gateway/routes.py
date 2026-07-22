@@ -36,9 +36,7 @@ def _to_sse_line(chunk: SSEChunk) -> bytes:
 async def chat_completions(payload: ChatRequest):
     route = await resolve_model_route(payload.model)
     if not route:
-        raise HTTPException(
-            status_code=400, detail=f"model '{payload.model}' not supported"
-        )
+        raise HTTPException(status_code=400, detail=f"model '{payload.model}' not supported")
 
     api_key = decrypt(route.provider_key_encrypted)
     provider = get_provider(route.provider_type)

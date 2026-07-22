@@ -89,7 +89,7 @@ class Settings(BaseSettings):
     # JWT（外部开发者「人」的登录态；与机器 API Key 分流）
     # prod 必须用强密钥（env 注入），dev 默认值仅供本地。
     notification_service_url: str = "http://notification.apihub-system/v1/notification"
-    jwt_secret: str = "dev-only-insecure-secret"
+    jwt_secret: str = "dev-only-insecure-secret"  # noqa: S105  dev 默认占位，prod 由 env 注入强密钥
     jwt_ttl_seconds: int = 7200  # access token 2h
     jwt_refresh_ttl_seconds: int = 604800  # refresh token 7天
 
@@ -115,7 +115,7 @@ class Settings(BaseSettings):
     # OSS / MinIO（S3-compatible）
     oss_endpoint: str = "http://localhost:9000"
     oss_access_key: str = "apihub"
-    oss_secret_key: str = "apihub_dev_pwd"
+    oss_secret_key: str = "apihub_dev_pwd"  # noqa: S105  dev 占位（本地 MinIO），prod 由 env 注入
     oss_bucket_audit: str = "audit-archive"
 
     # 存储层安全
@@ -130,7 +130,7 @@ class Settings(BaseSettings):
     # retry worker 调 executor 的端口（k8s 由 EXECUTOR_SERVICE_TEMPLATE 覆盖为无 {port} 时无效；
     # dev 本地回退到带 {port} 的 template 时生效）。默认 8003 = executor 本地端口。
     # validation_alias 避开 k8s service discovery 自动注入的 EXECUTOR_PORT=tcp://<clusterIP>:80
-    #（命中该非 int 值会让 Settings 校验崩 → 所有服务启动失败）。改读 EXECUTOR_APP_PORT。
+    # （命中该非 int 值会让 Settings 校验崩 → 所有服务启动失败）。改读 EXECUTOR_APP_PORT。
     executor_port: int = Field(default=8003, validation_alias="EXECUTOR_APP_PORT")
     # workflow-svc（dispatcher /v1/jobs 代理目标，文档 §4）
     # K8s 默认走集群内 DNS；dev 在 .env.dev 覆盖到 localhost:8010
@@ -141,9 +141,7 @@ class Settings(BaseSettings):
 
         dev/test 仍允许默认值，便于本地启动；prod 漏配即启动失败。
         """
-        enforce = self.env.lower() == "prod" or os.environ.get(
-            "REQUIRE_SECURE_SECRETS"
-        ) == "1"
+        enforce = self.env.lower() == "prod" or os.environ.get("REQUIRE_SECURE_SECRETS") == "1"
         if not enforce:
             return
         bad = [k for k, v in _INSECURE_DEFAULTS.items() if getattr(self, k) == v]

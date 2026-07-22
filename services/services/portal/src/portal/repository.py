@@ -76,19 +76,23 @@ async def list_portal_apis(
     all_tags: set[str] = set()
     for r in rows:
         raw_tags = r.get("tags") or []
-        tags_list: list[str] = [str(t) for t in raw_tags] if isinstance(raw_tags, (list, tuple)) else []
-        items.append(PortalApiItem(
-            api_id=str(r["id"]),
-            name=r["name"],
-            description=r["description"],
-            category=r["category"] or "",
-            tags=tags_list,
-            base_path=str(r["base_path"]),
-            visibility=str(r["visibility"]),
-            backend_type=str(r["backend_type"]) if r["backend_type"] else "http",
-            version=str(r["version"]) if r["version"] else "",
-            updated_at=r["updated_at"].isoformat() if r["updated_at"] else "",
-        ))
+        tags_list: list[str] = (
+            [str(t) for t in raw_tags] if isinstance(raw_tags, list | tuple) else []
+        )
+        items.append(
+            PortalApiItem(
+                api_id=str(r["id"]),
+                name=r["name"],
+                description=r["description"],
+                category=r["category"] or "",
+                tags=tags_list,
+                base_path=str(r["base_path"]),
+                visibility=str(r["visibility"]),
+                backend_type=str(r["backend_type"]) if r["backend_type"] else "http",
+                version=str(r["version"]) if r["version"] else "",
+                updated_at=r["updated_at"].isoformat() if r["updated_at"] else "",
+            )
+        )
         if r["category"]:
             all_categories.add(str(r["category"]))
         for t in tags_list:
@@ -127,22 +131,24 @@ async def get_api_detail(api_id: str) -> PortalApiDetail:
         )
 
     raw_tags = api_row.get("tags") or []
-    tags_list: list[str] = [str(t) for t in raw_tags] if isinstance(raw_tags, (list, tuple)) else []
+    tags_list: list[str] = [str(t) for t in raw_tags] if isinstance(raw_tags, list | tuple) else []
     versions: list[PortalVersionItem] = []
     for vr in ver_rows:
-        versions.append(PortalVersionItem(
-            version_id=str(vr["id"]),
-            version=str(vr["version"]),
-            method=str(vr["method"]),
-            path=str(vr["path"]),
-            backend_type=str(vr["backend_type"]),
-            status=str(vr["status"]),
-            request_schema=vr["request_schema"],
-            response_schema=vr["response_schema"],
-            masking=vr["masking"],
-            ai_model=vr["ai_model"],
-            ai_streaming=bool(vr["ai_streaming"]),
-        ))
+        versions.append(
+            PortalVersionItem(
+                version_id=str(vr["id"]),
+                version=str(vr["version"]),
+                method=str(vr["method"]),
+                path=str(vr["path"]),
+                backend_type=str(vr["backend_type"]),
+                status=str(vr["status"]),
+                request_schema=vr["request_schema"],
+                response_schema=vr["response_schema"],
+                masking=vr["masking"],
+                ai_model=vr["ai_model"],
+                ai_streaming=bool(vr["ai_streaming"]),
+            )
+        )
 
     return PortalApiDetail(
         api_id=str(api_row["id"]),
@@ -207,6 +213,7 @@ async def try_api(payload: TryRequest) -> TryResponse:
     # 沙箱模式：路由到 mock-backend
     if payload.environment == "sandbox":
         from urllib.parse import urlparse
+
         parsed = urlparse(backend_url)
         backend_url = f"http://mock-backend.apihub-system{parsed.path}"
 
@@ -251,31 +258,54 @@ async def try_api(payload: TryRequest) -> TryResponse:
 
 # ========== 用量/计费（Phase 3）==========
 
-from portal.models import PlanInfo, SubscriptionInfo
+from portal.models import (  # noqa: E402  分段 import（Phase 3 用量/计费段）
+    PlanInfo,
+    SubscriptionInfo,
+)
 
 
 async def get_billing_summary(tenant_id: str) -> dict:
     import httpx
     from apihub_core.config import get_settings
+
     settings = get_settings()
     from datetime import datetime
+
     month = datetime.utcnow().strftime("%Y-%m")
-    quota_url = getattr(settings, "quota_service_url", "http://quota.apihub-system/v1/quota/billing")
+    quota_url = getattr(
+        settings, "quota_service_url", "http://quota.apihub-system/v1/quota/billing"
+    )
     async with httpx.AsyncClient(timeout=10.0) as c:
         r = await c.get(quota_url, params={"tenant_id": tenant_id, "month": month})
     if r.status_code != 200:
-        return {"tenant_id": tenant_id, "month": month, "plan": {}, "daily_usage": [],
-                "total_calls": 0, "total_tokens": 0, "remaining_calls_today": 0}
+        return {
+            "tenant_id": tenant_id,
+            "month": month,
+            "plan": {},
+            "daily_usage": [],
+            "total_calls": 0,
+            "total_tokens": 0,
+            "remaining_calls_today": 0,
+        }
     return r.json()
 
 
 async def list_plans() -> list[PlanInfo]:
     async with db.db_session() as conn:
         rows = await conn.fetch("SELECT * FROM plan WHERE status = 'active' ORDER BY sort_order")
-    return [PlanInfo(code=r["code"], name=r["name"], description=r.get("description"),
-                     price_cents=r["price_cents"], quota_included=r["quota_included"] or {},
-                     rate_limits=r["rate_limits"] or {}, features=r.get("features"),
-                     sort_order=r["sort_order"]) for r in rows]
+    return [
+        PlanInfo(
+            code=r["code"],
+            name=r["name"],
+            description=r.get("description"),
+            price_cents=r["price_cents"],
+            quota_included=r["quota_included"] or {},
+            rate_limits=r["rate_limits"] or {},
+            features=r.get("features"),
+            sort_order=r["sort_order"],
+        )
+        for r in rows
+    ]
 
 
 async def get_subscription(tenant_id: str) -> SubscriptionInfo | None:
@@ -289,10 +319,12 @@ async def get_subscription(tenant_id: str) -> SubscriptionInfo | None:
     if not row:
         return None
     return SubscriptionInfo(
-        plan_code=row["plan_code"], plan_name=row["plan_name"],
+        plan_code=row["plan_code"],
+        plan_name=row["plan_name"],
         period_start=row["period_start"].isoformat(),
         period_end=row["period_end"].isoformat(),
-        status=row["status"], auto_renew=row["auto_renew"],
+        status=row["status"],
+        auto_renew=row["auto_renew"],
     )
 
 
@@ -300,7 +332,8 @@ async def subscribe_plan(tenant_id: str, plan_code: str) -> dict:
     async with db.admin_db_session() as conn:
         await conn.execute(
             "UPDATE subscription SET plan_code=$1 WHERE tenant_id=$2",
-            plan_code, tenant_id,
+            plan_code,
+            tenant_id,
         )
     return {"ok": True, "plan_code": plan_code}
 
@@ -316,18 +349,23 @@ async def get_invoices(tenant_id: str, limit: int = 12, offset: int = 0) -> dict
                       base_cents, overage_cents, status, created_at
                FROM billing_record WHERE tenant_id=$1
                ORDER BY created_at DESC LIMIT $2 OFFSET $3""",
-            tenant_id, limit, offset,
+            tenant_id,
+            limit,
+            offset,
         )
-    items = [{
-        "id": str(r["id"]),
-        "period": r.get("period", ""),
-        "plan_name": r.get("plan_name", ""),
-        "total_calls": r.get("total_calls", 0),
-        "total_tokens": r.get("total_tokens", 0),
-        "base_cents": r.get("base_cents", 0),
-        "overage_cents": r.get("overage_cents", 0),
-        "total_cents": (r.get("base_cents", 0) or 0) + (r.get("overage_cents", 0) or 0),
-        "status": r.get("status", ""),
-        "created_at": r["created_at"].isoformat() if r.get("created_at") else "",
-    } for r in rows]
+    items = [
+        {
+            "id": str(r["id"]),
+            "period": r.get("period", ""),
+            "plan_name": r.get("plan_name", ""),
+            "total_calls": r.get("total_calls", 0),
+            "total_tokens": r.get("total_tokens", 0),
+            "base_cents": r.get("base_cents", 0),
+            "overage_cents": r.get("overage_cents", 0),
+            "total_cents": (r.get("base_cents", 0) or 0) + (r.get("overage_cents", 0) or 0),
+            "status": r.get("status", ""),
+            "created_at": r["created_at"].isoformat() if r.get("created_at") else "",
+        }
+        for r in rows
+    ]
     return {"items": items, "total": total}

@@ -26,7 +26,6 @@ decrypt) → mock-backend(OpenAI 风格 SSE)。
 """
 
 import json
-import os
 import subprocess
 import sys
 import time
@@ -34,14 +33,16 @@ import urllib.error
 import urllib.request
 
 APISIX_URL = "http://127.0.0.1:30080"
-DEMO_KEY = "ak_test_a_demo001"          # tenant_a/app_trading（02-seed.sql），APISIX consumer "smoke" 同 key
+DEMO_KEY = (
+    "ak_test_a_demo001"  # tenant_a/app_trading（02-seed.sql），APISIX consumer "smoke" 同 key
+)
 TENANT_ID = "tenant_a"
 APP_ID = "app_trading"
 
-AI_API_ID = "smoke-llm-chat"            # api.id text
-AI_VER_ID = "ver_smoke_llm_v1"          # api_version.id text
+AI_API_ID = "smoke-llm-chat"  # api.id text
+AI_VER_ID = "ver_smoke_llm_v1"  # api_version.id text
 AI_BASE_PATH = "/smoke-llm-chat"
-AI_VER_PATH = "/v1/chat/completions"    # 路由 URI = base_path + path
+AI_VER_PATH = "/v1/chat/completions"  # 路由 URI = base_path + path
 MODEL = "gpt-4o-mini"
 MOCK_PROVIDER_ID = "11111111-1111-1111-1111-111111111111"
 
@@ -53,7 +54,7 @@ MOCK_KEY_ENC = "VqtUBK4hO6uAi7KxR8/whmtYafMqexjhkr+3WC2YSJCgtJ2M"
 # APISIX admin（port-forward 用）
 APISIX_ADMIN_LOCAL_PORT = "19380"
 APISIX_ADMIN_DEFAULT_KEY = "edd1c9f034335f136f87ad84b625c8f1"  # chart 默认；setup 脚本里会自发现
-INGRESS_SHARED_SECRET = "ingress-shared-dev"                  # 与 apisix-setup.sh 默认一致
+INGRESS_SHARED_SECRET = "ingress-shared-dev"  # 与 apisix-setup.sh 默认一致
 
 # rate-limit 配置（seed 进 api_version.rate_limit → publish_route 转为 limit-count 插件）
 RATE_LIMIT_COUNT = 3
@@ -109,7 +110,9 @@ def probe_env():
         st, _ = http("GET", f"{APISIX_URL}/", timeout=5)
         # 401 / 404 都算 APISIX 在数据面（key-auth reject / no route）；
         # 端口未通 → urlopen 抛 URLError(OSError) → 外层 except 捕获 → exit 2。
-        print(f"== env ok: kind up, APISIX 30080 (HTTP {st}), ai-gateway/dispatcher/mock-backend Running")
+        print(
+            f"== env ok: kind up, APISIX 30080 (HTTP {st}), ai-gateway/dispatcher/mock-backend Running"
+        )
     except (OSError, RuntimeError) as e:
         print(f"SMOKE ENV-UNAVAILABLE: {e}")
         sys.exit(2)
@@ -130,16 +133,23 @@ def open_apisix_admin():
         f"kubectl --context kind-apihub -n apihub-ingress port-forward svc/apisix-admin "
         f"{APISIX_ADMIN_LOCAL_PORT}:9180 >/tmp/r2c-apisix-pf.log 2>&1 &"
     )
-    _PF_PID = subprocess.run(
-        "pgrep -f 'port-forward svc/apisix-admin'", shell=True, text=True, capture_output=True
-    ).stdout.strip().split("\n")[0]
+    _PF_PID = (
+        subprocess.run(
+            "pgrep -f 'port-forward svc/apisix-admin'", shell=True, text=True, capture_output=True
+        )
+        .stdout.strip()
+        .split("\n")[0]
+    )
     # 等 admin API 起来
-    admin_key = sh(
-        "kubectl --context kind-apihub -n apihub-ingress get cm apisix "
-        "-o jsonpath=\"{.data['config\\.yaml']}\" 2>/dev/null | "
-        "awk '/name: \"admin\"/{f=1} f && /key:/{print $2; exit}'",
-        check=False,
-    ).strip() or APISIX_ADMIN_DEFAULT_KEY
+    admin_key = (
+        sh(
+            "kubectl --context kind-apihub -n apihub-ingress get cm apisix "
+            "-o jsonpath=\"{.data['config\\.yaml']}\" 2>/dev/null | "
+            "awk '/name: \"admin\"/{f=1} f && /key:/{print $2; exit}'",
+            check=False,
+        ).strip()
+        or APISIX_ADMIN_DEFAULT_KEY
+    )
     up = False
     for _ in range(40):
         st, _ = http(
@@ -274,7 +284,7 @@ def seed():
     out = sh(
         "docker exec -i apihub-pg psql -U apihub -d apihub -v ON_ERROR_STOP=1 < /tmp/_r2c_seed.sql"
     )
-    last = [l for l in out.strip().splitlines() if l.strip()][-1:] or ["?"]
+    last = [line for line in out.strip().splitlines() if line.strip()][-1:] or ["?"]
     print(f"  seed ok: {last[0]}")
 
     # 清掉 dispatcher 的 snapshot cache（resolver redis t_set 5min；旧 status='draft' 不可达）
@@ -322,7 +332,7 @@ def assert_billing():
     while time.time() < deadline:
         out = sh(
             "docker exec apihub-clickhouse clickhouse-client --user apihub --password "
-            f"apihub_dev_pwd -q \"SELECT token_total FROM apihub.api_call_log "
+            f'apihub_dev_pwd -q "SELECT token_total FROM apihub.api_call_log '
             f"WHERE api_id='{AI_API_ID}' ORDER BY ts DESC LIMIT 1\" 2>&1",
             check=False,
         ).strip()
@@ -336,19 +346,26 @@ def assert_billing():
     print(f"  [wait] CH token_total TIMEOUT; last={last!r}; fallback → Kafka dump")
     dump = sh(
         "docker exec apihub-kafka kafka-console-consumer.sh --bootstrap-server localhost:9094 "
-        f"--topic api-call-events --from-beginning --max-messages 50 --timeout-ms 8000 2>&1",
+        "--topic api-call-events --from-beginning --max-messages 50 --timeout-ms 8000 2>&1",
         check=False,
     )
     matches = [
-        l for l in dump.splitlines()
-        if f'"api_id": "{AI_API_ID}"' in l or f'"api_id":"{AI_API_ID}"' in l
+        line
+        for line in dump.splitlines()
+        if f'"api_id": "{AI_API_ID}"' in line or f'"api_id":"{AI_API_ID}"' in line
     ]
-    token_hits = [l for l in matches if '"token_total":' in l and '"token_total": 0' not in l]
+    token_hits = [
+        line for line in matches if '"token_total":' in line and '"token_total": 0' not in line
+    ]
     if token_hits:
-        print(f"  [R2C-B] Kafka fallback OK —— {len(token_hits)} 条 token>0 event: "
-              f"{token_hits[-1][:160]}")
-        print("  [R2C-B] (注意：CH 写入未观测到，但 dispatcher Kafka emit 正常 → "
-              "可能是 CH Kafka-engine broker_list 配置问题)")
+        print(
+            f"  [R2C-B] Kafka fallback OK —— {len(token_hits)} 条 token>0 event: "
+            f"{token_hits[-1][:160]}"
+        )
+        print(
+            "  [R2C-B] (注意：CH 写入未观测到，但 dispatcher Kafka emit 正常 → "
+            "可能是 CH Kafka-engine broker_list 配置问题)"
+        )
         return
     raise AssertionError(
         f"R2C-B 计费未触达：CH api_call_log 无 token>0 行；Kafka dump 也无 token>0 event；"
@@ -365,8 +382,11 @@ def assert_routing():
     forwarder SSE 上游 status 透传（pre-existing 自原 dispatcher，非 R2e/R2c 引入，单独跟踪）。
     """
     body = json.dumps(
-        {"model": "unknown-model-xyz", "messages": [{"role": "user", "content": "x"}],
-         "stream": True}
+        {
+            "model": "unknown-model-xyz",
+            "messages": [{"role": "user", "content": "x"}],
+            "stream": True,
+        }
     ).encode()
     st, raw = http(
         "POST",
@@ -378,9 +398,9 @@ def assert_routing():
     print(f"  POST unknown-model -> HTTP {st} {raw[:200]!r}")
     # ai-gateway HTTPException(400, detail="model '...' not supported") body 形如
     # {"detail":"model 'unknown-model-xyz' not supported"}
-    assert b"not supported" in raw, (
-        f"R2C-C 未路由拒绝：期待 body 含 'not supported'，实际 HTTP {st} body={raw!r}"
-    )
+    assert (
+        b"not supported" in raw
+    ), f"R2C-C 未路由拒绝：期待 body 含 'not supported'，实际 HTTP {st} body={raw!r}"
     print("  [R2C-C] 多 Provider 路由 OK —— 未知 model 经 ai-gateway 拒绝（body 透传）")
 
 

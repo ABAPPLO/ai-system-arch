@@ -130,13 +130,20 @@ def register_routes(app: FastAPI) -> None:
         remaining = await repository.get_remaining_calls_today(tenant_id)
 
         daily_usage = [
-            DailyApiUsage(api_id=r["api_id"], day=str(r["day"]),
-                          calls=r["calls"], tokens=r["tokens"], latency_ms=r["latency_ms"])
+            DailyApiUsage(
+                api_id=r["api_id"],
+                day=str(r["day"]),
+                calls=r["calls"],
+                tokens=r["tokens"],
+                latency_ms=r["latency_ms"],
+            )
             for r in ch_rows
         ]
         return BillingResponse(
-            tenant_id=tenant_id, month=month,
-            plan=plan or PlanSummary(code="free", name="Free", price_cents=0, quota_included={}, features={}),
+            tenant_id=tenant_id,
+            month=month,
+            plan=plan
+            or PlanSummary(code="free", name="Free", price_cents=0, quota_included={}, features={}),
             daily_usage=daily_usage,
             total_calls=sum(u.calls for u in daily_usage),
             total_tokens=sum(u.tokens for u in daily_usage),

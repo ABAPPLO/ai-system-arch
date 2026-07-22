@@ -16,6 +16,7 @@ def get(channel_type: str) -> Channel:
     ch = _REGISTRY.get(channel_type)
     if ch is None:
         from apihub_core.errors import ApiError, ErrorCode
+
         raise ApiError(ErrorCode.INVALID_INPUT, f"unsupported channel_type: {channel_type}")
     return ch
 

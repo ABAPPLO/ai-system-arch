@@ -6,8 +6,16 @@ import os
 # 但 httpx 不认 socks:// scheme（只用 socks5:// / socks5h://），
 # 导致 httpx.AsyncClient.__init__ 报 ValueError。
 # 在 import httpx 之前删掉所有代理 env var。
-for _k in ("all_proxy", "ALL_PROXY", "http_proxy", "HTTP_PROXY",
-           "https_proxy", "HTTPS_PROXY", "no_proxy", "NO_PROXY"):
+for _k in (
+    "all_proxy",
+    "ALL_PROXY",
+    "http_proxy",
+    "HTTP_PROXY",
+    "https_proxy",
+    "HTTPS_PROXY",
+    "no_proxy",
+    "NO_PROXY",
+):
     os.environ.pop(_k, None)
 
 # 在 import apihub_core 之前注入最小环境变量（避免 Settings() 因缺 PG_HOST 等报错）。

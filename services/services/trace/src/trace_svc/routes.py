@@ -119,7 +119,9 @@ def register_routes(app: FastAPI) -> None:
         return await repo.call_funnel(
             viewer_tenant_id=None if ctx.is_platform_admin else ctx.tenant_id,
             use_admin_session=ctx.is_platform_admin,
-            since=since, until=until, limit=limit,
+            since=since,
+            until=until,
+            limit=limit,
         )
 
     @app.get("/v1/trace/analytics/co-occurrence")
@@ -132,7 +134,8 @@ def register_routes(app: FastAPI) -> None:
         return await repo.co_occurrence(
             viewer_tenant_id=None if ctx.is_platform_admin else ctx.tenant_id,
             use_admin_session=ctx.is_platform_admin,
-            since=since, min_pairs=min_pairs,
+            since=since,
+            min_pairs=min_pairs,
         )
 
     @app.get("/v1/trace/health")

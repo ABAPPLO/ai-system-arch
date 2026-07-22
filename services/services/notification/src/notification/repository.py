@@ -18,7 +18,9 @@ async def list_webhooks(*, tenant_id: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-async def create_webhook(*, tenant_id: str, url: str, events: list[str], secret: str | None) -> dict:
+async def create_webhook(
+    *, tenant_id: str, url: str, events: list[str], secret: str | None
+) -> dict:
     """创建 webhook。
 
     secret=None → 平台生成（返明文一次，DB 存 AESGCM 加密）；
@@ -33,7 +35,11 @@ async def create_webhook(*, tenant_id: str, url: str, events: list[str], secret:
         await conn.execute(
             "INSERT INTO webhook_subscription (id, tenant_id, url, events, secret_encrypted)"
             " VALUES ($1, $2, $3, $4, $5)",
-            wh_id, tenant_id, url, events, encrypted,
+            wh_id,
+            tenant_id,
+            url,
+            events,
+            encrypted,
         )
     return {"id": wh_id, "url": url, "events": events, "status": "active", "hmac_secret": plaintext}
 
@@ -46,7 +52,9 @@ async def update_webhook(*, tenant_id: str, webhook_id: str, updates: dict) -> d
             # column names come from a Pydantic-validated allowlist (model_dump), not user input
             f"UPDATE webhook_subscription SET {sets} WHERE id = $1 AND tenant_id = ${len(values)+2}"  # noqa: S608
             " RETURNING id, url, events, status, created_at",
-            webhook_id, *values, tenant_id,
+            webhook_id,
+            *values,
+            tenant_id,
         )
     if not row:
         raise ApiError(ErrorCode.NOT_FOUND, "webhook not found")
@@ -57,7 +65,8 @@ async def delete_webhook(*, tenant_id: str, webhook_id: str) -> None:
     async with db.db_session() as conn:
         result = await conn.execute(
             "DELETE FROM webhook_subscription WHERE id = $1 AND tenant_id = $2",
-            webhook_id, tenant_id,
+            webhook_id,
+            tenant_id,
         )
     if "DELETE 0" in result:
         raise ApiError(ErrorCode.NOT_FOUND, "webhook not found")
@@ -73,16 +82,28 @@ async def list_channel_configs(*, tenant_id: str) -> list[dict]:
     return [dict(r) for r in rows]
 
 
-async def create_channel_config(*, tenant_id: str, channel_type: str, name: str,
-                                config: dict, status: str) -> dict:
+async def create_channel_config(
+    *, tenant_id: str, channel_type: str, name: str, config: dict, status: str
+) -> dict:
     cc_id = f"cc_{secrets.token_hex(8)}"
     async with db.db_session() as conn:
         await conn.execute(
             "INSERT INTO notification_channel_config (id, tenant_id, channel_type, name, config, status)"
             " VALUES ($1, $2, $3, $4, $5, $6)",
-            cc_id, tenant_id, channel_type, name, config, status or "active",
+            cc_id,
+            tenant_id,
+            channel_type,
+            name,
+            config,
+            status or "active",
         )
-    return {"id": cc_id, "channel_type": channel_type, "name": name, "config": config, "status": status or "active"}
+    return {
+        "id": cc_id,
+        "channel_type": channel_type,
+        "name": name,
+        "config": config,
+        "status": status or "active",
+    }
 
 
 async def update_channel_config(*, tenant_id: str, config_id: str, updates: dict) -> dict:
@@ -95,7 +116,9 @@ async def update_channel_config(*, tenant_id: str, config_id: str, updates: dict
             # column names come from a Pydantic-validated allowlist (model_dump), not user input
             f"UPDATE notification_channel_config SET {sets} WHERE id = $1 AND tenant_id = ${len(values)+2}"  # noqa: S608
             " RETURNING id, channel_type, name, config, status, created_at",
-            config_id, *values, tenant_id,
+            config_id,
+            *values,
+            tenant_id,
         )
     if not row:
         raise ApiError(ErrorCode.NOT_FOUND, "channel config not found")
@@ -106,7 +129,8 @@ async def delete_channel_config(*, tenant_id: str, config_id: str) -> None:
     async with db.db_session() as conn:
         result = await conn.execute(
             "DELETE FROM notification_channel_config WHERE id = $1 AND tenant_id = $2",
-            config_id, tenant_id,
+            config_id,
+            tenant_id,
         )
     if "DELETE 0" in result:
         raise ApiError(ErrorCode.NOT_FOUND, "channel config not found")
@@ -118,24 +142,43 @@ async def get_active_channel_config(*, tenant_id: str, channel_type: str) -> dic
         row = await conn.fetchrow(
             "SELECT config FROM notification_channel_config"
             " WHERE tenant_id = $1 AND channel_type = $2 AND status = 'active'",
-            tenant_id, channel_type,
+            tenant_id,
+            channel_type,
         )
     return dict(row["config"]) if row else None
 
 
-async def insert_notification_log(*, tenant_id: str, template_code: str, channel_type: str,
-                                  recipient: str, status: str, error: str, provider_msg_id: str) -> None:
+async def insert_notification_log(
+    *,
+    tenant_id: str,
+    template_code: str,
+    channel_type: str,
+    recipient: str,
+    status: str,
+    error: str,
+    provider_msg_id: str,
+) -> None:
     log_id = f"nl_{secrets.token_hex(8)}"
     async with db.db_session() as conn:
         await conn.execute(
             "INSERT INTO notification_log (id, tenant_id, template_code, channel_type, recipient,"
             " status, error, provider_msg_id) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)",
-            log_id, tenant_id, template_code, channel_type, recipient, status, error, provider_msg_id,
+            log_id,
+            tenant_id,
+            template_code,
+            channel_type,
+            recipient,
+            status,
+            error,
+            provider_msg_id,
         )
 
 
-async def render_template(*, code: str, channel_type: str, variables: dict, locale: str) -> tuple[str, str]:
+async def render_template(
+    *, code: str, channel_type: str, variables: dict, locale: str
+) -> tuple[str, str]:
     """admin 读模板并渲染（routes 经此调用，便于测试 monkeypatch）。"""
     async with db.admin_db_session() as conn:
-        return await renderer_mod.render(conn, code=code, channel_type=channel_type,
-                                         variables=variables, locale=locale)
+        return await renderer_mod.render(
+            conn, code=code, channel_type=channel_type, variables=variables, locale=locale
+        )

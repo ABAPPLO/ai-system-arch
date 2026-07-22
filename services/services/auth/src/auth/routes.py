@@ -52,9 +52,7 @@ from auth.repository import (
 log = get_logger(__name__)
 
 
-async def _inject_home_region_on_create(
-    *, key_id: str, key: str, tenant_id: str
-) -> None:
+async def _inject_home_region_on_create(*, key_id: str, key: str, tenant_id: str) -> None:
     """create_key 的 testable seam：把 tenant.home_region 注入 consumer labels。
 
     多区写亲和（R3b S1-T3）：每个 API key 对应的 APISIX consumer 携带
@@ -193,9 +191,7 @@ def register_routes(app: FastAPI) -> None:
                 "app_id": app_id,
                 "is_platform_admin": ctx.is_platform_admin,
                 "scopes": payload.scopes,
-                "expires_at": payload.expires_at.isoformat()
-                if payload.expires_at
-                else None,
+                "expires_at": payload.expires_at.isoformat() if payload.expires_at else None,
                 "key_id": key_id,  # R2e: cold path /v1/internal/hmac-secret 入参
                 "hmac_enrolled": payload.signing,
             }
@@ -209,7 +205,9 @@ def register_routes(app: FastAPI) -> None:
                     ttl=POSITIVE_CACHE_TTL,
                 )
         except Exception:  # noqa: BLE001
-            log.warning("apisix_consumer_upsert_failed", key_id=key_id, app_id=app_id, exc_info=True)
+            log.warning(
+                "apisix_consumer_upsert_failed", key_id=key_id, app_id=app_id, exc_info=True
+            )
 
         log.info(
             "apikey_created",
@@ -319,8 +317,10 @@ def register_routes(app: FastAPI) -> None:
         from auth import identity
 
         return await identity.create_user(
-            email=payload.email, password=payload.password,
-            phone=payload.phone, name=payload.name,
+            email=payload.email,
+            password=payload.password,
+            phone=payload.phone,
+            name=payload.name,
         )
 
     @app.get("/v1/auth/verify-email")

@@ -5,7 +5,7 @@
 """
 
 import secrets
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import bcrypt
 from apihub_core import db, redis
@@ -30,9 +30,7 @@ async def create_user(*, email: str, password: str, phone: str, name: str) -> di
     from apihub_core.pii import encrypt_pii  # noqa: PLC0415
 
     async with db.admin_db_session() as conn:
-        exists = await conn.fetchval(
-            "SELECT id FROM user_account WHERE email = $1", email
-        )
+        exists = await conn.fetchval("SELECT id FROM user_account WHERE email = $1", email)
         if exists:
             raise ApiError(ErrorCode.CONFLICT, "email already registered", http_status=409)
         user_id = f"u_{secrets.token_hex(8)}"
@@ -40,21 +38,30 @@ async def create_user(*, email: str, password: str, phone: str, name: str) -> di
             "INSERT INTO user_account (id, email, phone, password_hash, name,"
             " verification_level, status)"
             " VALUES ($1, $2, $3, $4, $5, 'email', 'pending')",
-            user_id, email, encrypt_pii(phone), _hash_password(password), encrypt_pii(name),
+            user_id,
+            email,
+            encrypt_pii(phone),
+            _hash_password(password),
+            encrypt_pii(name),
         )
         # GDPR: 记录数据使用同意
         for purpose in ("account_management", "api_usage_tracking"):
             await conn.execute(
                 "INSERT INTO user_consent (user_id, purpose, status) VALUES ($1, $2, 'granted')"
                 " ON CONFLICT (user_id, purpose) DO NOTHING",
-                user_id, purpose,
+                user_id,
+                purpose,
             )
 
     verify_token = secrets.token_urlsafe(32)
     await redis.t_set(f"t:verify:{verify_token}", user_id, ex=VERIFY_TTL)
     log.info("user_registered", user_id=user_id, email=email)
-    return {"user_id": user_id, "status": "pending",
-            "verification_level": "email", "verify_token": verify_token}
+    return {
+        "user_id": user_id,
+        "status": "pending",
+        "verification_level": "email",
+        "verify_token": verify_token,
+    }
 
 
 async def verify_email(token: str) -> dict:
@@ -66,18 +73,25 @@ async def verify_email(token: str) -> dict:
     async with db.admin_db_session() as conn:
         row = await conn.fetchrow(
             "UPDATE user_account SET status='active', last_login_at=NOW() "
-            "WHERE id=$1 RETURNING id, name", user_id,
+            "WHERE id=$1 RETURNING id, name",
+            user_id,
         )
         if not row:
             raise ApiError(ErrorCode.NOT_FOUND, "user not found", http_status=404)
         await conn.execute(
             "INSERT INTO tenant_member (id, tenant_id, user_id, role)"
             " VALUES ($1, $2, $3, 'developer') ON CONFLICT DO NOTHING",
-            f"tm_{secrets.token_hex(8)}", EXTERNAL_PUBLIC_TENANT, user_id,
+            f"tm_{secrets.token_hex(8)}",
+            EXTERNAL_PUBLIC_TENANT,
+            user_id,
         )
     await redis.t_delete(f"t:verify:{token}")
-    return {"user_id": user_id, "name": maybe_decrypt(row["name"]), "status": "active",
-            "tenant_id": EXTERNAL_PUBLIC_TENANT}
+    return {
+        "user_id": user_id,
+        "name": maybe_decrypt(row["name"]),
+        "status": "active",
+        "tenant_id": EXTERNAL_PUBLIC_TENANT,
+    }
 
 
 async def login(*, email: str, password: str) -> dict:
@@ -87,7 +101,8 @@ async def login(*, email: str, password: str) -> dict:
 
     async with db.admin_db_session() as conn:
         row = await conn.fetchrow(
-            "SELECT id, email, name, password_hash, status FROM user_account WHERE email=$1", email,
+            "SELECT id, email, name, password_hash, status FROM user_account WHERE email=$1",
+            email,
         )
     if not row or not row["password_hash"] or not _check_password(password, row["password_hash"]):
         raise ApiError(ErrorCode.UNAUTHORIZED, "invalid email or password", http_status=401)
@@ -95,19 +110,29 @@ async def login(*, email: str, password: str) -> dict:
         raise ApiError(ErrorCode.FORBIDDEN, "email not verified", http_status=403)
     s = get_settings()
     access = jwt_utils.issue_token(
-        user_id=row["id"], tenant_id=EXTERNAL_PUBLIC_TENANT,
-        secret=s.jwt_secret, ttl_seconds=s.jwt_ttl_seconds,
+        user_id=row["id"],
+        tenant_id=EXTERNAL_PUBLIC_TENANT,
+        secret=s.jwt_secret,
+        ttl_seconds=s.jwt_ttl_seconds,
     )
     refresh = jwt_utils.issue_refresh_token(
-        user_id=row["id"], tenant_id=EXTERNAL_PUBLIC_TENANT,
-        secret=s.jwt_secret, ttl_seconds=s.jwt_refresh_ttl_seconds,
+        user_id=row["id"],
+        tenant_id=EXTERNAL_PUBLIC_TENANT,
+        secret=s.jwt_secret,
+        ttl_seconds=s.jwt_refresh_ttl_seconds,
     )
     rt_payload = jwt_utils.decode_token(refresh, s.jwt_secret)
-    await redis.t_set(f"t:refresh:{rt_payload['jti']}", row["id"],
-                      ex=s.jwt_refresh_ttl_seconds)
-    return {"access_token": access, "refresh_token": refresh,
-            "expires_in": s.jwt_ttl_seconds,
-            "user": {"id": row["id"], "name": maybe_decrypt(row["name"]), "tenant_id": EXTERNAL_PUBLIC_TENANT}}
+    await redis.t_set(f"t:refresh:{rt_payload['jti']}", row["id"], ex=s.jwt_refresh_ttl_seconds)
+    return {
+        "access_token": access,
+        "refresh_token": refresh,
+        "expires_in": s.jwt_ttl_seconds,
+        "user": {
+            "id": row["id"],
+            "name": maybe_decrypt(row["name"]),
+            "tenant_id": EXTERNAL_PUBLIC_TENANT,
+        },
+    }
 
 
 async def refresh_access(refresh_token: str) -> dict:
@@ -127,18 +152,26 @@ async def refresh_access(refresh_token: str) -> dict:
         raise ApiError(ErrorCode.UNAUTHORIZED, "refresh token revoked or expired", http_status=401)
     await redis.t_delete(f"t:refresh:{jti}")
     new_access = jwt_utils.issue_token(
-        user_id=payload["user_id"], tenant_id=payload["tenant_id"],
-        secret=s.jwt_secret, ttl_seconds=s.jwt_ttl_seconds,
+        user_id=payload["user_id"],
+        tenant_id=payload["tenant_id"],
+        secret=s.jwt_secret,
+        ttl_seconds=s.jwt_ttl_seconds,
     )
     new_refresh = jwt_utils.issue_refresh_token(
-        user_id=payload["user_id"], tenant_id=payload["tenant_id"],
-        secret=s.jwt_secret, ttl_seconds=s.jwt_refresh_ttl_seconds,
+        user_id=payload["user_id"],
+        tenant_id=payload["tenant_id"],
+        secret=s.jwt_secret,
+        ttl_seconds=s.jwt_refresh_ttl_seconds,
     )
     new_rt = jwt_utils.decode_token(new_refresh, s.jwt_secret)
-    await redis.t_set(f"t:refresh:{new_rt['jti']}", payload["user_id"],
-                      ex=s.jwt_refresh_ttl_seconds)
-    return {"access_token": new_access, "refresh_token": new_refresh,
-            "expires_in": s.jwt_ttl_seconds}
+    await redis.t_set(
+        f"t:refresh:{new_rt['jti']}", payload["user_id"], ex=s.jwt_refresh_ttl_seconds
+    )
+    return {
+        "access_token": new_access,
+        "refresh_token": new_refresh,
+        "expires_in": s.jwt_ttl_seconds,
+    }
 
 
 async def anonymize_user(*, user_id: str) -> None:
@@ -153,7 +186,8 @@ async def anonymize_user(*, user_id: str) -> None:
     """
     async with db.admin_db_session(audit_reason="gdpr_erasure") as conn:
         row = await conn.fetchrow(
-            "SELECT id, email FROM user_account WHERE id = $1", user_id,
+            "SELECT id, email FROM user_account WHERE id = $1",
+            user_id,
         )
         if not row:
             raise ApiError(ErrorCode.NOT_FOUND, "user not found", http_status=404)
@@ -163,14 +197,16 @@ async def anonymize_user(*, user_id: str) -> None:
         await conn.execute(
             "UPDATE user_account SET email=$1, phone='', name='Deleted User',"
             " password_hash='', status='deleted', updated_at=NOW() WHERE id=$2",
-            anonymized_email, user_id,
+            anonymized_email,
+            user_id,
         )
         await conn.execute("DELETE FROM tenant_member WHERE user_id = $1", user_id)
         await conn.execute("DELETE FROM user_consent WHERE user_id = $1", user_id)
         # GDPR erasure：清该用户邮箱作为收件人的投递日志（notification_log.recipient = email PII）
         if old_email:
             await conn.execute(
-                "DELETE FROM notification_log WHERE recipient = $1", old_email,
+                "DELETE FROM notification_log WHERE recipient = $1",
+                old_email,
             )
 
     try:
@@ -178,7 +214,9 @@ async def anonymize_user(*, user_id: str) -> None:
             cursor: bytes | str = "0"
             while cursor:
                 cursor, keys = await redis.raw_client().scan(
-                    cursor, match=pattern, count=100,
+                    cursor,
+                    match=pattern,
+                    count=100,
                 )
                 if keys:
                     await redis.raw_client().delete(*keys)
@@ -204,13 +242,15 @@ async def list_consents(*, user_id: str) -> list[dict]:
         )
     result = []
     for r in rows:
-        result.append({
-            "purpose": r["purpose"],
-            "description": CONSENT_PURPOSES.get(r["purpose"], ""),
-            "status": r["status"],
-            "granted_at": r["granted_at"].isoformat(),
-            "updated_at": r["updated_at"].isoformat(),
-        })
+        result.append(
+            {
+                "purpose": r["purpose"],
+                "description": CONSENT_PURPOSES.get(r["purpose"], ""),
+                "status": r["status"],
+                "granted_at": r["granted_at"].isoformat(),
+                "updated_at": r["updated_at"].isoformat(),
+            }
+        )
     return result
 
 
@@ -232,20 +272,22 @@ async def export_user_data(*, user_id: str) -> dict:
     async with db.admin_db_session() as conn:
         row = await conn.fetchrow(
             "SELECT id, email, phone, name, verification_level, status,"
-            " created_at FROM user_account WHERE id = $1", user_id,
+            " created_at FROM user_account WHERE id = $1",
+            user_id,
         )
         if not row:
             raise ApiError(ErrorCode.NOT_FOUND, "user not found", http_status=404)
 
         members = await conn.fetch(
-            "SELECT tenant_id, role FROM tenant_member WHERE user_id = $1", user_id,
+            "SELECT tenant_id, role FROM tenant_member WHERE user_id = $1",
+            user_id,
         )
 
     from apihub_core.pii import maybe_decrypt  # noqa: PLC0415
 
     return {
         "user_id": row["id"],
-        "exported_at": datetime.now(timezone.utc).isoformat(),
+        "exported_at": datetime.now(UTC).isoformat(),
         "account": {
             "email": row["email"],
             "phone": maybe_decrypt(row["phone"] or ""),

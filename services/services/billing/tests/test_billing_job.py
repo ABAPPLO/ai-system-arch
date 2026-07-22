@@ -20,7 +20,9 @@ class TestBillingCore:
 
     @pytest.mark.asyncio
     async def test_dry_run_no_subs(self, monkeypatch):
-        async def mock_list(): return []
+        async def mock_list():
+            return []
+
         monkeypatch.setattr("billing.billing_job.list_active_subscriptions", mock_list)
         result = await billing_job.run_billing(period="2026-07", dry_run=True)
         assert result.total_tenants == 0

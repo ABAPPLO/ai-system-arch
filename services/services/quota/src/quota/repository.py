@@ -116,27 +116,40 @@ async def load_rules(tenant_id: str, app_id: str, api_id: str) -> tuple[QuotaRul
 
 # ========== Phase 3 计费 ==========
 
-from apihub_core.clickhouse import query_all
-from quota.models import PlanSummary
+from apihub_core.clickhouse import query_all  # noqa: E402  分段 import（Phase 3 计费段）
+
+from quota.models import PlanSummary  # noqa: E402  分段 import（Phase 3 计费段）
 
 
 async def get_plan(plan_code: str) -> PlanSummary | None:
     async with db.db_session() as conn:
-        row = await conn.fetchrow("SELECT * FROM plan WHERE code = $1 AND status = 'active'", plan_code)
+        row = await conn.fetchrow(
+            "SELECT * FROM plan WHERE code = $1 AND status = 'active'", plan_code
+        )
     if not row:
         return None
     return PlanSummary(
-        code=row["code"], name=row["name"], price_cents=row["price_cents"],
-        quota_included=row["quota_included"] or {}, features=row["features"] or {},
+        code=row["code"],
+        name=row["name"],
+        price_cents=row["price_cents"],
+        quota_included=row["quota_included"] or {},
+        features=row["features"] or {},
     )
 
 
 async def list_plans() -> list[PlanSummary]:
     async with db.db_session() as conn:
         rows = await conn.fetch("SELECT * FROM plan WHERE status = 'active' ORDER BY sort_order")
-    return [PlanSummary(code=r["code"], name=r["name"], price_cents=r["price_cents"],
-                        quota_included=r["quota_included"] or {}, features=r["features"] or {})
-            for r in rows]
+    return [
+        PlanSummary(
+            code=r["code"],
+            name=r["name"],
+            price_cents=r["price_cents"],
+            quota_included=r["quota_included"] or {},
+            features=r["features"] or {},
+        )
+        for r in rows
+    ]
 
 
 async def get_active_subscription(tenant_id: str) -> dict | None:
@@ -164,6 +177,7 @@ async def get_billing_from_ch(tenant_id: str, month: str) -> list[dict]:
 
 async def get_remaining_calls_today(tenant_id: str) -> int:
     from datetime import datetime
+
     today = datetime.utcnow().strftime("%Y-%m-%d")
     ym = int(today[:7].replace("-", ""))
     day = int(today[8:10])

@@ -99,6 +99,7 @@ def register_routes(app: FastAPI) -> None:
         # 沙箱模式：X-Environment: sandbox → 路由到 mock-backend
         if request.headers.get("X-Environment", "").lower() == "sandbox":
             from dataclasses import replace
+
             snap = replace(
                 snap,
                 backend_url=f"http://mock-backend.apihub-system/dispatch{rest}",

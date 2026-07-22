@@ -53,11 +53,8 @@ async def authenticate_request(
     # 可信入口快速路径（R1d）：经 APISIX 入口的请求带 X-Ingress-Auth=<ingress_shared_secret>。
     # APISIX key-auth 已校验 key，本地读 auth 的 Redis 身份缓存回填 ctx，跳过 HTTP auth 回源
     # （消除 dispatcher→auth 冷启动 503）。安全前提：dispatcher 仅经 APISIX 可达（见 docs）。
-    if (
-        settings.ingress_shared_secret
-        and secrets.compare_digest(
-            request.headers.get("X-Ingress-Auth") or "", settings.ingress_shared_secret
-        )
+    if settings.ingress_shared_secret and secrets.compare_digest(
+        request.headers.get("X-Ingress-Auth") or "", settings.ingress_shared_secret
     ):
         from apihub_core import identity
 
@@ -187,14 +184,16 @@ async def _verify_hmac(request: Request, settings: Settings, api_key: str) -> Te
         try:
             secret = crypto_mod.decrypt_secret(secret_blob)
         except Exception:  # InvalidTag / binascii / RuntimeError(缺 key) —— 非客户端错，503 + 清 L1 + DEL Redis（防 R3e 后损坏 blob 在 L1 TTL 内持续 503）
-            await identity.delete_hmac_secret(api_key)  # T3: 一次清 _secret_l1 + Redis key（pre-R3e 自愈语义）
-            raise ApiError(ErrorCode.INTERNAL, "hmac secret cache corrupt", http_status=503) from None
+            await identity.delete_hmac_secret(
+                api_key
+            )  # T3: 一次清 _secret_l1 + Redis key（pre-R3e 自愈语义）
+            raise ApiError(
+                ErrorCode.INTERNAL, "hmac secret cache corrupt", http_status=503
+            ) from None
     else:
         key_id = cached.get("key_id")
         if not key_id:
-            raise ApiError(
-                ErrorCode.INTERNAL, "hmac secret fetch: missing key_id", http_status=503
-            )
+            raise ApiError(ErrorCode.INTERNAL, "hmac secret fetch: missing key_id", http_status=503)
         client = _get_auth_httpx_client()
         try:
             resp = await client.post(
@@ -220,9 +219,7 @@ async def _verify_hmac(request: Request, settings: Settings, api_key: str) -> Te
             raise ApiError(
                 ErrorCode.INTERNAL, "hmac encryption key not configured", http_status=503
             ) from None
-        await identity.write_hmac_secret(
-            api_key, enc, ttl=settings.hmac_nonce_ttl_seconds
-        )
+        await identity.write_hmac_secret(api_key, enc, ttl=settings.hmac_nonce_ttl_seconds)
 
     # nonce SETNX（防重放：同一 nonce TTL 内只能用一次）。
     # C3: nonce_key 用 key_id，不把明文 api_key 写进 Redis（identity/secret 缓存都 hash，nonce 对齐）。
@@ -231,9 +228,7 @@ async def _verify_hmac(request: Request, settings: Settings, api_key: str) -> Te
         raise ApiError(ErrorCode.UNAUTHORIZED, "invalid nonce")
     nonce_subject = cached.get("key_id") or hashlib.sha256(api_key.encode("utf-8")).hexdigest()
     nonce_key = f"t:{cached['tenant_id']}:hmac:nonce:{nonce_subject}:{nonce}"
-    set_ok = await raw_client().set(
-        nonce_key, "1", ex=settings.hmac_nonce_ttl_seconds, nx=True
-    )
+    set_ok = await raw_client().set(nonce_key, "1", ex=settings.hmac_nonce_ttl_seconds, nx=True)
     if not set_ok:
         raise ApiError(ErrorCode.UNAUTHORIZED, "replay detected")
 

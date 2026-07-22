@@ -59,18 +59,13 @@ async def test_publish_route_puts_admin_route(monkeypatch):
     )
 
     assert captured["method"] == "PUT"
-    assert (
-        captured["url"]
-        == "http://apisix-admin.apihub-ingress:9180/apisix/admin/routes/ver_abc"
-    )
+    assert captured["url"] == "http://apisix-admin.apihub-ingress:9180/apisix/admin/routes/ver_abc"
     assert captured["headers"]["X-API-KEY"] == "edd1c9f034335f136f87ad84b625c8f1"
     body = captured["json"]
     assert body["uri"] == "/v1/users/:user_id"  # base_path + path，{var}→:var
     assert body["methods"] == ["GET"]
     assert body["upstream"]["nodes"] == {"dispatcher.apihub-system:8001": 1}
-    assert body["plugins"]["proxy-rewrite"]["headers"]["set"] == {
-        "X-API-Version-Id": "ver_abc"
-    }
+    assert body["plugins"]["proxy-rewrite"]["headers"]["set"] == {"X-API-Version-Id": "ver_abc"}
     assert body["plugins"]["proxy-rewrite"]["regex_uri"] == ["^/(.*)$", "/dispatch/$1"]
 
 
@@ -146,8 +141,7 @@ async def test_upsert_consumer_puts_admin_consumer(monkeypatch):
 
     assert captured["method"] == "PUT"
     assert (
-        captured["url"]
-        == "http://apisix-admin.apihub-ingress:9180/apisix/admin/consumers/key_abc"
+        captured["url"] == "http://apisix-admin.apihub-ingress:9180/apisix/admin/consumers/key_abc"
     )
     assert captured["json"] == {
         "username": "key_abc",

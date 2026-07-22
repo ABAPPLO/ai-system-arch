@@ -204,7 +204,10 @@ async def db_pool(monkeypatch):
     from apihub_core import db
 
     pool = await asyncpg.create_pool(
-        PG_DSN, min_size=1, max_size=2, init=db._init_jsonb_codec,
+        PG_DSN,
+        min_size=1,
+        max_size=2,
+        init=db._init_jsonb_codec,
     )
     monkeypatch.setattr(db, "_pool", pool)
     try:
@@ -255,9 +258,9 @@ class TestTenantMetadataJsonbIntegration:
                 f"metadata 应为 jsonb object，实际 jsonb_typeof={row['kind']!r}"
                 "（说明被双重编码成 JSON 字符串了）"
             )
-            assert row["day_limit"] == "999", (
-                f"metadata->'quota'->>'day_limit' 应可读为 '999'，实际 {row['day_limit']!r}"
-            )
+            assert (
+                row["day_limit"] == "999"
+            ), f"metadata->'quota'->>'day_limit' 应可读为 '999'，实际 {row['day_limit']!r}"
             assert row["note"] == "r2e_t5"
         finally:
             async with db_pool.acquire() as conn:
@@ -289,12 +292,12 @@ class TestTenantMetadataJsonbIntegration:
                     "t_r2e_t5_quota",
                 )
             assert row is not None
-            assert row["kind"] == "object", (
-                f"metadata 应为 jsonb object，实际 jsonb_typeof={row['kind']!r}"
-            )
-            assert row["day_limit"] == "12345", (
-                f"set_quota 后 day_limit 应可读为 '12345'，实际 {row['day_limit']!r}"
-            )
+            assert (
+                row["kind"] == "object"
+            ), f"metadata 应为 jsonb object，实际 jsonb_typeof={row['kind']!r}"
+            assert (
+                row["day_limit"] == "12345"
+            ), f"set_quota 后 day_limit 应可读为 '12345'，实际 {row['day_limit']!r}"
             assert row["minute"] == "100"
         finally:
             async with db_pool.acquire() as conn:

@@ -48,9 +48,7 @@ def test_query_union_peer_peer_sql_but_no_peer_client_returns_local_only():
     r.column_names = ("c",)
     r.result_rows = [(1,), (2,)]
     ch._client.query.return_value = r
-    rows = ch.query_union_peer(
-        "SELECT c FROM t", "SELECT c FROM t", None, force_tenant_id=None
-    )
+    rows = ch.query_union_peer("SELECT c FROM t", "SELECT c FROM t", None, force_tenant_id=None)
     assert rows == [{"c": 1}, {"c": 2}]
     ch._client.query.assert_called_once()
 
@@ -64,9 +62,7 @@ def test_query_union_peer_peer_sql_with_non_admin_scope_rejected():
         ch.query_union_peer("SELECT c FROM t", "SELECT c FROM t", None)
     # 显式 tenant str
     with pytest.raises(ValueError):
-        ch.query_union_peer(
-            "SELECT c FROM t", "SELECT c FROM t", None, force_tenant_id="t_demo"
-        )
+        ch.query_union_peer("SELECT c FROM t", "SELECT c FROM t", None, force_tenant_id="t_demo")
     ch._client.query.assert_not_called()
     ch._peer_client.query.assert_not_called()
 
@@ -84,8 +80,6 @@ def test_query_union_peer_peer_failure_degrades_to_local_only():
 
     ch._client.query.return_value = mk_local()
     ch._peer_client.query.side_effect = RuntimeError("peer CH down")
-    rows = ch.query_union_peer(
-        "SELECT c FROM t", "SELECT c FROM t", None, force_tenant_id=None
-    )
+    rows = ch.query_union_peer("SELECT c FROM t", "SELECT c FROM t", None, force_tenant_id=None)
     # local 行原样返回
     assert rows == [{"c": 1}, {"c": 2}]

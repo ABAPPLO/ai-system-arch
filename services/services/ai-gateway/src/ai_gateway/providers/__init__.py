@@ -16,8 +16,7 @@ class BaseProvider(ABC):
         temperature: float | None = None,
         max_tokens: int | None = None,
         extra_body: dict | None = None,
-    ) -> AsyncIterator[SSEChunk]:
-        ...
+    ) -> AsyncIterator[SSEChunk]: ...
 
 
 _PROVIDERS: dict[str, type[BaseProvider]] = {}
