@@ -101,7 +101,12 @@ async def create_api_key(
     hmac_encrypted: str | None = None
     if signing:
         hmac_plaintext = secrets.token_urlsafe(32)
-        hmac_encrypted = crypto_mod.encrypt_secret(hmac_plaintext)
+        try:
+            hmac_encrypted = crypto_mod.encrypt_secret(hmac_plaintext)
+        except Exception:  # RuntimeError(缺 HMAC_SECRET_KEY) 等 —— 503，非裸 500
+            raise ApiError(
+                ErrorCode.INTERNAL, "hmac encryption key not configured", http_status=503
+            ) from None
 
     async with db.db_session() as conn:
         # 先校验 app 属于本租户（RLS 自动过滤）
@@ -190,7 +195,12 @@ async def get_hmac_secret_plaintext(key_id: str) -> str | None:
         )
     if not row or not row["hmac_secret_encrypted"]:
         return None
-    return crypto_mod.decrypt_secret(row["hmac_secret_encrypted"])
+    try:
+        return crypto_mod.decrypt_secret(row["hmac_secret_encrypted"])
+    except Exception:  # decrypt 失败（key 失配 / 损坏）—— 503，非裸 500
+        raise ApiError(
+            ErrorCode.INTERNAL, "hmac secret decrypt failed", http_status=503
+        ) from None
 
 
 async def rotate_hmac_secret(key_id: str, tenant_id: str) -> dict:
