@@ -49,7 +49,7 @@ export function Billing() {
     setLoading(true);
     try {
       const r = await api.get<{ items: BillingItem[] }>(
-        '/v1/admin/billing/summary',
+        '/api/billing/v1/admin/billing/summary',
         { period, search: search || undefined },
       );
       setItems(r.items || []);
