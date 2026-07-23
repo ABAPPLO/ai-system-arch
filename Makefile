@@ -1,4 +1,4 @@
-.PHONY: help install dev fmt lint test docker-build tf-init tf-plan tf-apply \
+.PHONY: help install dev fmt lint test test-cov docker-build tf-init tf-plan tf-apply \
         k8s-apply-dev k8s-apply-staging k8s-apply-prod argocd-sync \
         run-registry run-dispatcher run-auth run-executor run-quota build-quota run-tenant run-admin run-docs run-trace run-retry run-workflow run-notification run-portal run-ai-gateway run-billing \
         run-admin-frontend admin-frontend-install admin-frontend-typecheck admin-frontend-build portal-frontend-install portal-frontend-typecheck portal-frontend-build run-portal-frontend \
@@ -76,8 +76,19 @@ lint:  ## 代码检查
 	ruff check services/
 	mypy services/
 
-test:  ## 跑测试
-	pytest services/ -v --cov=apihub_core --cov-report=term-missing
+test:  ## 跑测试（按服务各自 rootdir 循环；PYTHONPATH=src 免装包，隔离消除多包 monorepo 重名/未装包冲突；聚合退出码）
+	@status=0; \
+	for d in services/services/*/; do \
+	  [ -d "$$d/tests" ] || continue; \
+	  echo ">> $${d#services/services/}"; \
+	  ( cd "$$d" && PYTHONPATH=src pytest tests/ ) || status=1; \
+	done; \
+	echo ">> apihub-core (lib)"; \
+	( cd services/libs/apihub-core && PYTHONPATH=src pytest tests/ ) || status=1; \
+	exit $$status
+
+test-cov:  ## 跑 apihub-core 测试 + 覆盖率（需先 pip install -e services/libs/apihub-core[test]，含 pytest-cov）
+	cd services/libs/apihub-core && PYTHONPATH=src pytest tests/ --cov=apihub_core --cov-report=term-missing
 
 # ===== Docker =====
 docker-build:  ## 构建服务镜像（在仓库根目录执行）
