@@ -246,7 +246,7 @@ def register_routes(app: FastAPI) -> None:
 
         async def _gen() -> AsyncIterator[bytes]:
             try:
-                async for line in client.stream_logs(
+                async for line in client.stream_logs(  # type: ignore
                     namespace=detail.namespace,
                     argo_name=detail.argo_name,
                     step_name=step_name,

@@ -162,7 +162,7 @@ def parse_event(topic: str, payload: dict):
     cls = _TOPIC_TO_EVENT.get(topic)
     if cls is None:
         raise ValueError(f"未知 topic，无事件契约: {topic}")
-    return cls.from_dict(payload)
+    return cls.from_dict(payload)  # type: ignore
 
 
 async def emit_event(event) -> None:

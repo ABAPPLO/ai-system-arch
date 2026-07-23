@@ -41,7 +41,7 @@ def _prefix(key: str) -> str:
 async def t_get(key: str) -> str | None:
     if _client is None:
         raise RuntimeError("Redis not initialized")
-    return await _client.get(_prefix(key))
+    return await _client.get(_prefix(key))  # type: ignore
 
 
 async def t_set(key: str, value: str, ex: int | None = None) -> None:

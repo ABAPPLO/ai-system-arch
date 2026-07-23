@@ -149,7 +149,7 @@ async def record_from_request(
 
     detail = {"method": request.method, "path": str(request.url.path)}
     if status_code >= 400:
-        detail["status_code"] = status_code
+        detail["status_code"] = status_code  # type: ignore
     if extra_detail:
         detail.update(extra_detail)
 

@@ -21,7 +21,7 @@ async def run_billing(
 
 @router.get("/v1/billing/records")
 async def list_billing_records(limit: int = 12, offset: int = 0):
-    from apihub_core.auth import require_tenant
+    from apihub_core.auth import require_tenant  # type: ignore
 
     ctx = require_tenant()
     items, total = await get_billing_records(ctx.tenant_id, limit, offset)

@@ -1,6 +1,6 @@
 """retry-svc 启动入口 —— FastAPI app + 后台 worker / consumer。
 
-通过 create_app(extra_lifespan=...) 把 consumer / worker 的生命周期挂到
+通过 create_app(extra_lifespan=...) 把 consumer / worker 的生命周期挂到,  # type: ignore[arg-type]
 核心 lifespan 上（DB / Redis / Kafka 都就绪后再起）。
 """
 
@@ -46,7 +46,7 @@ app = create_app(
         "/docs",
         "/openapi.json",
     ),
-    extra_lifespan=worker_lifespan,
+    extra_lifespan=worker_lifespan,  # type: ignore[arg-type]
 )
 
 

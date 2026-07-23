@@ -46,7 +46,7 @@ def create_app(
         ch.init_clickhouse(settings)
 
         if extra_lifespan is not None:
-            async with extra_lifespan(app):
+            async with extra_lifespan(app):  # type: ignore[attr-defined]
                 yield
         else:
             yield

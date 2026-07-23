@@ -208,8 +208,8 @@ def register_routes(app: FastAPI) -> None:
         """清理过期数据。超管 only。"""
         _require_platform_admin()
         now = datetime.now(UTC)
-        task_before = now - timedelta(days=payload.task_months * 30)
-        retry_before = now - timedelta(days=payload.retry_days)
+        task_before = now - timedelta(days=payload.task_months * 30)  # type: ignore
+        retry_before = now - timedelta(days=payload.retry_days)  # type: ignore
 
         partitions = await repository.cleanup_task_partitions(before=task_before)
         retry = await repository.cleanup_retry_tasks(before=retry_before)

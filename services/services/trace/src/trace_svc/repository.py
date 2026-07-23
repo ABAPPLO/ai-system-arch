@@ -108,7 +108,7 @@ async def list_calls(
         if use_admin_session:
             rows = ch.query_union_peer(sql, sql, params, force_tenant_id=None)
             # 跨区拼接后按 ts DESC 全局排序，再切片全局 offset/limit
-            rows.sort(key=lambda r: r.get("ts"), reverse=True)
+            rows.sort(key=lambda r: r.get("ts"), reverse=True)  # type: ignore
             return rows[query.offset : query.offset + query.limit]
         # 单 Region：SQL LIMIT/OFFSET 语义即全局，直接用
         params["limit"] = query.limit
@@ -231,10 +231,10 @@ def _merge_by_hour(rows: list[dict[str, Any]], *, limit: int = 168) -> list[dict
     by_key: dict[str, dict[str, Any]] = {}
     for r in rows:
         h = r.get("hour")
-        agg = by_key.get(h)
+        agg = by_key.get(h)  # type: ignore
         if agg is None:
             agg = {"hour": h, "n": 0, "success_n": 0}
-            by_key[h] = agg
+            by_key[h] = agg  # type: ignore
         agg["n"] += int(r.get("n", 0) or 0)
         agg["success_n"] += int(r.get("success_n", 0) or 0)
     merged = list(by_key.values())

@@ -60,7 +60,7 @@ async def run_billing(
 
     for sub in subs:
         try:
-            ch_rows = await query_all(
+            ch_rows = await query_all(  # type: ignore
                 """SELECT sum(is_success) as calls, sum(token_total) as tokens
                    FROM api_call_log
                    WHERE tenant_id = %(tenant)s AND ts >= %(start)s AND ts < %(end)s""",

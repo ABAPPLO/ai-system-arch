@@ -74,7 +74,7 @@ def build_call_event(
         "token_completion": token_completion,
         "token_total": token_total,
     }
-    return CallEvent(**d)
+    return CallEvent(**d)  # type: ignore
 
 
 def new_request_id() -> str:

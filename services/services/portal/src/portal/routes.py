@@ -75,7 +75,7 @@ def register_routes(app: FastAPI) -> None:
             headers={"Authorization": request.headers.get("Authorization", "")},
         )
         if st >= 400:
-            raise ApiError(ErrorCode.INTERNAL, body, http_status=st)
+            raise ApiError(ErrorCode.INTERNAL, body, http_status=st)  # type: ignore
         return body
 
     @app.get("/v1/portal/auth/account/export")
@@ -88,7 +88,7 @@ def register_routes(app: FastAPI) -> None:
             headers={"Authorization": request.headers.get("Authorization", "")},
         )
         if st >= 400:
-            raise ApiError(ErrorCode.INTERNAL, body, http_status=st)
+            raise ApiError(ErrorCode.INTERNAL, body, http_status=st)  # type: ignore
         return body
 
     @app.get("/v1/portal/auth/consent")
@@ -101,7 +101,7 @@ def register_routes(app: FastAPI) -> None:
             headers={"Authorization": request.headers.get("Authorization", "")},
         )
         if st >= 400:
-            raise ApiError(ErrorCode.INTERNAL, body, http_status=st)
+            raise ApiError(ErrorCode.INTERNAL, body, http_status=st)  # type: ignore
         return body
 
     @app.post("/v1/portal/auth/consent/withdraw")
@@ -114,7 +114,7 @@ def register_routes(app: FastAPI) -> None:
             headers={"Authorization": request.headers.get("Authorization", "")},
         )
         if st >= 400:
-            raise ApiError(ErrorCode.INTERNAL, body, http_status=st)
+            raise ApiError(ErrorCode.INTERNAL, body, http_status=st)  # type: ignore
         return body
 
     # ========== API 目录（需 JWT）==========

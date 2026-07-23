@@ -166,7 +166,7 @@ class StubArgoClient(ArgoClient):
             raise ArgoError(f"workflow {argo_name} not found")
         return list(wf["steps"])
 
-    async def stream_logs(
+    async def stream_logs(  # type: ignore
         self, *, namespace: str, argo_name: str, step_name: str | None = None
     ) -> AsyncIterator[str]:
         key = f"{namespace}/{argo_name}"
@@ -333,7 +333,7 @@ class K8sArgoClient(ArgoClient):
         nodes = data.get("status", {}).get("nodes", {})
         return [_node_to_step(n) for n in nodes.values()]
 
-    async def stream_logs(
+    async def stream_logs(  # type: ignore
         self, *, namespace: str, argo_name: str, step_name: str | None = None
     ) -> AsyncIterator[str]:
         # Argo v3.0.x 的 Workflow CRD 不注册 /log 子资源（CRD subresources={}），
