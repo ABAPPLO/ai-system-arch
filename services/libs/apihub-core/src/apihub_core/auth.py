@@ -82,9 +82,10 @@ async def authenticate_request(
             payload = jwt_utils.decode_token(api_key, settings.jwt_secret)
         except jwt_utils.JWTError:
             raise ApiError(ErrorCode.UNAUTHORIZED, "invalid or expired token") from None
+        # tenant_type：平台超管（admin SSO）→ "system"；portal 外部开发者 → "external"。
         ctx = TenantContext(
             tenant_id=payload["tenant_id"],
-            tenant_type="external",
+            tenant_type="system" if payload.get("is_platform_admin") else "external",
             user_id=payload["user_id"],
             is_platform_admin=payload.get("is_platform_admin", False),
         )

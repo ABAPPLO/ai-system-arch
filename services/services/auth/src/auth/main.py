@@ -24,6 +24,10 @@ app = create_app(
         "/v1/auth/register",
         "/v1/auth/verify-email",
         "/v1/auth/login",
+        # Admin 钉钉 SSO：浏览器跳转钉钉 IdP → 回调，发生在鉴权之前（无凭证），
+        # 同其它 /v1/auth/* 公开端点；K8s NetworkPolicy / 反代限来源。
+        "/v1/auth/dingtalk/authorize",
+        "/v1/auth/dingtalk/callback",
         "/docs",  # dev 用，prod 关掉
         "/openapi.json",
     ),

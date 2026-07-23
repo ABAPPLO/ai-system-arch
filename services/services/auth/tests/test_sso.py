@@ -1,0 +1,182 @@
+"""Admin 钉钉 SSO 单测。"""
+
+import pytest
+from apihub_core.config import Settings
+from httpx import ASGITransport, AsyncClient
+
+
+def test_bootstrap_unionids_parses_csv():
+    s = Settings(dingtalk_client_id="x")  # 其余必填走 conftest env
+    s.bootstrap_admin_dingtalk_unionids = "uid1, uid2 ,, uid3"
+    from auth.identity import _bootstrap_admin_unionids
+
+    assert _bootstrap_admin_unionids(s) == {"uid1", "uid2", "uid3"}
+
+
+def test_bootstrap_unionids_empty():
+    s = Settings(dingtalk_client_id="x")
+    s.bootstrap_admin_dingtalk_unionids = ""
+    from auth.identity import _bootstrap_admin_unionids
+
+    assert _bootstrap_admin_unionids(s) == set()
+
+
+class _FakeConn:
+    """记录 SQL + 按预设回 fetchrow。"""
+
+    def __init__(self, existing=None):
+        self.existing = existing  # dict | None（既有的 user_account 行）
+        self.executed = []
+
+    async def fetchrow(self, sql, *args):
+        if "FROM user_account WHERE sso_provider" in sql:
+            return self.existing
+        if "RETURNING" in sql and self.existing:
+            return {"id": self.existing["id"]}
+        return None
+
+    async def execute(self, sql, *args):
+        self.executed.append((sql, args))
+
+
+class _FakeSession:
+    def __init__(self, existing=None):
+        self._conn = _FakeConn(existing)
+
+    async def __aenter__(self):
+        return self._conn
+
+    async def __aexit__(self, *exc):
+        return False
+
+
+@pytest.mark.asyncio
+async def test_upsert_sso_user_creates_new(monkeypatch):
+    s = Settings(dingtalk_client_id="x")
+    s.bootstrap_admin_dingtalk_unionids = "UID_ADMIN"
+    monkeypatch.setattr("apihub_core.config.get_settings", lambda: s)
+    fake = _FakeSession(existing=None)
+    monkeypatch.setattr("apihub_core.db.admin_db_session", lambda **kw: fake)
+
+    from auth import identity
+
+    result = await identity.upsert_sso_user(union_id="UID_ADMIN", name="Alice")
+    assert result["is_platform_admin"] is True
+    assert result["name"] == "Alice"
+    assert any("INSERT INTO user_account" in sql for sql, _ in fake._conn.executed)
+
+
+@pytest.mark.asyncio
+async def test_upsert_sso_user_relogin_non_admin(monkeypatch):
+    s = Settings(dingtalk_client_id="x")
+    s.bootstrap_admin_dingtalk_unionids = ""  # 不命中
+    monkeypatch.setattr("apihub_core.config.get_settings", lambda: s)
+    existing = {"id": "u_existing", "is_platform_admin": False}
+    fake = _FakeSession(existing=existing)
+    monkeypatch.setattr("apihub_core.db.admin_db_session", lambda **kw: fake)
+
+    from auth import identity
+
+    result = await identity.upsert_sso_user(union_id="UID_X", name="Bob")
+    assert result["user_id"] == "u_existing"
+    assert result["is_platform_admin"] is False
+    assert not any("INSERT INTO user_account" in sql for sql, _ in fake._conn.executed)
+
+
+def test_build_authorize_url():
+    from auth import dingtalk
+
+    url = dingtalk.build_authorize_url(
+        client_id="cid",
+        redirect_uri="http://localhost:5173/login/callback",
+        state="xyz",
+    )
+    assert url.startswith("https://login.dingtalk.com/oauth2/auth?")
+    assert "client_id=cid" in url
+    assert "state=xyz" in url
+    assert "scope=openid" in url
+
+
+@pytest.mark.asyncio
+async def test_mock_exchange_and_userinfo():
+    from auth import dingtalk
+
+    s = Settings(dingtalk_client_id="cid", dingtalk_mock_mode=True)
+    token = await dingtalk.exchange_code_for_token(settings=s, code="mock:UID1:Alice")
+    assert token == "mock-token:UID1:Alice"
+    info = await dingtalk.fetch_userinfo(settings=s, access_token=token)
+    assert info == {"union_id": "UID1", "name": "Alice"}
+
+
+# ---------- 端点级（authorize / callback）----------
+
+
+@pytest.mark.asyncio
+async def test_authorize_returns_url_and_stores_state(monkeypatch, fake_redis):
+    s = Settings(dingtalk_client_id="cid", dingtalk_mock_mode=True)
+    monkeypatch.setattr("auth.routes.get_settings", lambda: s)
+    from auth.main import app
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://t") as c:
+        r = await c.get(
+            "/v1/auth/dingtalk/authorize", params={"redirect": "http://localhost:5173/x"}
+        )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["authorize_url"].startswith("https://login.dingtalk.com/oauth2/auth?")
+    st = body["state"]
+    from apihub_core import redis as redis_mod
+
+    assert await redis_mod.t_get(f"t:sso:state:{st}") == "http://localhost:5173/x"
+
+
+@pytest.mark.asyncio
+async def test_callback_rejects_bad_state(monkeypatch, fake_redis):
+    s = Settings(dingtalk_client_id="cid", dingtalk_mock_mode=True)
+    monkeypatch.setattr("auth.routes.get_settings", lambda: s)
+    from auth.main import app
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://t") as c:
+        r = await c.post(
+            "/v1/auth/dingtalk/callback",
+            json={"code": "mock:UID1:Alice", "state": "never-stored"},
+        )
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_callback_issues_admin_jwt(monkeypatch, fake_redis):
+    s = Settings(
+        dingtalk_client_id="cid",
+        dingtalk_mock_mode=True,
+        bootstrap_admin_dingtalk_unionids="UID1",
+        jwt_secret="test-secret-test-secret-test-secret",
+    )
+    monkeypatch.setattr("auth.routes.get_settings", lambda: s)
+
+    async def _fake_upsert(*, union_id, name, provider="dingtalk"):
+        return {"user_id": "u_uid1", "name": name, "is_platform_admin": True}
+
+    monkeypatch.setattr("auth.routes.upsert_sso_user", _fake_upsert)
+    from auth.main import app
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://t") as c:
+        ar = await c.get(
+            "/v1/auth/dingtalk/authorize", params={"redirect": "http://localhost:5173/x"}
+        )
+        state = ar.json()["state"]
+        r = await c.post(
+            "/v1/auth/dingtalk/callback",
+            json={"code": "mock:UID1:Alice", "state": state},
+        )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["user"]["is_platform_admin"] is True
+    from apihub_core import jwt_utils
+
+    payload = jwt_utils.decode_token(body["access_token"], s.jwt_secret)
+    assert payload["is_platform_admin"] is True
+    assert payload["tenant_id"] == "platform"

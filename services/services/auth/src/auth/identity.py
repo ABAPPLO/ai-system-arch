@@ -15,7 +15,16 @@ from apihub_core.logging import get_logger
 log = get_logger(__name__)
 
 EXTERNAL_PUBLIC_TENANT = "external-public"
+PLATFORM_TENANT = (
+    "platform"  # admin JWT tenant_id 标签（admin_db_session 旁路 RLS，无需 tenant 行）
+)
 VERIFY_TTL = 86400  # 24h
+
+
+def _bootstrap_admin_unionids(settings: "object") -> set[str]:
+    """解析 BOOTSTRAP_ADMIN_DINGTALK_UNIONIDS 逗号列表（容空白/空段）。"""
+    raw = getattr(settings, "bootstrap_admin_dingtalk_unionids", "") or ""
+    return {part.strip() for part in raw.split(",") if part.strip()}
 
 
 def _hash_password(password: str) -> str:
@@ -172,6 +181,59 @@ async def refresh_access(refresh_token: str) -> dict:
         "refresh_token": new_refresh,
         "expires_in": s.jwt_ttl_seconds,
     }
+
+
+async def upsert_sso_user(*, union_id: str, name: str, provider: str = "dingtalk") -> dict:
+    """SSO 登录 upsert 用户身份（admin 钉钉登录用）。
+
+    首次登录：建 user_account（合成 email 满足 UNIQUE NOT NULL；verification_level
+    'enterprise'；status 'active'）。复用：按 (provider, union_id) 命中则更新 last_login + 名字。
+    bootstrap 命中 → is_platform_admin=true（仅设不撤）；未命中保留原值（默认 false）。
+    不落 tenant_member（admin 是平台级全局身份，admin_db_session 旁路 RLS）。
+    """
+    from apihub_core.config import get_settings  # noqa: PLC0415
+    from apihub_core.pii import encrypt_pii  # noqa: PLC0415
+
+    s = get_settings()
+    is_admin = union_id in _bootstrap_admin_unionids(s)
+    synth_email = f"{union_id}@{provider}.sso.local"
+
+    async with db.admin_db_session() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, is_platform_admin FROM user_account"
+            " WHERE sso_provider=$1 AND sso_union_id=$2",
+            provider,
+            union_id,
+        )
+        if row:
+            user_id = row["id"]
+            admin_clause = ", is_platform_admin=true" if is_admin else ""
+            await conn.execute(
+                "UPDATE user_account SET last_login_at=NOW(), name=$2"  # noqa: S608
+                + admin_clause
+                + " WHERE id=$1",
+                user_id,
+                encrypt_pii(name),
+            )
+            cur_admin = is_admin or bool(row["is_platform_admin"])
+        else:
+            user_id = f"u_{secrets.token_hex(8)}"
+            await conn.execute(
+                "INSERT INTO user_account"
+                " (id, email, name, verification_level, status, sso_provider, sso_union_id,"
+                "  is_platform_admin, last_login_at)"
+                " VALUES ($1, $2, $3, 'enterprise', 'active', $4, $5, $6, NOW())",
+                user_id,
+                synth_email,
+                encrypt_pii(name),
+                provider,
+                union_id,
+                is_admin,
+            )
+            cur_admin = is_admin
+
+    log.info("sso_user_upserted", user_id=user_id, provider=provider, is_platform_admin=cur_admin)
+    return {"user_id": user_id, "name": name, "is_platform_admin": cur_admin}
 
 
 async def anonymize_user(*, user_id: str) -> None:

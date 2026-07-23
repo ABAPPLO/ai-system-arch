@@ -93,6 +93,19 @@ class Settings(BaseSettings):
     jwt_ttl_seconds: int = 7200  # access token 2h
     jwt_refresh_ttl_seconds: int = 604800  # refresh token 7天
 
+    # Admin SSO（钉钉 OAuth）—— admin 控制台浏览器登录。
+    # 凭据可选：dingtalk_client_id 为空 → SSO 未启用（authorize/callback 返 503），
+    # admin 仍可用 X-API-Key 机器访问（spec §10）。不加入 _INSECURE_DEFAULTS。
+    dingtalk_client_id: str = ""
+    dingtalk_client_secret: str = ""  # noqa: S105  prod 经 external-secrets 注入
+    dingtalk_corp_id: str = ""
+    dingtalk_sso_redirect_uri: str = "http://localhost:5173/login/callback"
+    # dev/kind：mock IdP（免真实钉钉应用即可全链 e2e），同 argo_mode=stub 哲学。
+    dingtalk_mock_mode: bool = False
+    # 命中即置平台超管（仅 upsert 时设，不撤）。逗号分隔 unionId。
+    bootstrap_admin_dingtalk_unionids: str = ""
+    admin_jwt_ttl_seconds: int = 28800  # admin access token 8h
+
     # AI Gateway（ai-gateway 微服务用）
     ai_gateway_encryption_key: str = ""
 

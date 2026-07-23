@@ -132,6 +132,13 @@ class RefreshRequest(BaseModel):
     refresh_token: str
 
 
+class DingTalkCallbackRequest(BaseModel):
+    """钉钉 SSO 回调请求（前端 LoginCallback 提交 code+state）。"""
+
+    code: str = Field(min_length=1)
+    state: str = Field(min_length=1)
+
+
 class DeleteAccountResponse(BaseModel):
     """账号删除响应。"""
 
