@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Spin, Alert } from 'antd';
 
@@ -15,6 +15,8 @@ export default function LoginCallback() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const [error, setError] = useState<string | null>(null);
+  // 防 dev React StrictMode 双触发 effect（钉钉 code 一次性，第二次 POST 会 401）。prod 无双触发。
+  const called = useRef(false);
 
   useEffect(() => {
     const code = params.get('code');
@@ -23,6 +25,8 @@ export default function LoginCallback() {
       setError('缺少 code/state 参数');
       return;
     }
+    if (called.current) return;
+    called.current = true;
     api
       .post<SsoResponse>(
         '/api/auth/v1/auth/dingtalk/callback',
