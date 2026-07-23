@@ -2,6 +2,7 @@
 
 import pytest
 from apihub_core.config import Settings
+from httpx import ASGITransport, AsyncClient
 
 
 def test_bootstrap_unionids_parses_csv():
@@ -105,3 +106,77 @@ async def test_mock_exchange_and_userinfo():
     assert token == "mock-token:UID1:Alice"
     info = await dingtalk.fetch_userinfo(settings=s, access_token=token)
     assert info == {"union_id": "UID1", "name": "Alice"}
+
+
+# ---------- 端点级（authorize / callback）----------
+
+
+@pytest.mark.asyncio
+async def test_authorize_returns_url_and_stores_state(monkeypatch, fake_redis):
+    s = Settings(dingtalk_client_id="cid", dingtalk_mock_mode=True)
+    monkeypatch.setattr("auth.routes.get_settings", lambda: s)
+    from auth.main import app
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://t") as c:
+        r = await c.get(
+            "/v1/auth/dingtalk/authorize", params={"redirect": "http://localhost:5173/x"}
+        )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["authorize_url"].startswith("https://login.dingtalk.com/oauth2/auth?")
+    st = body["state"]
+    from apihub_core import redis as redis_mod
+
+    assert await redis_mod.t_get(f"t:sso:state:{st}") == "http://localhost:5173/x"
+
+
+@pytest.mark.asyncio
+async def test_callback_rejects_bad_state(monkeypatch, fake_redis):
+    s = Settings(dingtalk_client_id="cid", dingtalk_mock_mode=True)
+    monkeypatch.setattr("auth.routes.get_settings", lambda: s)
+    from auth.main import app
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://t") as c:
+        r = await c.post(
+            "/v1/auth/dingtalk/callback",
+            json={"code": "mock:UID1:Alice", "state": "never-stored"},
+        )
+    assert r.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_callback_issues_admin_jwt(monkeypatch, fake_redis):
+    s = Settings(
+        dingtalk_client_id="cid",
+        dingtalk_mock_mode=True,
+        bootstrap_admin_dingtalk_unionids="UID1",
+        jwt_secret="test-secret-test-secret-test-secret",
+    )
+    monkeypatch.setattr("auth.routes.get_settings", lambda: s)
+
+    async def _fake_upsert(*, union_id, name, provider="dingtalk"):
+        return {"user_id": "u_uid1", "name": name, "is_platform_admin": True}
+
+    monkeypatch.setattr("auth.routes.upsert_sso_user", _fake_upsert)
+    from auth.main import app
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://t") as c:
+        ar = await c.get(
+            "/v1/auth/dingtalk/authorize", params={"redirect": "http://localhost:5173/x"}
+        )
+        state = ar.json()["state"]
+        r = await c.post(
+            "/v1/auth/dingtalk/callback",
+            json={"code": "mock:UID1:Alice", "state": state},
+        )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["user"]["is_platform_admin"] is True
+    from apihub_core import jwt_utils
+
+    payload = jwt_utils.decode_token(body["access_token"], s.jwt_secret)
+    assert payload["is_platform_admin"] is True
+    assert payload["tenant_id"] == "platform"

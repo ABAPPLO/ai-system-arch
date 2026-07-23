@@ -8,9 +8,12 @@
    - 走标准 APIKey middleware，自动注入 TenantContext
 """
 
+import secrets
 import uuid
 
+from apihub_core import jwt_utils, redis
 from apihub_core.apisix_client import upsert_consumer
+from apihub_core.config import get_settings
 from apihub_core.errors import ApiError, ErrorCode
 from apihub_core.logging import get_logger
 from apihub_core.tenant import require_tenant
@@ -18,6 +21,8 @@ from fastapi import FastAPI
 
 from auth.apikey import generate_api_key, is_valid_format
 from auth.cache import cache_negative, cache_positive, get_cached, invalidate
+from auth.dingtalk import build_authorize_url, exchange_code_for_token, fetch_userinfo
+from auth.identity import PLATFORM_TENANT, upsert_sso_user
 from auth.models import (
     ApiKeyCreate,
     ApiKeyListItem,
@@ -28,6 +33,7 @@ from auth.models import (
     ConsentResponse,
     ConsentWithdrawResponse,
     DeleteAccountResponse,
+    DingTalkCallbackRequest,
     ExportResponse,
     HmacSecretRequest,
     HmacSecretResponse,
@@ -50,6 +56,19 @@ from auth.repository import (
 )
 
 log = get_logger(__name__)
+
+
+def _assert_allowed_redirect(redirect: str, settings: object) -> None:
+    """仅允许 admin origin 的回跳（防开放重定向）。dev 放行 localhost。"""
+    from urllib.parse import urlparse  # noqa: PLC0415
+
+    host = (urlparse(redirect).hostname or "").lower()
+    if host in ("localhost", "127.0.0.1") or host.endswith(".apihub.internal"):
+        return
+    allowed = (urlparse(getattr(settings, "dingtalk_sso_redirect_uri", "")).hostname or "").lower()
+    if allowed and host == allowed:
+        return
+    raise ApiError(ErrorCode.INVALID_INPUT, "redirect origin not allowed", http_status=400)
 
 
 async def _inject_home_region_on_create(*, key_id: str, key: str, tenant_id: str) -> None:
@@ -343,6 +362,78 @@ def register_routes(app: FastAPI) -> None:
         from auth import identity
 
         return await identity.refresh_access(payload.refresh_token)
+
+    # ========== Admin 钉钉 SSO（公开，skip APIKey middleware）==========
+
+    @app.get("/v1/auth/dingtalk/authorize")
+    async def dingtalk_authorize(redirect: str):
+        """生成钉钉授权 URL + state（CSRF，存 Redis TTL 600s）。
+
+        redirect 经白名单校验（仅 admin origin），防开放重定向。SSO 未启用 → 503。
+        """
+        s = get_settings()
+        if not s.dingtalk_client_id and not s.dingtalk_mock_mode:
+            raise ApiError(ErrorCode.INTERNAL, "SSO not configured", http_status=503)
+        _assert_allowed_redirect(redirect, s)
+        state = secrets.token_urlsafe(24)
+        await redis.t_set(f"t:sso:state:{state}", redirect, ex=600)
+        url = build_authorize_url(
+            client_id=s.dingtalk_client_id or "mock",
+            redirect_uri=s.dingtalk_sso_redirect_uri,
+            state=state,
+        )
+        return {"authorize_url": url, "state": state}
+
+    @app.post("/v1/auth/dingtalk/callback", response_model=AuthResponse)
+    async def dingtalk_callback(payload: DingTalkCallbackRequest):
+        """code+state → 换 token → 取 unionId → upsert user → 签 admin JWT。
+
+        state 一次性（校验后即删）。mock 模式不打真实钉钉。
+        """
+        s = get_settings()
+        if not s.dingtalk_client_id and not s.dingtalk_mock_mode:
+            raise ApiError(ErrorCode.INTERNAL, "SSO not configured", http_status=503)
+        state_key = f"t:sso:state:{payload.state}"
+        stored = await redis.t_get(state_key)
+        if not stored:
+            raise ApiError(ErrorCode.UNAUTHORIZED, "invalid or expired state", http_status=401)
+        await redis.t_delete(state_key)
+
+        access_token = await exchange_code_for_token(settings=s, code=payload.code)
+        info = await fetch_userinfo(settings=s, access_token=access_token)
+        user = await upsert_sso_user(
+            union_id=info["union_id"], name=info["name"], provider="dingtalk"
+        )
+
+        access = jwt_utils.issue_token(
+            user_id=user["user_id"],
+            tenant_id=PLATFORM_TENANT,
+            secret=s.jwt_secret,
+            ttl_seconds=s.admin_jwt_ttl_seconds,
+            is_platform_admin=user["is_platform_admin"],
+        )
+        refresh = jwt_utils.issue_refresh_token(
+            user_id=user["user_id"],
+            tenant_id=PLATFORM_TENANT,
+            secret=s.jwt_secret,
+            ttl_seconds=s.jwt_refresh_ttl_seconds,
+        )
+        rt_payload = jwt_utils.decode_token(refresh, s.jwt_secret)
+        await redis.t_set(
+            f"t:refresh:{rt_payload['jti']}", user["user_id"], ex=s.jwt_refresh_ttl_seconds
+        )
+        log.info("sso_login", user_id=user["user_id"], is_platform_admin=user["is_platform_admin"])
+        return AuthResponse(
+            access_token=access,
+            refresh_token=refresh,
+            expires_in=s.admin_jwt_ttl_seconds,
+            user={
+                "id": user["user_id"],
+                "name": user["name"],
+                "is_platform_admin": user["is_platform_admin"],
+                "tenant_id": PLATFORM_TENANT,
+            },
+        )
 
     @app.delete("/v1/auth/account", response_model=DeleteAccountResponse)
     async def delete_account():
