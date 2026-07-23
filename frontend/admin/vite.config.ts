@@ -11,6 +11,8 @@ const targets = {
   registry: 'http://localhost:8000',
   retry: 'http://localhost:8009',
   trace: 'http://localhost:8008',
+  tenant: 'http://localhost:8005',
+  docs: 'http://localhost:8007',
 };
 
 export default defineConfig({
@@ -37,6 +39,16 @@ export default defineConfig({
         target: targets.trace,
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api\/trace/, ''),
+      },
+      '/api/tenant': {
+        target: targets.tenant,
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/api\/tenant/, ''),
+      },
+      '/api/docs': {
+        target: targets.docs,
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/api\/docs/, ''),
       },
     },
   },

@@ -7,6 +7,8 @@ import {
   FileSearchOutlined,
   ApiOutlined,
   AuditOutlined,
+  TeamOutlined,
+  LineChartOutlined,
 } from '@ant-design/icons';
 import { Dropdown, Space, Tag } from 'antd';
 
@@ -19,6 +21,8 @@ const ROUTES = {
     { path: '/change-requests', name: '评审工单', icon: <FileSearchOutlined /> },
     { path: '/apis', name: '接口管理', icon: <ApiOutlined /> },
     { path: '/audit', name: '审计日志', icon: <AuditOutlined /> },
+    { path: '/calls', name: '调用日志', icon: <LineChartOutlined /> },
+    { path: '/tenants', name: '租户管理', icon: <TeamOutlined /> },
   ],
 };
 

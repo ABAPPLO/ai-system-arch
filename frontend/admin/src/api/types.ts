@@ -160,6 +160,8 @@ export type ApiDetail = ApiListItem;
 
 // ===== trace-svc =====
 
+export type CallStatus = 'all' | 'success' | 'failed' | 'timeout';
+
 export interface CallListItem {
   trace_id: string;
   api_id: string;
@@ -168,9 +170,140 @@ export interface CallListItem {
   api_version: string;
   app_id: string;
   app_name: string | null;
+  caller_ip: string | null;
   http_status: number;
   is_success: boolean;
   is_timeout: boolean;
   latency_ms: number;
+  error_type: string | null;
+  error_msg: string | null;
   ts: string;
+}
+
+export interface CallDetail extends CallListItem {
+  parent_trace_id: string | null;
+  span_id: string | null;
+  api_mode: string | null;
+  env: string | null;
+  gateway_node: string | null;
+  req_id: string | null;
+  req_size: number | null;
+  resp_size: number | null;
+  gateway_latency_ms: number | null;
+  backend_latency_ms: number | null;
+  is_streaming: boolean;
+  token_prompt: number | null;
+  token_completion: number | null;
+  token_total: number | null;
+  ai_model: string | null;
+  is_retry: boolean;
+  retry_no: number | null;
+  task_id: string | null;
+}
+
+export interface CallStats {
+  total: number;
+  success_count: number;
+  failed_count: number;
+  timeout_count: number;
+  success_rate: number;
+  p50_latency_ms: number;
+  p95_latency_ms: number;
+  p99_latency_ms: number;
+  avg_latency_ms: number;
+  qps: number;
+  top_apis: Record<string, unknown>[];
+  by_hour: Record<string, unknown>[];
+}
+
+// ===== tenant-svc =====
+
+export interface TenantListItem {
+  id: string;
+  name: string;
+  slug: string;
+  type: string; // internal / external / system
+  status: string; // active / suspended / closed
+  tier: string; // free / standard / premium
+  parent_id: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export type TenantDetail = TenantListItem;
+
+export interface TenantCreateBody {
+  id: string;
+  name: string;
+  slug: string;
+  type?: string;
+  parent_id?: string | null;
+  tier?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface TenantUpdateBody {
+  name?: string;
+  slug?: string;
+  tier?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface TenantMember {
+  id: string;
+  tenant_id: string;
+  user_id: string;
+  role: string; // owner / admin / developer / viewer
+  created_at: string;
+}
+
+export interface TenantQuota {
+  day_limit: number;
+  rate_limit: Record<string, unknown>;
+}
+
+export interface TenantUsage {
+  tenant_id: string;
+  day_used: number;
+  day_limit: number;
+  remaining: number;
+}
+
+// ===== api-registry (api_version) =====
+
+export interface ApiVersion {
+  id: string;
+  api_id: string;
+  version: string;
+  backend_type: string; // http / async_task / workflow / ai_model
+  backend_url: string;
+  method: string;
+  path: string;
+  status: string; // draft / reviewing / published / deprecated / retired
+  ai_model: string | null;
+  ai_streaming: boolean;
+  created_at: string;
+  published_at: string | null;
+}
+
+export interface ApiCreateBody {
+  name: string;
+  description?: string | null;
+  category: string;
+  base_path: string;
+  tags?: string[];
+}
+
+export interface ApiVersionCreateBody {
+  api_id: string;
+  version: string; // v1, v2, ...
+  backend_type?: string;
+  backend_url: string;
+  method?: string;
+  path: string;
+  request_schema?: Record<string, unknown> | null;
+  response_schema?: Record<string, unknown> | null;
+  ai_model?: string | null;
+  ai_streaming?: boolean;
 }
