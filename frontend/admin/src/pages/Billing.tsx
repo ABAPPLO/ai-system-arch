@@ -1,47 +1,133 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import { PageContainer } from '@ant-design/pro-components';
+import {
+  Button,
+  Card,
+  DatePicker,
+  Input,
+  Space,
+  Spin,
+  Table,
+  Tag,
+} from 'antd';
+import { ReloadOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
+import type { ColumnsType } from 'antd/es/table';
+
 import { api } from '../api/client';
 
-function fmtCents(c: number): string { return `¥${(c / 100).toFixed(2)}`; }
+function fmtCents(c: number): string {
+  return `¥${(c / 100).toFixed(2)}`;
+}
+
+interface BillingItem {
+  tenant_id: string;
+  plan_name: string | null;
+  total_calls: number | null;
+  base_cents: number | null;
+  overage_cents: number | null;
+  status: string | null;
+}
+
+const STATUS_COLOR: Record<string, string> = {
+  invoiced: 'green',
+  pending: 'orange',
+};
+
+function currentPeriod(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+}
 
 export function Billing() {
-  const [items, setItems] = useState<any[]>([]);
-  const [period, setPeriod] = useState(() => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`; });
+  const [items, setItems] = useState<BillingItem[]>([]);
+  const [period, setPeriod] = useState<string>(currentPeriod);
   const [search, setSearch] = useState('');
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
-  const fetchData = async () => {
+  const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await api.get<any>('/v1/admin/billing/summary', { period, search });
+      const r = await api.get<{ items: BillingItem[] }>(
+        '/v1/admin/billing/summary',
+        { period, search: search || undefined },
+      );
       setItems(r.items || []);
-    } catch (e) { console.error(e); }
-    finally { setLoading(false); }
-  };
+    } catch (e) {
+      // billing-svc 属 P3，端点/代理未就绪时静默置空（后续单独接线）
+      console.error(e);
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [period, search]);
 
-  useEffect(() => { fetchData(); }, [period, search]);
+  useEffect(() => {
+    void fetchData();
+  }, [fetchData]);
+
+  const columns: ColumnsType<BillingItem> = [
+    { title: '租户', dataIndex: 'tenant_id', key: 'tenant_id' },
+    {
+      title: 'Plan',
+      dataIndex: 'plan_name',
+      key: 'plan_name',
+      align: 'center',
+      render: (v: string | null) => v || '—',
+    },
+    {
+      title: '调用量',
+      dataIndex: 'total_calls',
+      key: 'total_calls',
+      align: 'right',
+      render: (v: number | null) => (v ?? 0).toLocaleString(),
+    },
+    {
+      title: '费用',
+      key: 'fee',
+      align: 'right',
+      render: (_v, r) => fmtCents((r.base_cents ?? 0) + (r.overage_cents ?? 0)),
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      key: 'status',
+      align: 'right',
+      render: (v: string | null) =>
+        v ? <Tag color={STATUS_COLOR[v] ?? 'default'}>{v}</Tag> : '—',
+    },
+  ];
 
   return (
-    <div className="p-4">
-      <h1 className="text-2xl font-bold mb-4">计费管理</h1>
-      <div className="flex gap-2 mb-4 items-center">
-        <input type="month" value={period} onChange={e => setPeriod(e.target.value)} className="border rounded px-3 py-1" />
-        <button onClick={fetchData} className="bg-blue-600 text-white px-4 py-1 rounded">刷新</button>
-        <input placeholder="搜索租户..." value={search} onChange={e => setSearch(e.target.value)} className="border rounded px-3 py-1 ml-auto" />
-      </div>
-      {loading ? <div className="animate-spin w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full" /> : (
-        <table className="w-full text-sm">
-          <thead><tr className="border-b"><th className="text-left py-2">租户</th><th>Plan</th><th className="text-right">调用量</th><th className="text-right">费用</th><th className="text-right">状态</th></tr></thead>
-          <tbody>{items.map((i, idx) => (
-            <tr key={i.tenant_id || idx} className="border-b hover:bg-gray-50">
-              <td className="py-2">{i.tenant_id}</td>
-              <td className="text-center">{i.plan_name}</td>
-              <td className="text-right">{(i.total_calls||0).toLocaleString()}</td>
-              <td className="text-right">{fmtCents((i.base_cents||0)+(i.overage_cents||0))}</td>
-              <td className="text-right"><span className={`text-xs px-1.5 py-0.5 rounded ${i.status === 'invoiced' ? 'bg-green-100 text-green-700' : i.status === 'pending' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100'}`}>{i.status}</span></td>
-            </tr>
-          ))}</tbody>
-        </table>
-      )}
-    </div>
+    <PageContainer header={{ title: '计费管理' }}>
+      <Card>
+        <Space style={{ marginBottom: 16 }} wrap>
+          <DatePicker
+            picker="month"
+            value={dayjs(period + '-01')}
+            onChange={(v) => v && setPeriod(v.format('YYYY-MM'))}
+            allowClear={false}
+          />
+          <Button icon={<ReloadOutlined />} onClick={() => void fetchData()}>
+            刷新
+          </Button>
+          <Input.Search
+            placeholder="搜索租户..."
+            allowClear
+            enterButton
+            style={{ width: 240, marginLeft: 'auto' }}
+            onSearch={(v) => setSearch(v)}
+          />
+        </Space>
+        <Table<BillingItem>
+          rowKey="tenant_id"
+          columns={columns}
+          dataSource={items}
+          loading={loading}
+          pagination={{ pageSize: 20 }}
+          locale={{ emptyText: loading ? <Spin /> : '暂无数据' }}
+        />
+      </Card>
+    </PageContainer>
   );
 }
