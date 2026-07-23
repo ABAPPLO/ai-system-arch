@@ -8,7 +8,7 @@ class _FakeExecutorClient:
 
     def __init__(self, *, status_code=200, body=None, raise_error=None):
         self._status = status_code
-        self._body = body or {"ok": True}
+        self._body = body or {"succeeded": True}
         self._raise = raise_error
 
     async def post(self, url, json=None, timeout=None):  # noqa: ARG002, ASYNC109
@@ -126,7 +126,7 @@ class TestExecuteOne:
         fake_detail_factory[1] = detail
 
         worker = wmod.RetryWorker()
-        worker._client = _FakeExecutorClient(status_code=200, body={"ok": True})
+        worker._client = _FakeExecutorClient(status_code=200, body={"succeeded": True})
 
         await worker._execute_one(tenant_id=42, retry_task_id=1)
 
