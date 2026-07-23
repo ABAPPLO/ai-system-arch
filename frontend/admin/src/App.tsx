@@ -5,6 +5,7 @@ import { Spin } from 'antd';
 import { getAuth } from './api/client';
 import Layout from './components/Layout';
 import Login from './pages/Login';
+import LoginCallback from './pages/LoginCallback';
 
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Retry = lazy(() => import('./pages/Retry'));
@@ -33,6 +34,7 @@ export default function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
+      <Route path="/login/callback" element={<LoginCallback />} />
       <Route
         path="/"
         element={

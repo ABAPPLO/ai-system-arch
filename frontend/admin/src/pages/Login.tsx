@@ -1,41 +1,30 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Card, Form, Input, Button, Typography, Alert, Space } from 'antd';
+import { Card, Button, Typography, Alert, Space } from 'antd';
 
-import { api, setAuth } from '../api/client';
+import { api } from '../api/client';
 
 /**
- * Phase 2 简化登录：
- *   - 输入 X-API-Key（dev 用本地的 ak_xxx）
- *   - 调 /v1/admin/health 验证（带 X-API-Key）—— 200 = key 有效
- *   - 把 key 写 localStorage
- *
- * Phase 3 替换为 OAuth2 / SSO（OIDC），通过 admin-bff 换 token。
+ * Admin 登录 —— 钉钉 OAuth2 SSO。
+ * 点「钉钉登录」→ 调 auth /v1/auth/dingtalk/authorize 拿授权 URL → 跳钉钉扫码 →
+ * 回跳 /login/callback?code=..&state=.. 由 LoginCallback 换 JWT。
+ * 身份（isPlatformAdmin/tenantId）由后端 JWT 签发，前端不再伪造。
  */
 export default function Login() {
-  const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [form] = Form.useForm<{ apiKey: string; name: string }>();
 
-  const onFinish = async ({ apiKey, name }: { apiKey: string; name: string }) => {
+  const start = async () => {
     setLoading(true);
     setError(null);
     try {
-      // 试探：拿 dashboard。能拿到说明 key 有效且是超管
-      const data = await api.get<{ audit_today: number }>('/api/admin/v1/admin/dashboard', undefined);
-      // 暂时把 user 信息从表单填（Phase 3 由后端返回）
-      setAuth(apiKey, {
-        id: name,
-        name,
-        isPlatformAdmin: true,
-        tenantId: 'platform',
-      });
-      void data; // 占位，证明请求成功
-      navigate('/');
+      const data = await api.get<{ authorize_url: string }>(
+        '/api/auth/v1/auth/dingtalk/authorize',
+        { redirect: `${window.location.origin}/login/callback` },
+      );
+      window.location.href = data.authorize_url;
     } catch (e) {
       const msg = e instanceof Error ? e.message : 'unknown error';
-      setError(`登录失败：${msg}`);
+      setError(`发起钉钉登录失败：${msg}`);
     } finally {
       setLoading(false);
     }
@@ -56,31 +45,11 @@ export default function Login() {
           <Typography.Title level={3} style={{ margin: 0 }}>
             APIHub Admin
           </Typography.Title>
-          <Typography.Text type="secondary">
-            Phase 2 dev 登录：本地填 X-API-Key（生产走 SSO）
-          </Typography.Text>
-
+          <Typography.Text type="secondary">使用钉钉账号登录管理控制台</Typography.Text>
           {error && <Alert type="error" message={error} showIcon closable />}
-
-          <Form form={form} layout="vertical" onFinish={onFinish}>
-            <Form.Item
-              name="name"
-              label="用户名"
-              rules={[{ required: true, message: '请输入用户名' }]}
-            >
-              <Input placeholder="u_admin" />
-            </Form.Item>
-            <Form.Item
-              name="apiKey"
-              label="X-API-Key"
-              rules={[{ required: true, message: '请输入 API Key' }]}
-            >
-              <Input.Password placeholder="ak_xxx" autoComplete="off" />
-            </Form.Item>
-            <Button type="primary" htmlType="submit" loading={loading} block>
-              登录
-            </Button>
-          </Form>
+          <Button type="primary" loading={loading} onClick={start} block>
+            钉钉登录
+          </Button>
         </Space>
       </Card>
     </div>

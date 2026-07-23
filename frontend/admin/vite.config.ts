@@ -14,6 +14,7 @@ const targets = {
   tenant: 'http://localhost:8005',
   docs: 'http://localhost:8007',
   billing: 'http://localhost:8014',
+  auth: 'http://localhost:8002',
 };
 
 export default defineConfig({
@@ -55,6 +56,11 @@ export default defineConfig({
         target: targets.billing,
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api\/billing/, ''),
+      },
+      '/api/auth': {
+        target: targets.auth,
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/api\/auth/, ''),
       },
     },
   },
