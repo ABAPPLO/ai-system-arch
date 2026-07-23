@@ -117,3 +117,29 @@ export const api = {
     request<T>(path, { method: 'PUT', body }),
   del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 };
+
+/**
+ * 下载 CSV（带 X-API-Key）。fetch → blob → 触发浏览器下载。
+ */
+export async function downloadCsv(
+  url: string,
+  filename: string,
+): Promise<void> {
+  const headers: Record<string, string> = {};
+  const auth = getAuth();
+  if (auth) headers['X-API-Key'] = auth.apiKey;
+
+  const resp = await fetch(url, { headers });
+  if (!resp.ok) {
+    throw new ApiError(resp.status, resp.status, `导出失败：HTTP ${resp.status}`);
+  }
+  const blob = await resp.blob();
+  const objUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = objUrl;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(objUrl);
+}

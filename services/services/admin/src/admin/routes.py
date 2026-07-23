@@ -11,12 +11,16 @@
   - dashboard：超管 only（聚合数据跨租户）
 """
 
+import csv
+import io
+from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 
 from apihub_core.errors import ApiError, ErrorCode
 from apihub_core.logging import get_logger
 from apihub_core.tenant import require_tenant
 from fastapi import FastAPI, Request
+from fastapi.responses import StreamingResponse
 
 from admin import repository
 from admin.aggregator import get_aggregator
@@ -118,12 +122,37 @@ def register_routes(app: FastAPI) -> None:
 
     @app.get("/v1/admin/audit/export/csv")
     async def export_csv(request: Request):
-        """CSV 导出（Phase 2 完整实现，目前占位返回 501）。"""
+        """CSV 导出（上限 10w 行，应用当前筛选）。超管 only。"""
         _require_platform_admin()
-        raise ApiError(
-            ErrorCode.INTERNAL,
-            "CSV export not yet implemented (Phase 2)",
-            http_status=501,
+        query = _resolve_query_params(request)
+        # 导出固定上限，忽略入参 limit/offset，从最新开始全量导
+        query.limit = 100000
+        query.offset = 0
+        rows = await repository.list_events(query, use_admin_session=True)
+
+        columns = [
+            "id", "created_at", "tenant_id", "actor_type", "actor_id",
+            "actor_name", "action", "resource_type", "resource_id",
+            "resource_name",
+        ]
+
+        def gen() -> Iterator[str]:
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow(columns)
+            yield buf.getvalue()
+            buf.seek(0)
+            buf.truncate(0)
+            for r in rows:
+                writer.writerow([r.get(c, "") for c in columns])
+                yield buf.getvalue()
+                buf.seek(0)
+                buf.truncate(0)
+
+        return StreamingResponse(
+            gen(),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=audit_log.csv"},
         )
 
     # ========== 手动写入（内部服务调用） ==========

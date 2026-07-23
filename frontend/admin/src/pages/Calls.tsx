@@ -6,12 +6,12 @@ import {
   type ActionType,
   type ProColumns,
 } from '@ant-design/pro-components';
-import { Button, Descriptions, Drawer, Tag, Typography } from 'antd';
+import { Button, Descriptions, Drawer, message, Tag, Typography } from 'antd';
 import { EyeOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import useSWR from 'swr';
 
-import { api } from '../api/client';
+import { api, downloadCsv } from '../api/client';
 import type { CallDetail, CallListItem, CallStats } from '../api/types';
 
 const TRACE = '/api/trace/v1/trace';
@@ -30,6 +30,15 @@ export default function Calls() {
   const { data: stats } = useSWR<CallStats>(`${TRACE}/calls/stats`, (u: string) =>
     api.get<CallStats>(u),
   );
+
+  async function doExport() {
+    try {
+      await downloadCsv(`${TRACE}/calls/export`, 'api_calls.csv');
+      message.success('已导出');
+    } catch (e) {
+      message.error((e as Error).message);
+    }
+  }
 
   const columns: ProColumns<CallListItem>[] = [
     {
@@ -149,6 +158,11 @@ export default function Calls() {
         columns={columns}
         scroll={{ x: 1200 }}
         search={{ labelWidth: 'auto' }}
+        toolBarRender={() => [
+          <Button key="export" onClick={() => void doExport()}>
+            导出 CSV
+          </Button>,
+        ]}
         request={async (params) => {
           try {
             const data = await api.get<CallListItem[]>(`${TRACE}/calls`, {

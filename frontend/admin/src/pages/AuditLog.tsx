@@ -10,6 +10,7 @@ import {
   Button,
   Descriptions,
   Drawer,
+  message,
   Tag,
   Typography,
 } from 'antd';
@@ -17,7 +18,7 @@ import { EyeOutlined } from '@ant-design/icons';
 import dayjs from 'dayjs';
 import useSWR from 'swr';
 
-import { api } from '../api/client';
+import { api, downloadCsv } from '../api/client';
 import type { AuditDetail, AuditListItem, AuditStats } from '../api/types';
 
 const ACTOR_COLOR: Record<string, string> = {
@@ -34,6 +35,18 @@ export default function AuditLog() {
     '/api/admin/v1/admin/audit/stats',
     (u: string) => api.get<AuditStats>(u),
   );
+
+  async function doExport() {
+    try {
+      await downloadCsv(
+        '/api/admin/v1/admin/audit/export/csv',
+        'audit_log.csv',
+      );
+      message.success('已导出');
+    } catch (e) {
+      message.error((e as Error).message);
+    }
+  }
 
   const columns: ProColumns<AuditListItem>[] = [
     { title: 'ID', dataIndex: 'id', width: 70, search: false },
@@ -115,6 +128,11 @@ export default function AuditLog() {
         columns={columns}
         scroll={{ x: 1200 }}
         search={{ labelWidth: 'auto' }}
+        toolBarRender={() => [
+          <Button key="export" onClick={() => void doExport()}>
+            导出 CSV
+          </Button>,
+        ]}
         request={async (params) => {
           try {
             const data = await api.get<AuditListItem[]>(
