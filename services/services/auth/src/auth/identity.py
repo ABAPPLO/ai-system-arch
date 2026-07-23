@@ -15,7 +15,16 @@ from apihub_core.logging import get_logger
 log = get_logger(__name__)
 
 EXTERNAL_PUBLIC_TENANT = "external-public"
+PLATFORM_TENANT = (
+    "platform"  # admin JWT tenant_id 标签（admin_db_session 旁路 RLS，无需 tenant 行）
+)
 VERIFY_TTL = 86400  # 24h
+
+
+def _bootstrap_admin_unionids(settings: "object") -> set[str]:
+    """解析 BOOTSTRAP_ADMIN_DINGTALK_UNIONIDS 逗号列表（容空白/空段）。"""
+    raw = getattr(settings, "bootstrap_admin_dingtalk_unionids", "") or ""
+    return {part.strip() for part in raw.split(",") if part.strip()}
 
 
 def _hash_password(password: str) -> str:
