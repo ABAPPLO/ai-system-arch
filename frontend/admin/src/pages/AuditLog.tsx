@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import {
   PageContainer,
   ProTable,
+  StatisticCard,
   type ActionType,
   type ProColumns,
 } from '@ant-design/pro-components';
@@ -17,7 +18,7 @@ import dayjs from 'dayjs';
 import useSWR from 'swr';
 
 import { api } from '../api/client';
-import type { AuditDetail, AuditListItem } from '../api/types';
+import type { AuditDetail, AuditListItem, AuditStats } from '../api/types';
 
 const ACTOR_COLOR: Record<string, string> = {
   user: 'blue',
@@ -28,6 +29,11 @@ const ACTOR_COLOR: Record<string, string> = {
 export default function AuditLog() {
   const actionRef = useRef<ActionType | null>(null);
   const [drawerId, setDrawerId] = useState<number | null>(null);
+
+  const { data: stats } = useSWR<AuditStats>(
+    '/api/admin/v1/admin/audit/stats',
+    (u: string) => api.get<AuditStats>(u),
+  );
 
   const columns: ProColumns<AuditListItem>[] = [
     { title: 'ID', dataIndex: 'id', width: 70, search: false },
@@ -76,6 +82,33 @@ export default function AuditLog() {
 
   return (
     <PageContainer header={{ title: '审计日志（只读）' }}>
+      <StatisticCard.Group direction="row" style={{ marginBlockEnd: 16 }}>
+        <StatisticCard
+          statistic={{
+            title: '审计事件总数',
+            value: stats?.total ?? '—',
+            suffix: '条',
+          }}
+        />
+        <StatisticCard
+          statistic={{
+            title: 'Top 操作人',
+            value: stats?.top_actors?.length ?? 0,
+            suffix: '类',
+          }}
+        />
+      </StatisticCard.Group>
+      <div style={{ marginBlockEnd: 16 }}>
+        <span style={{ marginInlineEnd: 8, color: '#888' }}>高频动作：</span>
+        {(stats?.top_actions ?? []).slice(0, 10).map((a, i) => {
+          const obj = a as Record<string, unknown>;
+          return (
+            <Tag key={i}>
+              {String(obj.action ?? '?')} · {String(obj.n ?? obj.count ?? '')}
+            </Tag>
+          );
+        })}
+      </div>
       <ProTable<AuditListItem>
         rowKey="id"
         actionRef={actionRef}
