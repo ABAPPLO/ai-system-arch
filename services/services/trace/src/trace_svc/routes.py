@@ -6,12 +6,15 @@
   - GET /v1/trace/calls/stats：同上
 """
 
+import csv
+import io
+from collections.abc import Iterator
 from datetime import datetime
 from typing import Any
 
-from apihub_core.errors import ApiError, ErrorCode
 from apihub_core.tenant import require_tenant
 from fastapi import FastAPI, Query
+from fastapi.responses import StreamingResponse
 
 from trace_svc import repository as repo
 from trace_svc.models import (
@@ -86,13 +89,46 @@ def register_routes(app: FastAPI) -> None:
         return CallStats(**data)
 
     @app.get("/v1/trace/calls/export")
-    async def export_csv():
-        """CSV 导出（限 100w 行）—— Phase 2 实现。"""
-        require_tenant()
-        raise ApiError(
-            ErrorCode.INTERNAL,
-            "CSV export not yet implemented (Phase 2)",
-            http_status=501,
+    async def export_csv(
+        api_id: str | None = None,
+        app_id: str | None = None,
+        trace_id: str | None = None,
+        status: CallStatusFilter = CallStatusFilter.ALL,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ):
+        """CSV 导出（上限 1w 行/区，应用当前筛选）。"""
+        ctx = require_tenant()
+        query = _resolve_query(api_id, app_id, trace_id, status, since, until, 500, 0)
+        query.limit = 10000  # 导出放宽（构造受 CallQuery.le=500 约束，故后置覆盖）
+        if ctx.is_platform_admin:
+            rows = await repo.list_calls(query, use_admin_session=True)
+        else:
+            rows = await repo.list_calls(query, viewer_tenant_id=ctx.tenant_id)
+
+        columns = [
+            "trace_id", "ts", "api_id", "path", "method", "api_version_id",
+            "app_id", "client_ip", "status_code", "is_success",
+            "latency_ms", "error_code", "error_msg",
+        ]
+
+        def gen() -> Iterator[str]:
+            buf = io.StringIO()
+            writer = csv.writer(buf)
+            writer.writerow(columns)
+            yield buf.getvalue()
+            buf.seek(0)
+            buf.truncate(0)
+            for r in rows:
+                writer.writerow([r.get(c, "") for c in columns])
+                yield buf.getvalue()
+                buf.seek(0)
+                buf.truncate(0)
+
+        return StreamingResponse(
+            gen(),
+            media_type="text/csv",
+            headers={"Content-Disposition": "attachment; filename=api_calls.csv"},
         )
 
     @app.get("/v1/trace/calls/{trace_id}", response_model=CallDetail)
