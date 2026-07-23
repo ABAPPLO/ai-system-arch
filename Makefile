@@ -254,3 +254,6 @@ db-apply:  ## 幂等回放 init-db/*.sql 到运行中的 apihub-pg（dev/kind）
 
 bench: ## 跑 R3e latency 微基准（需 docker apihub-redis @ localhost:16380）
 	PYTHONPATH=services/services/dispatcher/src:. .venv/bin/python -m benchmarks.bench_identity
+
+vendor-check: ## 校验 Go quota vendor/ 完整性（go mod verify）
+	cd services/go/quota && go mod verify
