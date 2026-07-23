@@ -41,3 +41,17 @@ stringData:
   JWT_SECRET: "REPLACE_ME"
   REDIS_PASSWORD: "REPLACE_ME"
   CH_PASSWORD: "REPLACE_ME"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: apihub-hmac-key
+  namespace: apihub-system
+type: Opaque
+# R2e HMAC envelope key（AES-256-GCM，32 字节 hex = 64 hex 字符）。auth/dispatcher/notification
+# 共享同一 key（同一加密域：auth 加密存的 secret 须被 dispatcher/notification 解密）。
+# apply 时由 external-secrets/KMS 注入真值（与 apihub-shared-secret-bj 同手法；ExternalSecrets 曾列 non-goal）。
+# 三服务必须同值；缺则 Pod fail-closed 起不来（apihub_core/crypto.py::_get_key 抛 RuntimeError）。
+# prod-bj 须与 prod-sh 用同一 HMAC key（跨区 webhook 验签一致）。
+stringData:
+  hmac_secret_key: "REPLACE_ME"
