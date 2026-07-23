@@ -1,0 +1,23 @@
+name: Vendor Check
+on:
+  pull_request:
+    paths:
+      - "services/go/quota/vendor/**"
+      - "services/go/quota/go.mod"
+      - "services/go/quota/go.sum"
+      - "Makefile"
+      - ".github/workflows/vendor-check.yml"
+  push:
+    branches: [main]
+
+jobs:
+  vendor-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: services/go/quota/go.mod
+      - name: go mod verify
+        working-directory: services/go/quota
+        run: go mod verify
