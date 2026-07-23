@@ -80,3 +80,28 @@ async def test_upsert_sso_user_relogin_non_admin(monkeypatch):
     assert result["user_id"] == "u_existing"
     assert result["is_platform_admin"] is False
     assert not any("INSERT INTO user_account" in sql for sql, _ in fake._conn.executed)
+
+
+def test_build_authorize_url():
+    from auth import dingtalk
+
+    url = dingtalk.build_authorize_url(
+        client_id="cid",
+        redirect_uri="http://localhost:5173/login/callback",
+        state="xyz",
+    )
+    assert url.startswith("https://login.dingtalk.com/oauth2/auth?")
+    assert "client_id=cid" in url
+    assert "state=xyz" in url
+    assert "scope=openid" in url
+
+
+@pytest.mark.asyncio
+async def test_mock_exchange_and_userinfo():
+    from auth import dingtalk
+
+    s = Settings(dingtalk_client_id="cid", dingtalk_mock_mode=True)
+    token = await dingtalk.exchange_code_for_token(settings=s, code="mock:UID1:Alice")
+    assert token == "mock-token:UID1:Alice"
+    info = await dingtalk.fetch_userinfo(settings=s, access_token=token)
+    assert info == {"union_id": "UID1", "name": "Alice"}
