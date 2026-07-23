@@ -13,6 +13,7 @@ const targets = {
   trace: 'http://localhost:8008',
   tenant: 'http://localhost:8005',
   docs: 'http://localhost:8007',
+  billing: 'http://localhost:8014',
 };
 
 export default defineConfig({
@@ -49,6 +50,11 @@ export default defineConfig({
         target: targets.docs,
         changeOrigin: true,
         rewrite: (p) => p.replace(/^\/api\/docs/, ''),
+      },
+      '/api/billing': {
+        target: targets.billing,
+        changeOrigin: true,
+        rewrite: (p) => p.replace(/^\/api\/billing/, ''),
       },
     },
   },
