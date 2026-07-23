@@ -57,4 +57,4 @@ jobs:
           pip install types-PyYAML
 
       - name: Mypy
-        run: mypy services/ || true   # 容忍现有未注解，逐步收紧
+        run: mypy services/
