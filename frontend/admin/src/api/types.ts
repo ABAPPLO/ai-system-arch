@@ -10,12 +10,31 @@
 export interface AuditListItem {
   id: number;
   tenant_id: string;
-  actor_id: string;
+  actor_type: string;
+  actor_id: string | null;
+  actor_name: string | null;
   action: string;
   resource_type: string;
-  resource_id: string;
-  detail?: Record<string, unknown>;
+  resource_id: string | null;
+  resource_name: string | null;
   created_at: string;
+}
+
+export interface AuditDetail extends AuditListItem {
+  actor_ip: string | null;
+  auth_method: string | null;
+  env: string | null;
+  detail: Record<string, unknown>;
+  user_agent: string | null;
+  request_id: string | null;
+  trace_id: string | null;
+}
+
+export interface AuditStats {
+  total: number;
+  top_actions: Record<string, unknown>[];
+  top_actors: Record<string, unknown>[];
+  by_day: Record<string, unknown>[];
 }
 
 export interface DashboardResponse {
@@ -120,6 +139,24 @@ export interface ChangeRequest {
   review_comment?: string | null;
   applied_at?: string | null;
 }
+
+// ===== api-registry (api 元数据) =====
+
+export interface ApiListItem {
+  id: string;
+  tenant_id: string;
+  name: string;
+  description: string | null;
+  category: string;
+  base_path: string;
+  tags: string[] | null;
+  status: string; // draft / reviewing / published / deprecated / retired
+  created_at: string;
+  updated_at: string;
+}
+
+/** GET /v1/apis/{id} 返回同表全字段，结构与列表项一致。 */
+export type ApiDetail = ApiListItem;
 
 // ===== trace-svc =====
 
