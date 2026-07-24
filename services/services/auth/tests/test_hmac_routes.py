@@ -185,3 +185,52 @@ class TestInternalHmacSecret:
 
         assert resp.status_code == 200, resp.text
         assert resp.json()["hmac_secret"] is None
+
+
+# ========== GET /v1/apps/{app_id}/api-keys —— signing 字段 ==========
+
+
+async def test_list_keys_includes_signing_flag(client, authed, monkeypatch):
+    """list 端点透传派生 signing（hmac_secret_encrypted IS NOT NULL）。"""
+    from auth import repository as repo
+
+    async def _fake_list(app_id):  # noqa: ARG001
+        return [
+            {
+                "id": "key_plain",
+                "app_id": "app_x",
+                "name": "plain",
+                "scopes": [],
+                "display_prefix": "ak_plain",
+                "status": "active",
+                "last_used_at": None,
+                "expires_at": None,
+                "created_at": "2026-07-16T00:00:00",
+                "revoked_at": None,
+                "signing": False,
+            },
+            {
+                "id": "key_sign",
+                "app_id": "app_x",
+                "name": "sign",
+                "scopes": [],
+                "display_prefix": "ak_sign",
+                "status": "active",
+                "last_used_at": None,
+                "expires_at": None,
+                "created_at": "2026-07-16T00:00:00",
+                "revoked_at": None,
+                "signing": True,
+            },
+        ]
+
+    # routes.py 用 `from auth.repository import list_api_keys_for_app` 绑定到 routes 命名空间，
+    # 故 patch routes_mod 的引用（同文件其它测试的统一模式），repo 引用也一并 patch 保持一致。
+    monkeypatch.setattr(routes_mod, "list_api_keys_for_app", _fake_list)
+    monkeypatch.setattr(repo, "list_api_keys_for_app", _fake_list)
+    r = await client.get("/v1/apps/app_x/api-keys", headers={"X-API-Key": "ak_test"})
+    assert r.status_code == 200, r.text
+    items = r.json()
+    by_id = {i["id"]: i for i in items}
+    assert by_id["key_plain"]["signing"] is False
+    assert by_id["key_sign"]["signing"] is True

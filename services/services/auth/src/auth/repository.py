@@ -153,6 +153,7 @@ async def list_api_keys_for_app(app_id: str) -> list[dict]:
         rows = await conn.fetch(
             """
             SELECT id, app_id, name, scopes, key_prefix AS display_prefix,
+                   (hmac_secret_encrypted IS NOT NULL) AS signing,
                    status, last_used_at, expires_at, created_at, revoked_at
             FROM api_key
             WHERE app_id = $1

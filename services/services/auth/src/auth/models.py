@@ -75,6 +75,7 @@ class ApiKeyListItem(BaseModel):
     expires_at: datetime | None = None
     created_at: datetime
     revoked_at: datetime | None = None
+    signing: bool = False  # = hmac_secret_encrypted IS NOT NULL；前端据此 gate rotate
 
 
 class VerifyRequest(BaseModel):
