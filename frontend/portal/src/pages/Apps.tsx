@@ -219,6 +219,7 @@ function AppKeys({ appId }: { appId: string }) {
         `/v1/portal/api-keys/${keyId}/hmac-secret/rotate`,
       );
       setRotated(r.hmac_secret);
+      void reload();
     } catch (e) {
       message.error((e as Error).message);
     }
