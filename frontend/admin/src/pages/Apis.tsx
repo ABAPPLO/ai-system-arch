@@ -60,18 +60,24 @@ export default function Apis() {
   const [loading, setLoading] = useState(false);
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [page, setPage] = useState({ current: 1, pageSize: 20 });
+  const [hasMore, setHasMore] = useState(false);
 
-  async function load() {
+  async function load(current = 1, pageSize = 20) {
     setLoading(true);
     try {
       const r = await api.get<{ items: ApiListItem[] }>(
         `${REGISTRY}/apis`,
-        { limit: 200, offset: 0 },
+        { limit: pageSize, offset: (current - 1) * pageSize },
       );
-      setItems(r.items ?? []);
+      const rows = r.items ?? [];
+      setItems(rows);
+      setHasMore(rows.length >= pageSize);
+      setPage({ current, pageSize });
     } catch (e) {
       console.error(e);
       setItems([]);
+      setHasMore(false);
     } finally {
       setLoading(false);
     }
@@ -145,7 +151,7 @@ export default function Apis() {
       <Card>
         <Space style={{ marginBottom: 16 }}>
           <Input.Search
-            placeholder="按名称或 ID 搜索（当前加载范围）..."
+            placeholder="按名称或 ID 过滤当前页..."
             allowClear
             style={{ width: 320 }}
             onChange={(e) => setKeyword(e.target.value)}
@@ -164,7 +170,15 @@ export default function Apis() {
           columns={columns}
           dataSource={filtered}
           loading={loading}
-          pagination={{ pageSize: 20 }}
+          pagination={{
+            current: page.current,
+            pageSize: page.pageSize,
+            total: hasMore
+              ? page.current * page.pageSize + 1
+              : (page.current - 1) * page.pageSize + items.length,
+            showSizeChanger: true,
+            onChange: (c, ps) => void load(c, ps),
+          }}
           locale={{ emptyText: loading ? <Spin /> : '暂无数据' }}
           scroll={{ x: 1100 }}
         />

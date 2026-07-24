@@ -11,6 +11,7 @@ import {
   Descriptions,
   Drawer,
   message,
+  Modal,
   Tag,
   Typography,
 } from 'antd';
@@ -131,6 +132,33 @@ export default function AuditLog() {
         toolBarRender={() => [
           <Button key="export" onClick={() => void doExport()}>
             导出 CSV
+          </Button>,
+          <Button
+            key="archive"
+            danger
+            onClick={() => {
+              Modal.confirm({
+                title: '归档审计日志',
+                content: '将把 180 天前的审计日志归档到 OSS 并从库中删除。此操作不可逆。',
+                okText: '确认归档',
+                okType: 'danger',
+                cancelText: '取消',
+                onOk: async () => {
+                  try {
+                    const r = await api.post<{ archived: number; cutoff: string }>(
+                      '/api/admin/v1/admin/audit/archive',
+                      {},
+                    );
+                    message.success(`已归档 ${r.archived} 条（截止 ${r.cutoff}）`);
+                    actionRef.current?.reload();
+                  } catch (e) {
+                    message.error((e as Error).message);
+                  }
+                },
+              });
+            }}
+          >
+            归档
           </Button>,
         ]}
         request={async (params) => {
