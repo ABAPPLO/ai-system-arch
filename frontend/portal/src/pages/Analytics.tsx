@@ -14,8 +14,8 @@ export function Analytics() {
   useEffect(() => {
     setLoading(true);
     Promise.all([
-      api.get<FunnelItem[]>('/v1/trace/analytics/funnel'),
-      api.get<CoOccurrenceItem[]>('/v1/trace/analytics/co-occurrence'),
+      api.get<FunnelItem[]>('/v1/portal/analytics/funnel'),
+      api.get<CoOccurrenceItem[]>('/v1/portal/analytics/co-occurrence'),
     ])
       .then(([f, c]) => { setFunnel(f); setCooccur(c); })
       .catch((e) => setErr(e instanceof Error ? e.message : '加载失败'))

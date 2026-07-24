@@ -95,6 +95,94 @@ async def test_list_apps_forwards_to_auth(client, monkeypatch):
     assert captured["method"] == "GET"
 
 
+async def test_portal_funnel_forwards_to_trace(client, monkeypatch):
+    """GET /v1/portal/analytics/funnel 薄转发 trace-svc，透传 JWT（前端不得直连 trace）。"""
+    import httpx as _httpx
+
+    captured = {}
+
+    class _FakeResp:
+        status_code = 200
+
+        def json(self):
+            return [
+                {"trace_id": "t1", "step_count": 2, "steps": [{"api_id": "a", "path": "/x"}]}
+            ]
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def get(self, url, **kw):
+            captured["url"] = url
+            captured["headers"] = kw.get("headers")
+            return _FakeResp()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(_httpx, "AsyncClient", _FakeClient)
+
+    r = await client.get("/v1/portal/analytics/funnel")
+    assert r.status_code == 200
+    assert (
+        captured["url"] == "http://trace.apihub-system/v1/trace/analytics/funnel"
+    ), captured["url"]
+    # 用户 JWT 原样透传给 trace-svc（由其做租户隔离）
+    assert captured["headers"]["Authorization"] == "Bearer eyJ.test.token"
+    assert r.json()[0]["trace_id"] == "t1"
+
+
+async def test_portal_cooccurrence_forwards_to_trace(client, monkeypatch):
+    """GET /v1/portal/analytics/co-occurrence 薄转发 trace-svc + 透传 query。"""
+    import httpx as _httpx
+
+    captured = {}
+
+    class _FakeResp:
+        status_code = 200
+
+        def json(self):
+            return [
+                {
+                    "api_a": "a",
+                    "path_a": "/x",
+                    "api_b": "b",
+                    "path_b": "/y",
+                    "pair_count": 5,
+                }
+            ]
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def get(self, url, **kw):
+            captured["url"] = url
+            captured["params"] = kw.get("params")
+            return _FakeResp()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(_httpx, "AsyncClient", _FakeClient)
+
+    r = await client.get("/v1/portal/analytics/co-occurrence?since=2026-01-01&min_pairs=2")
+    assert r.status_code == 200
+    assert (
+        captured["url"] == "http://trace.apihub-system/v1/trace/analytics/co-occurrence"
+    ), captured["url"]
+    # query 透传给 trace-svc（dict(QueryParams) 值均为 str）
+    assert captured["params"] == {"since": "2026-01-01", "min_pairs": "2"}, captured["params"]
+    assert r.json()[0]["pair_count"] == 5
+
+
 async def test_create_api_key_forwards_and_maps_prefix(client, monkeypatch):
     """POST /v1/portal/apps/{id}/api-keys 转发 auth，并把 display_prefix→key_prefix。"""
     import httpx as _httpx

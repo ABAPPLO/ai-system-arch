@@ -218,6 +218,33 @@ def register_routes(app: FastAPI) -> None:
             r = await c.post(f"{notif_base}/webhooks/{webhook_id}/test")
         return r.json()
 
+    # ========== 高级分析（需 JWT → 转发 trace-svc，§9-B 护栏：前端不得直连 trace）==========
+    trace_base = settings.trace_service_url
+
+    @app.get("/v1/portal/analytics/funnel")
+    async def portal_funnel(request: Request):
+        """调用漏斗 —— 薄转发 trace-svc，透传用户 JWT（trace-svc 据其做租户隔离）。"""
+        require_tenant()
+        async with httpx.AsyncClient(timeout=5.0) as c:
+            r = await c.get(
+                f"{trace_base}/analytics/funnel",
+                headers={"Authorization": request.headers.get("Authorization", "")},
+                params=dict(request.query_params),
+            )
+        return r.json()
+
+    @app.get("/v1/portal/analytics/co-occurrence")
+    async def portal_cooccurrence(request: Request):
+        """API 共现 —— 薄转发 trace-svc。"""
+        require_tenant()
+        async with httpx.AsyncClient(timeout=5.0) as c:
+            r = await c.get(
+                f"{trace_base}/analytics/co-occurrence",
+                headers={"Authorization": request.headers.get("Authorization", "")},
+                params=dict(request.query_params),
+            )
+        return r.json()
+
     # ========== app/key 自助（需 JWT → require_tenant）==========
     @app.post("/v1/portal/apps", response_model=AppResponse, status_code=201)
     async def create_app(request: Request, payload: AppCreate):

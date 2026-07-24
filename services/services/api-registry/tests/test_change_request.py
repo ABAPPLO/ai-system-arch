@@ -147,6 +147,34 @@ class TestReviewPermissions:
 
 
 class TestApply:
+    async def test_apply_requires_platform_admin(self, normal_client, stub_cr):
+        """非超管 apply → 403（apply 执行实际副作用，必须超管）。"""
+        from datetime import UTC, datetime
+
+        from api_registry.change_request import (
+            ChangeRequest,
+            ChangeRequestStatus,
+            ChangeType,
+            TargetEnv,
+        )
+
+        cr_obj = ChangeRequest(
+            id=2,
+            tenant_id=42,
+            api_id=100,
+            target_version="v1",
+            change_type=ChangeType.PUBLISH,
+            target_env=TargetEnv.PROD,
+            proposed_config={},
+            status=ChangeRequestStatus.APPROVED,
+            submitted_by="u_alice",
+            submitted_at=datetime.now(UTC),
+        )
+        stub_cr["requests"][2] = cr_obj
+
+        resp = await normal_client.post("/v1/change-requests/2/apply")
+        assert resp.status_code == 403
+
     async def test_apply_approved_request(self, admin_client, stub_cr):
         """approved → apply → applied。"""
         # 提交一个 prod 请求（pending）→ admin approve → apply

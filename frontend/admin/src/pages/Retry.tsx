@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
   PageContainer,
   ProTable,
@@ -38,9 +38,9 @@ const STATUS_COLOR: Record<RetryStatus, string> = {
 
 export default function Retry() {
   const [drawerId, setDrawerId] = useState<number | null>(null);
-  const tableAction: ActionType | null = null;
+  const actionRef = useRef<ActionType | null>(null);
 
-  const { data: stats } = useSWR<RetryStats>(
+  const { data: stats, mutate: mutateStats } = useSWR<RetryStats>(
     '/api/retry/v1/retry/stats',
     (url: string) => api.get<RetryStats>(url),
   );
@@ -152,7 +152,8 @@ export default function Retry() {
     try {
       await api.post(`/api/retry/v1/retry/${id}/trigger`);
       message.success(`已重新排队 #${id}`);
-      tableAction?.reload();
+      actionRef.current?.reload();
+      mutateStats();
     } catch (e) {
       message.error((e as Error).message);
     }
@@ -162,7 +163,8 @@ export default function Retry() {
     try {
       await api.post(`/api/retry/v1/retry/${id}/ignore`);
       message.success(`已忽略 #${id}`);
-      tableAction?.reload();
+      actionRef.current?.reload();
+      mutateStats();
     } catch (e) {
       message.error((e as Error).message);
     }
@@ -186,6 +188,7 @@ export default function Retry() {
     >
       <ProTable<RetryTaskRow>
         rowKey="id"
+        actionRef={actionRef}
         columns={columns}
         scroll={{ x: 1200 }}
         search={{ labelWidth: 'auto' }}

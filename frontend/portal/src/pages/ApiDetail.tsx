@@ -26,11 +26,6 @@ interface ApiDetailData {
   versions: VersionItem[];
 }
 
-interface AppItem {
-  id: string;
-  name: string;
-}
-
 interface TryResponse {
   status: number;
   headers: Record<string, string>;
@@ -126,7 +121,6 @@ export function ApiDetail() {
   const nav = useNavigate();
   const [detail, setDetail] = useState<ApiDetailData | null>(null);
   const [examples, setExamples] = useState<ExampleResponse | null>(null);
-  const [apps, setApps] = useState<AppItem[]>([]);
   const [activeTab, setActiveTab] = useState<Tab>('docs');
   const [selectedVerIdx, setSelectedVerIdx] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -144,13 +138,9 @@ export function ApiDetail() {
     if (!id) return;
     setLoading(true);
     setError('');
-    Promise.all([
-      api.get<ApiDetailData>(`/v1/portal/apis/${id}`),
-      api.get<AppItem[]>('/v1/portal/apps').catch(() => [] as AppItem[]),
-    ])
-      .then(([d, a]) => {
+    api.get<ApiDetailData>(`/v1/portal/apis/${id}`)
+      .then((d) => {
         setDetail(d);
-        setApps(a);
         const v = d.versions[0];
         if (v) {
           if (v.request_schema) {
@@ -342,22 +332,22 @@ export function ApiDetail() {
       {activeTab === 'try' && version && (
         <div className="border rounded-lg p-4 space-y-4">
           <div>
-            <label className="text-sm font-semibold">API Key</label>
-            <select
-              className="w-full border rounded px-3 py-2 mt-1"
+            <label className="text-sm font-semibold">API Key（明文）</label>
+            <input
+              type="password"
+              autoComplete="off"
+              className="w-full border rounded px-3 py-2 mt-1 font-mono text-sm"
+              placeholder="粘贴 ak_ 开头的 API Key"
               value={selectedKey}
               onChange={(e) => setSelectedKey(e.target.value)}
-            >
-              <option value="">-- 请选择 Key --</option>
-              {apps.map((app) => (
-                <option key={app.id} value={app.id}>{app.name}</option>
-              ))}
-            </select>
-            {apps.length === 0 && (
-              <p className="text-xs text-orange-600 mt-1">
-                请先在「应用管理」中创建应用和 API Key
-              </p>
-            )}
+            />
+            <p className="text-xs text-gray-400 mt-1">
+              明文 Key 仅创建时显示一次，请到{' '}
+              <button className="text-blue-600 underline" onClick={() => nav('/apps')}>
+                应用管理
+              </button>
+              {' '}创建并复制（服务端只存哈希，无法代为回填）。
+            </p>
           </div>
 
           {Object.keys(pathParams).length > 0 && (
