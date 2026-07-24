@@ -13,6 +13,10 @@ BEGIN;
 -- 租户
 INSERT INTO tenant (id, name, slug, type, status, tier, metadata)
 VALUES
+    -- 平台超管租户：admin 钉钉 SSO (#83) 签的 JWT tenant_id=platform，
+    -- admin 写租户作用域记录（如 api）时 tenant_id FK 需此行存在。
+    ('platform', '平台超管', 'platform', 'system', 'active', 'premium',
+     '{"is_platform_admin": true}'::jsonb),
     ('tenant_a', '内部业务-A', 'internal-a', 'internal', 'active', 'premium',
      '{"dept": "trading", "cost_center": "CC-001"}'::jsonb),
     ('tenant_b', '内部业务-B', 'internal-b', 'internal', 'active', 'standard',
