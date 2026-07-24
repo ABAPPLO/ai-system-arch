@@ -93,8 +93,7 @@ def ch_session(*, force_tenant_id: str | None = "sentinel") -> Iterator[Client]:
         ctx = get_tenant_context()
         if ctx is None:
             raise RuntimeError(
-                "ch_session called without tenant context; "
-                "pass force_tenant_id=None for admin view"
+                "ch_session called without tenant context; pass force_tenant_id=None for admin view"
             )
         # 不直接拼 SQL，让调用方用 ch_tenant_filter() 拿到 tenant_id 后用参数化
         log.debug("ch_session_tenant_scoped", tenant_id=ctx.tenant_id)
@@ -131,8 +130,7 @@ def _assert_tenant_filter(
         ctx = get_tenant_context()
         if ctx is None:
             raise RuntimeError(
-                "ch_session called without tenant context; "
-                "pass force_tenant_id=None for admin view"
+                "ch_session called without tenant context; pass force_tenant_id=None for admin view"
             )
         effective = ctx.tenant_id
     else:
@@ -196,7 +194,7 @@ def query_union_peer(
     # peer_sql 走 admin scope 才允许：force_tenant_id 非 None（含 sentinel）一律拒绝。
     if peer_sql and force_tenant_id is not None:
         raise ValueError(
-            "peer_sql requires admin scope (force_tenant_id=None); " "peer queries are unscoped"
+            "peer_sql requires admin scope (force_tenant_id=None); peer queries are unscoped"
         )
     with ch_session(force_tenant_id=force_tenant_id) as ch_local:
         result = ch_local.query(local_sql, parameters=params or {})

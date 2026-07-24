@@ -200,7 +200,7 @@ COMMIT;
 
     # 4) 确认 mock-backend 在集群内有 ClusterIP
     cip = sh(
-        f"kubectl -n {NAMESPACE} get svc mock-backend " f"-o jsonpath='{{.spec.clusterIP}}'",
+        f"kubectl -n {NAMESPACE} get svc mock-backend -o jsonpath='{{.spec.clusterIP}}'",
         check=False,
     ).strip()
     print("  mock-backend ClusterIP:", cip)

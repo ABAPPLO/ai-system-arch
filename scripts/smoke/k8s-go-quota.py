@@ -273,12 +273,12 @@ def assert_check_shape():
     )
     # allowed=True 路径下，tier_blocked/limit 必为 null（pointer 不赋值）
     assert payload["allowed"] is True, f"R3A-B 预期默认放行 allowed=True，实际 {payload}"
-    assert (
-        payload["tier_blocked"] is None
-    ), f"R3A-B allowed=True 时 tier_blocked 必须 null，实际 {payload['tier_blocked']!r}"
-    assert (
-        "current" not in payload and "reset_ms" not in payload
-    ), f"R3A-B 旧字段泄漏：current/reset_ms 不应出现，payload={payload}"
+    assert payload["tier_blocked"] is None, (
+        f"R3A-B allowed=True 时 tier_blocked 必须 null，实际 {payload['tier_blocked']!r}"
+    )
+    assert "current" not in payload and "reset_ms" not in payload, (
+        f"R3A-B 旧字段泄漏：current/reset_ms 不应出现，payload={payload}"
+    )
     # rule_source VALUE：Python routes.py:58 重写后只可能是
     # "fallback"（Redis 故障）/ "app" / "tenant" / "api_version" / "default"。
     # 不可能出现 "rules" / "unlimited"（limiter 内部标签会被 source 覆盖）。
@@ -316,7 +316,7 @@ def assert_usage_shape():
     expected_point = {"window_seconds", "used", "limit"}
     st, raw = http(
         "GET",
-        f"{QUOTA_URL}/v1/quota/usage" f"?tenant_id={TENANT_ID}&app_id={APP_ID}&api_id={API_ID}",
+        f"{QUOTA_URL}/v1/quota/usage?tenant_id={TENANT_ID}&app_id={APP_ID}&api_id={API_ID}",
         headers=auth_headers(),
         timeout=10,
     )
@@ -331,9 +331,9 @@ def assert_usage_shape():
     for tier in ("second", "minute", "day"):
         pt = payload[tier]
         got_pt = set(pt.keys())
-        assert (
-            got_pt == expected_point
-        ), f"R3A-C {tier}.point 字段不匹配：got={sorted(got_pt)} want={sorted(expected_point)}"
+        assert got_pt == expected_point, (
+            f"R3A-C {tier}.point 字段不匹配：got={sorted(got_pt)} want={sorted(expected_point)}"
+        )
         # canonical windows（Python _TIER_DEFS）
         expected_win = {"second": 1, "minute": 60, "day": 86400}[tier]
         assert pt["window_seconds"] == expected_win, (
@@ -359,9 +359,9 @@ def assert_usage_shape():
         f"实际 {payload['day']['limit']!r}"
     )
     # check 后 usage.second.used >= 1（刚 check 过）
-    assert (
-        payload["second"]["used"] >= 1
-    ), f"R3A-C second.used 应 >= 1（刚 check 过），实际 {payload['second']['used']}"
+    assert payload["second"]["used"] >= 1, (
+        f"R3A-C second.used 应 >= 1（刚 check 过），实际 {payload['second']['used']}"
+    )
     print(
         f"  [R3A-C] usage 扁平结构 OK —— second={payload['second']}, "
         f"minute={payload['minute']}, day={payload['day']}"
@@ -403,16 +403,16 @@ def assert_redis_key():
         parts = k.split(":")
         if len(parts) >= 6:
             tiers_found.add(parts[-2])
-    assert {"s", "m", "d"}.issubset(
-        tiers_found
-    ), f"R3A-D redis key 三 tier 未齐全：found={tiers_found} want ⊇ {{s,m,d}}; keys={keys}"
+    assert {"s", "m", "d"}.issubset(tiers_found), (
+        f"R3A-D redis key 三 tier 未齐全：found={tiers_found} want ⊇ {{s,m,d}}; keys={keys}"
+    )
     # 校验每个 key 的形态：tier 后是纯数字 slot
     for k in keys:
         parts = k.split(":")
         slot = parts[-1]
-        assert (
-            slot.isdigit()
-        ), f"R3A-D redis key slot 非数字：{k!r} 末段={slot!r}（应为 unix_ts/window 整数槽）"
+        assert slot.isdigit(), (
+            f"R3A-D redis key slot 非数字：{k!r} 末段={slot!r}（应为 unix_ts/window 整数槽）"
+        )
     print("  [R3A-D] Redis key 格式 OK —— 三 tier 齐全 (s/m/d)，slot 纯数字")
 
 
@@ -458,7 +458,7 @@ def assert_lua_atomic():
         else:
             blocked_count += 1
     print(
-        f"  burst {LUA_BURST_N} 个 check —— HTTP-200 总数={sum(1 for st,_ in results if st==200)}, "
+        f"  burst {LUA_BURST_N} 个 check —— HTTP-200 总数={sum(1 for st, _ in results if st == 200)}, "
         f"allowed={allowed_count}, blocked={blocked_count}, "
         f"seed tenant_smoke_r3a_lua second-tier max={LUA_TENANT_SECOND_MAX}"
     )
@@ -470,23 +470,22 @@ def assert_lua_atomic():
         f"多放={allowed_count - LUA_TENANT_SECOND_MAX}"
     )
     assert blocked_count == LUA_BURST_N - LUA_TENANT_SECOND_MAX, (
-        f"R3A-E blocked 数不匹配：got={blocked_count}，"
-        f"want={LUA_BURST_N - LUA_TENANT_SECOND_MAX}"
+        f"R3A-E blocked 数不匹配：got={blocked_count}，want={LUA_BURST_N - LUA_TENANT_SECOND_MAX}"
     )
     # 抽样一个 blocked 响应验字段 + source
     sample_blocked = next(
         json.loads(raw) for st, raw in results if st == 200 and not json.loads(raw).get("allowed")
     )
-    assert (
-        sample_blocked["tier_blocked"] == "second"
-    ), f"R3A-E blocked.tier_blocked 想要 'second'，实际 {sample_blocked['tier_blocked']!r}"
+    assert sample_blocked["tier_blocked"] == "second", (
+        f"R3A-E blocked.tier_blocked 想要 'second'，实际 {sample_blocked['tier_blocked']!r}"
+    )
     assert sample_blocked["limit"] == LUA_TENANT_SECOND_MAX, (
         f"R3A-E blocked.limit 想要 {LUA_TENANT_SECOND_MAX}（seed），"
         f"实际 {sample_blocked['limit']!r}"
     )
-    assert (
-        sample_blocked["retry_after_seconds"] >= 1
-    ), f"R3A-E blocked.retry_after_seconds 想要 >=1，实际 {sample_blocked['retry_after_seconds']!r}"
+    assert sample_blocked["retry_after_seconds"] >= 1, (
+        f"R3A-E blocked.retry_after_seconds 想要 >=1，实际 {sample_blocked['retry_after_seconds']!r}"
+    )
     # source 必须为 "tenant"（seed 在 tenant 层，app/api_version fall-through）
     assert sample_blocked["rule_source"] == "tenant", (
         f"R3A-E blocked.rule_source 想要 'tenant'（seed tenant_smoke_r3a_lua.rate_limit），"

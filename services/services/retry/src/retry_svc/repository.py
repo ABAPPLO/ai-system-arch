@@ -319,7 +319,7 @@ async def list_failed(query: ListFailedQuery) -> list[RetryTaskRow]:
                backoff_policy, backoff_base_ms,
                status, env, created_at, updated_at
         FROM retry_task
-        WHERE {' AND '.join(clauses)}
+        WHERE {" AND ".join(clauses)}
         ORDER BY last_failed_at DESC NULLS LAST, id DESC
         LIMIT ${idx} OFFSET ${idx + 1}
     """  # noqa: S608
@@ -360,7 +360,7 @@ async def _list_failed_status_single(query: ListFailedQuery) -> list[RetryTaskRo
                backoff_policy, backoff_base_ms,
                status, env, created_at, updated_at
         FROM retry_task
-        WHERE {' AND '.join(clauses)}
+        WHERE {" AND ".join(clauses)}
         ORDER BY last_failed_at DESC NULLS LAST, id DESC
         LIMIT ${idx} OFFSET ${idx + 1}
     """  # noqa: S608

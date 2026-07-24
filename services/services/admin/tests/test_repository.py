@@ -443,9 +443,9 @@ class TestRecordJsonbIntegration:
                 )
             assert len(rows) == 3
             for r in rows:
-                assert (
-                    r["kind"] == "object"
-                ), f"record_many detail 应为 jsonb object，实际 {r['kind']!r}"
+                assert r["kind"] == "object", (
+                    f"record_many detail 应为 jsonb object，实际 {r['kind']!r}"
+                )
                 assert r["idx"] is not None and r["label"] is not None
         finally:
             async with db_pool.acquire() as conn:

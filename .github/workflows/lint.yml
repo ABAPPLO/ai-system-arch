@@ -32,7 +32,7 @@ jobs:
           cache: pip
 
       - name: Install ruff
-        run: pip install "ruff==0.6.*"
+        run: pip install "ruff==0.15.*"
 
       - name: Ruff check
         run: ruff check services/ scripts/
@@ -51,10 +51,12 @@ jobs:
           python-version: "3.11"
           cache: pip
 
-      - name: Install mypy + deps
+      - name: Install mypy + project deps
         run: |
-          pip install "mypy==1.11.*"
+          pip install "mypy==2.2.*"
           pip install types-PyYAML
+          # 装项目依赖让 mypy 解析 import —— 缺依赖会让 type:ignore 误判 unused（与本地不一致）
+          pip install -e services/libs/apihub-core
 
       - name: Mypy
         run: mypy services/

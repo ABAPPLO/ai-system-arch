@@ -131,8 +131,15 @@ def register_routes(app: FastAPI) -> None:
         rows = await repository.list_events(query, use_admin_session=True)
 
         columns = [
-            "id", "created_at", "tenant_id", "actor_type", "actor_id",
-            "actor_name", "action", "resource_type", "resource_id",
+            "id",
+            "created_at",
+            "tenant_id",
+            "actor_type",
+            "actor_id",
+            "actor_name",
+            "action",
+            "resource_type",
+            "resource_id",
             "resource_name",
         ]
 

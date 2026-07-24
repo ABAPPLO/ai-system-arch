@@ -107,9 +107,19 @@ def register_routes(app: FastAPI) -> None:
             rows = await repo.list_calls(query, viewer_tenant_id=ctx.tenant_id)
 
         columns = [
-            "trace_id", "ts", "api_id", "path", "method", "api_version_id",
-            "app_id", "client_ip", "status_code", "is_success",
-            "latency_ms", "error_code", "error_msg",
+            "trace_id",
+            "ts",
+            "api_id",
+            "path",
+            "method",
+            "api_version_id",
+            "app_id",
+            "client_ip",
+            "status_code",
+            "is_success",
+            "latency_ms",
+            "error_code",
+            "error_msg",
         ]
 
         def gen() -> Iterator[str]:

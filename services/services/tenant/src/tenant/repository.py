@@ -149,7 +149,7 @@ async def update_tenant(tenant_id: str, payload: TenantUpdate) -> dict[str, Any]
         try:
             row = await conn.fetchrow(
                 f"""
-                UPDATE tenant SET {', '.join(fields)}, updated_at = NOW()
+                UPDATE tenant SET {", ".join(fields)}, updated_at = NOW()
                 WHERE id = ${len(params)}
                 RETURNING id, parent_id, name, slug, type, status, tier, metadata, created_at, updated_at
                 """,  # noqa: S608 - fields are controlled internally, params are bound

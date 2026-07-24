@@ -244,9 +244,9 @@ class TestRLSViaDbSession:
 
             tenants = {r["tenant_id"] for r in rows}
             # dev 种子至少有 tenant_a / tenant_b（见 02-seed.sql）
-            assert {"tenant_a", "tenant_b"}.issubset(
-                tenants
-            ), f"meta_db_session 应跨租户可见，实际看到: {tenants}"
+            assert {"tenant_a", "tenant_b"}.issubset(tenants), (
+                f"meta_db_session 应跨租户可见，实际看到: {tenants}"
+            )
         finally:
             await pool.close()
 
