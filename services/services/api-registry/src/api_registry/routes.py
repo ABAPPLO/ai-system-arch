@@ -13,6 +13,7 @@ from fastapi import FastAPI, Query
 from api_registry import change_request as cr
 from api_registry.models import (
     ApiCreate,
+    ApiUpdate,
     ApiVersionCreate,
     ApiVersionResponse,
 )
@@ -71,6 +72,62 @@ def register_routes(app: FastAPI) -> None:
         if not row:
             raise ApiError(ErrorCode.NOT_FOUND, f"API {api_id} not found")
         return dict(row)
+
+    @app.patch("/v1/apis/{api_id}")
+    async def update_api(api_id: str, payload: ApiUpdate):
+        """部分更新 API 元数据。base_path 不可变（payload 不含该字段；传则 pydantic 422）。"""
+        require_tenant()
+        updates = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+        async with db.db_session() as conn:
+            if not updates:
+                row = await conn.fetchrow("SELECT * FROM api WHERE id = $1", api_id)
+            else:
+                # 列名来自模型固定字段集（非用户输入），值参数化 —— 安全
+                set_clauses = ", ".join(f"{c} = ${i + 2}" for i, c in enumerate(updates))
+                row = await conn.fetchrow(
+                    f"UPDATE api SET {set_clauses}, updated_at = NOW() WHERE id = $1 RETURNING *",  # noqa: S608
+                    api_id,
+                    *updates.values(),
+                )
+        if not row:
+            raise ApiError(ErrorCode.API_NOT_FOUND, f"API {api_id} not found")
+        if updates:
+            await kafka.emit(
+                "audit-events",
+                {
+                    "action": "api.update",
+                    "resource_type": "api",
+                    "resource_id": api_id,
+                    "detail": updates,
+                },
+            )
+        return dict(row)
+
+    @app.delete("/v1/apis/{api_id}")
+    async def delete_api(api_id: str):
+        """删除 API。护栏：存在 published/deprecated/reviewing 版本则 409；否则级联删版本+api。"""
+        require_tenant()
+        async with db.db_session() as conn:
+            blocked = await conn.fetchval(
+                "SELECT EXISTS(SELECT 1 FROM api_version "
+                "WHERE api_id = $1 AND status IN ('published','deprecated','reviewing'))",
+                api_id,
+            )
+            if blocked:
+                raise ApiError(
+                    ErrorCode.CONFLICT,
+                    "API has active versions (published/deprecated/reviewing); retire them first",
+                    http_status=409,
+                )
+            await conn.execute("DELETE FROM api_version WHERE api_id = $1", api_id)
+            result = await conn.execute("DELETE FROM api WHERE id = $1", api_id)
+        if not result.endswith(" 1"):
+            raise ApiError(ErrorCode.API_NOT_FOUND, f"API {api_id} not found")
+        await kafka.emit(
+            "audit-events",
+            {"action": "api.delete", "resource_type": "api", "resource_id": api_id},
+        )
+        return {"id": api_id, "status": "deleted"}
 
     @app.post("/v1/api-versions", response_model=ApiVersionResponse)
     async def create_version(payload: ApiVersionCreate):
