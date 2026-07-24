@@ -190,7 +190,7 @@ async def get_event(
                auth_method, action, resource_type, resource_id, resource_name,
                env, detail, user_agent, request_id, trace_id, created_at
         FROM audit_log
-        WHERE {' AND '.join(clauses)}
+        WHERE {" AND ".join(clauses)}
     """  # noqa: S608
 
     session = db.admin_db_session if use_admin_session else db.db_session
@@ -253,7 +253,7 @@ async def stats(
             f"""
             SELECT action, COUNT(*) AS n
             FROM audit_log
-            {tenant_clause + (' AND ' if tenant_clause else 'WHERE ')}
+            {tenant_clause + (" AND " if tenant_clause else "WHERE ")}
             created_at > NOW() - interval '30 days'
             GROUP BY action
             ORDER BY n DESC
@@ -267,7 +267,7 @@ async def stats(
             f"""
             SELECT actor_id, actor_name, COUNT(*) AS n
             FROM audit_log
-            {tenant_clause + (' AND ' if tenant_clause else 'WHERE ')}
+            {tenant_clause + (" AND " if tenant_clause else "WHERE ")}
             created_at > NOW() - interval '30 days'
               AND actor_id IS NOT NULL
             GROUP BY actor_id, actor_name
@@ -283,7 +283,7 @@ async def stats(
             f"""
             SELECT DATE(created_at) AS day, COUNT(*) AS n
             FROM audit_log
-            {tenant_clause + (' AND ' if tenant_clause else 'WHERE ')}
+            {tenant_clause + (" AND " if tenant_clause else "WHERE ")}
             created_at > NOW() - interval '{days} days'
             GROUP BY day
             ORDER BY day DESC
@@ -319,7 +319,7 @@ async def archive_before(cutoff: datetime) -> int:
         batch_start = datetime.now()
         async with db.admin_db_session() as conn:
             rows = await conn.fetch(
-                "SELECT id FROM audit_log WHERE created_at < $1" " ORDER BY id LIMIT $2",
+                "SELECT id FROM audit_log WHERE created_at < $1 ORDER BY id LIMIT $2",
                 cutoff,
                 BATCH,
             )
@@ -416,9 +416,7 @@ async def cleanup_retry_tasks(*, before: datetime) -> int:
     """删除早于 before 的已结束重试任务（terminal status 且超过保留期）。"""
     async with db.admin_db_session() as conn:
         result = await conn.execute(
-            "DELETE FROM retry_task"
-            " WHERE status NOT IN ('pending', 'running')"
-            " AND created_at < $1",
+            "DELETE FROM retry_task WHERE status NOT IN ('pending', 'running') AND created_at < $1",
             before,
         )
     n = _parse_delete_count(result)

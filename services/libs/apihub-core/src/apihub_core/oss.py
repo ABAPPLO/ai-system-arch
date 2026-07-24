@@ -68,7 +68,7 @@ async def put_object(bucket: str, key: str, data: bytes) -> bool:
     # Canonical Request
     canonical_headers = "".join(f"{k.lower()}:{headers[k]}\n" for k in sorted_keys)
     canonical_request = (
-        f"PUT\n/{bucket}/{key}\n\n{canonical_headers}" f"{signed_headers_str}\n{content_hash}"
+        f"PUT\n/{bucket}/{key}\n\n{canonical_headers}{signed_headers_str}\n{content_hash}"
     )
     canonical_request_hash = hashlib.sha256(canonical_request.encode("utf-8")).hexdigest()
 

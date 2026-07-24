@@ -45,12 +45,12 @@ async def create_webhook(
 
 
 async def update_webhook(*, tenant_id: str, webhook_id: str, updates: dict) -> dict:
-    sets = ", ".join(f"{k} = ${i+2}" for i, k in enumerate(updates))
+    sets = ", ".join(f"{k} = ${i + 2}" for i, k in enumerate(updates))
     values = list(updates.values())
     async with db.db_session() as conn:
         row = await conn.fetchrow(
             # column names come from a Pydantic-validated allowlist (model_dump), not user input
-            f"UPDATE webhook_subscription SET {sets} WHERE id = $1 AND tenant_id = ${len(values)+2}"  # noqa: S608
+            f"UPDATE webhook_subscription SET {sets} WHERE id = $1 AND tenant_id = ${len(values) + 2}"  # noqa: S608
             " RETURNING id, url, events, status, created_at",
             webhook_id,
             *values,
@@ -109,12 +109,12 @@ async def create_channel_config(
 async def update_channel_config(*, tenant_id: str, config_id: str, updates: dict) -> dict:
     if not updates:
         raise ApiError(ErrorCode.INVALID_INPUT, "no fields to update", http_status=400)
-    sets = ", ".join(f"{k} = ${i+2}" for i, k in enumerate(updates))
+    sets = ", ".join(f"{k} = ${i + 2}" for i, k in enumerate(updates))
     values = list(updates.values())
     async with db.db_session() as conn:
         row = await conn.fetchrow(
             # column names come from a Pydantic-validated allowlist (model_dump), not user input
-            f"UPDATE notification_channel_config SET {sets} WHERE id = $1 AND tenant_id = ${len(values)+2}"  # noqa: S608
+            f"UPDATE notification_channel_config SET {sets} WHERE id = $1 AND tenant_id = ${len(values) + 2}"  # noqa: S608
             " RETURNING id, channel_type, name, config, status, created_at",
             config_id,
             *values,

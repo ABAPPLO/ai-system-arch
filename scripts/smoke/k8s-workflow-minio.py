@@ -140,9 +140,9 @@ def main():
     status, detail = poll(wf_id, {"succeeded", "failed"})
     print(f"  final status={status} steps={len(detail.get('steps') or [])}")
     # consume 校验失败会变 failed —— succeeded 即证明产物经 MinIO 往返一致
-    assert (
-        status == "succeeded"
-    ), f"MinIO artifact 往返失败（consume 校验不过 / Argo artifact error）: {detail}"
+    assert status == "succeeded", (
+        f"MinIO artifact 往返失败（consume 校验不过 / Argo artifact error）: {detail}"
+    )
 
     # 软断言：直查 MinIO bucket 存在对象（Argo 产物 key 随机，只验 bucket 非空）
     try:

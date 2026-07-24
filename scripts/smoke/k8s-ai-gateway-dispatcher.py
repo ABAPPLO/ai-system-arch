@@ -398,9 +398,9 @@ def assert_routing():
     print(f"  POST unknown-model -> HTTP {st} {raw[:200]!r}")
     # ai-gateway HTTPException(400, detail="model '...' not supported") body 形如
     # {"detail":"model 'unknown-model-xyz' not supported"}
-    assert (
-        b"not supported" in raw
-    ), f"R2C-C 未路由拒绝：期待 body 含 'not supported'，实际 HTTP {st} body={raw!r}"
+    assert b"not supported" in raw, (
+        f"R2C-C 未路由拒绝：期待 body 含 'not supported'，实际 HTTP {st} body={raw!r}"
+    )
     print("  [R2C-C] 多 Provider 路由 OK —— 未知 model 经 ai-gateway 拒绝（body 透传）")
 
 
