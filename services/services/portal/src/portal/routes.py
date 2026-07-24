@@ -296,3 +296,42 @@ def register_routes(app: FastAPI) -> None:
             key_prefix=body["display_prefix"],  # 映射 auth 字段
             api_key=body["api_key"],
         )
+
+    @app.get("/v1/portal/apps/{app_id}/api-keys")
+    async def list_api_keys(request: Request, app_id: str):
+        """列 app 的 APIKey —— 透传 auth（含 signing 派生字段）。"""
+        require_tenant()
+        st, body = await _forward(
+            "GET",
+            f"/v1/apps/{app_id}/api-keys",
+            headers={"Authorization": request.headers.get("Authorization", "")},
+        )
+        if st >= 400:
+            raise ApiError(ErrorCode.INTERNAL, f"auth error: {body}", http_status=st)
+        return body
+
+    @app.delete("/v1/portal/api-keys/{key_id}")
+    async def revoke_api_key(request: Request, key_id: str):
+        """吊销 APIKey —— 转发 auth。"""
+        require_tenant()
+        st, body = await _forward(
+            "DELETE",
+            f"/v1/api-keys/{key_id}",
+            headers={"Authorization": request.headers.get("Authorization", "")},
+        )
+        if st >= 400:
+            raise ApiError(ErrorCode.INTERNAL, f"auth error: {body}", http_status=st)
+        return body
+
+    @app.post("/v1/portal/api-keys/{key_id}/hmac-secret/rotate")
+    async def rotate_api_key(request: Request, key_id: str):
+        """轮换 HMAC secret —— 转发 auth，新明文仅此次返回。"""
+        require_tenant()
+        st, body = await _forward(
+            "POST",
+            f"/v1/api-keys/{key_id}/hmac-secret/rotate",
+            headers={"Authorization": request.headers.get("Authorization", "")},
+        )
+        if st >= 400:
+            raise ApiError(ErrorCode.INTERNAL, f"auth error: {body}", http_status=st)
+        return body
