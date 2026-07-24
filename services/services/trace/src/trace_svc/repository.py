@@ -433,21 +433,24 @@ async def co_occurrence(
 ) -> list[dict[str, Any]]:
     """API 共现：同一 trace 中的 API 对，按频次降序。"""
     params: dict[str, Any] = {}
-    clauses: list[str] = []
+    # a.api_id < b.api_id 不能进 JOIN ON——CH 拒跨表不等式
+    # (INVALID_JOIN_ON_EXPRESSION)，挪到 WHERE；同时去重（只留一种序、排除自对）。
+    # tenant_id / ts 须限定 a.（self-join 否则 CH 报 ambiguous）。
+    clauses: list[str] = ["a.api_id < b.api_id"]
     if viewer_tenant_id:
-        clauses.append("tenant_id = %(tenant_id)s")
+        clauses.append("a.tenant_id = %(tenant_id)s")
         params["tenant_id"] = viewer_tenant_id
     if since:
-        clauses.append("ts >= %(since)s")
+        clauses.append("a.ts >= %(since)s")
         params["since"] = since
-    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    where = f"WHERE {' AND '.join(clauses)}"
     try:
         sql = f"""
             SELECT a.api_id AS api_a, a.path AS path_a,
                    b.api_id AS api_b, b.path AS path_b,
                    count() AS pair_count
             FROM api_call_log a
-            JOIN api_call_log b ON a.trace_id = b.trace_id AND a.api_id < b.api_id
+            JOIN api_call_log b ON a.trace_id = b.trace_id
             {where}
             GROUP BY a.api_id, a.path, b.api_id, b.path
             HAVING pair_count >= %(min)s
