@@ -9,7 +9,6 @@ export default defineConfig({
     port: 5174,
     proxy: {
       '/v1/portal': 'http://localhost:8011',
-      '/v1/trace': 'http://localhost:8008',
       '/v1/docs': 'http://localhost:8007',
     },
   },

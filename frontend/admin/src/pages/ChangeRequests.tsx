@@ -173,7 +173,7 @@ export default function ChangeRequests() {
               </Button>
             </>
           )}
-          {r.status === 'approved' && (
+          {r.status === 'approved' && isPlatformAdmin && (
             <Popconfirm
               title="立即执行 apply？"
               onConfirm={() => applyRequest(r.id)}

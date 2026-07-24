@@ -1,7 +1,9 @@
 /**
  * Admin API client —— 统一 fetch wrapper（Bearer JWT 鉴权版）。
  *
- * 钉钉 SSO 登录后存 access/refresh JWT；401 自动 refresh 一次再重试，失败跳登录。
+ * 钉钉 SSO 登录后存 access/refresh JWT；401 自动 refresh 一次，用新 token 重试；
+ * 仅当无 refresh token、refresh 失败、或重试仍 401（真鉴权失效）时才清登录态跳登录。
+ * 重试遇到 400/500 等业务错误按正常响应抛 ApiError，不强制登出。
  * 机器访问（脚本/API Key）仍可直接带 X-API-Key 头（本 client 仅服务浏览器 SSO 态）。
  */
 
@@ -62,6 +64,49 @@ interface RequestOptions {
   query?: Record<string, string | number | undefined | null>;
 }
 
+async function parseResponse<T>(resp: Response): Promise<T> {
+  const ct = resp.headers.get('content-type') || '';
+  let payload: unknown;
+  if (ct.includes('application/json')) {
+    payload = await resp.json();
+  } else {
+    payload = await resp.text();
+  }
+  if (!resp.ok) {
+    const errBody = (payload && typeof payload === 'object'
+      ? (payload as { message?: string; code?: number })
+      : {}) as { message?: string; code?: number };
+    throw new ApiError(
+      resp.status,
+      errBody.code ?? resp.status,
+      errBody.message || `HTTP ${resp.status}`,
+    );
+  }
+  return payload as T;
+}
+
+async function tryRefresh(refreshToken: string): Promise<string | null> {
+  /** 用 refresh token 换新 access token；成功则落盘并返回新 token，失败/拒绝返回 null。 */
+  try {
+    const rr = await fetch('/api/auth/v1/auth/refresh', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
+    if (!rr.ok) return null;
+    const data = await rr.json();
+    const auth = getAuth();
+    setTokens(
+      data.access_token,
+      data.refresh_token,
+      auth?.user || { id: '', name: '', isPlatformAdmin: false, tenantId: 'platform' },
+    );
+    return data.access_token as string;
+  } catch {
+    return null;
+  }
+}
+
 async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, skipAuth, query } = opts;
 
@@ -88,59 +133,25 @@ async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
   });
 
   if (resp.status === 401 && !skipAuth) {
+    // 401 → 尝试用 refresh token 续期后重试一次。
     const rt = getRefreshToken();
-    if (rt) {
-      try {
-        const rr = await fetch('/api/auth/v1/auth/refresh', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ refresh_token: rt }),
-        });
-        if (rr.ok) {
-          const data = await rr.json();
-          const auth = getAuth();
-          setTokens(
-            data.access_token,
-            data.refresh_token,
-            auth?.user || { id: '', name: '', isPlatformAdmin: false, tenantId: 'platform' },
-          );
-          headers['Authorization'] = 'Bearer ' + data.access_token;
-          const retry = await fetch(url, {
-            method,
-            headers,
-            body: body !== undefined ? JSON.stringify(body) : undefined,
-          });
-          if (retry.ok) {
-            const ct = retry.headers.get('content-type') || '';
-            return (ct.includes('application/json')
-              ? await retry.json()
-              : await retry.text()) as T;
-          }
-        }
-      } catch {
-        /* fall through to logout */
+    const newToken = rt ? await tryRefresh(rt) : null;
+    if (newToken) {
+      headers['Authorization'] = 'Bearer ' + newToken;
+      const retry = await fetch(url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
+      // retry 仍 401 → 新 token 也无效，真鉴权失效 → 登出；
+      // retry 非 401（含 400/500 等业务错）→ 按正常响应返回，不登出。
+      if (retry.status !== 401) {
+        return parseResponse<T>(retry);
       }
     }
+    // 无 refresh token / refresh 失败 / retry 仍 401 → 登出。
     clearAuth();
     window.location.href = '/login';
     throw new ApiError(401, 10002, 'Unauthorized');
   }
 
-  let payload: unknown = null;
-  const ct = resp.headers.get('content-type') || '';
-  payload = ct.includes('application/json') ? await resp.json() : await resp.text();
-
-  if (!resp.ok) {
-    const errBody = (payload && typeof payload === 'object'
-      ? (payload as { message?: string; code?: number })
-      : {}) as { message?: string; code?: number };
-    throw new ApiError(
-      resp.status,
-      errBody.code ?? resp.status,
-      errBody.message || `HTTP ${resp.status}`,
-    );
-  }
-  return payload as T;
+  return parseResponse<T>(resp);
 }
 
 export const api = {

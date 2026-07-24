@@ -401,8 +401,15 @@ def register_change_request_routes(app: FastAPI) -> None:
         """approved → applied（执行实际副作用，如发布/下线）。
 
         幂等：再次 apply 已 applied 的请求返回 409。
+        仅超管可 apply（与 approve/reject 一致——apply 把变更落地到目标环境）。
         """
-        require_tenant()
+        ctx = require_tenant()
+        if not ctx.is_platform_admin:
+            raise ApiError(
+                ErrorCode.FORBIDDEN,
+                "only platform admin can apply",
+                http_status=403,
+            )
         req = await cr.get_change_request(request_id)
         if req is None:
             raise ApiError(

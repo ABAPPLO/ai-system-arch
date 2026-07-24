@@ -86,6 +86,10 @@ class Settings(BaseSettings):
     # K8s 默认走集群内 DNS；本地 dev 通过 .env.dev 覆盖到 localhost:8002
     auth_service_url: str = "http://auth.apihub-system/v1/apikey/verify"
 
+    # Trace service（portal-bff 转发高级分析用，docs/aggregate-ownership.md §9-B 护栏）
+    # K8s 走集群内 DNS；本地 dev 全栈经 docker compose 网络解析（与 auth 同款）。
+    trace_service_url: str = "http://trace.apihub-system/v1/trace"
+
     # JWT（外部开发者「人」的登录态；与机器 API Key 分流）
     # prod 必须用强密钥（env 注入），dev 默认值仅供本地。
     notification_service_url: str = "http://notification.apihub-system/v1/notification"
