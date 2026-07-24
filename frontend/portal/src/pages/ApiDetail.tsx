@@ -1,5 +1,24 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { PageContainer } from '@ant-design/pro-components';
+import {
+  Alert,
+  Button,
+  Card,
+  Checkbox,
+  Descriptions,
+  Empty,
+  Input,
+  Select,
+  Space,
+  Spin,
+  Table,
+  Tabs,
+  Tag,
+  Typography,
+} from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+
 import { api, ApiError } from '../api/client';
 
 interface VersionItem {
@@ -41,77 +60,115 @@ interface ExampleResponse {
   notes: string[];
 }
 
-type Tab = 'docs' | 'schema' | 'examples' | 'try';
+type TabKey = 'docs' | 'schema' | 'examples' | 'try';
 
-const BACKEND_BADGE: Record<string, { label: string; color: string }> = {
-  http:       { label: 'HTTP',       color: 'bg-blue-100 text-blue-700' },
-  ai_model:   { label: 'AI SSE',     color: 'bg-purple-100 text-purple-700' },
-  async_task: { label: 'Async Task', color: 'bg-orange-100 text-orange-700' },
-  workflow:   { label: 'Workflow',   color: 'bg-gray-100 text-gray-600' },
+const BACKEND_TAG: Record<string, { label: string; color: string }> = {
+  http: { label: 'HTTP', color: 'blue' },
+  ai_model: { label: 'AI SSE', color: 'purple' },
+  async_task: { label: 'Async Task', color: 'orange' },
+  workflow: { label: 'Workflow', color: 'default' },
 };
 
-const TAB_LABEL: Record<Tab, string> = {
-  docs: '文档说明',
-  schema: '请求/响应',
-  examples: '调用示例',
-  try: '试试',
-};
-
-function StatusBadge({ status }: { status: number }) {
+function StatusTag({ status }: { status: number }) {
   const color =
-    status < 300 ? 'bg-green-100 text-green-700' :
-    status < 400 ? 'bg-yellow-100 text-yellow-700' :
-    status < 500 ? 'bg-orange-100 text-orange-700' :
-    'bg-red-100 text-red-700';
-  return <span className={`font-mono text-sm px-2 py-0.5 rounded ${color}`}>{status}</span>;
+    status < 300
+      ? 'green'
+      : status < 400
+        ? 'gold'
+        : status < 500
+          ? 'orange'
+          : 'red';
+  return (
+    <Tag color={color} style={{ fontFamily: 'monospace' }}>
+      {status}
+    </Tag>
+  );
 }
 
-function SchemaTable({ schema }: { schema: Record<string, unknown> | null }) {
+interface SchemaRow {
+  key: string;
+  name: string;
+  type: string;
+  required: boolean;
+  desc: string;
+}
+
+function SchemaTable({
+  schema,
+}: {
+  schema: Record<string, unknown> | null;
+}) {
   if (!schema || !schema.properties) {
-    return <p className="text-gray-400 text-sm">无 schema 定义</p>;
+    return <Empty description="无 schema 定义" />;
   }
-  const props = schema.properties as Record<string, unknown>;
+  const props = schema.properties as Record<string, Record<string, unknown>>;
   const required = (schema.required as string[]) || [];
+  const data: SchemaRow[] = Object.entries(props).map(([name, p]) => ({
+    key: name,
+    name,
+    type: String(p.type || 'any'),
+    required: required.includes(name),
+    desc: String(p.description || ''),
+  }));
+  const columns: ColumnsType<SchemaRow> = [
+    {
+      title: '字段',
+      dataIndex: 'name',
+      render: (v: string) => <Typography.Text code>{v}</Typography.Text>,
+    },
+    { title: '类型', dataIndex: 'type' },
+    {
+      title: '必填',
+      dataIndex: 'required',
+      render: (v: boolean) => (v ? '✓' : ''),
+    },
+    {
+      title: '说明',
+      dataIndex: 'desc',
+      render: (v: string) => (
+        <Typography.Text type="secondary">{v}</Typography.Text>
+      ),
+    },
+  ];
   return (
-    <table className="w-full text-sm border-collapse">
-      <thead>
-        <tr className="border-b bg-gray-50">
-          <th className="text-left px-3 py-2">字段</th>
-          <th className="text-left px-3 py-2">类型</th>
-          <th className="text-left px-3 py-2">必填</th>
-          <th className="text-left px-3 py-2">说明</th>
-        </tr>
-      </thead>
-      <tbody>
-        {Object.entries(props).map(([name, prop]) => {
-          const p = prop as Record<string, unknown>;
-          return (
-            <tr key={name} className="border-b">
-              <td className="px-3 py-1.5 font-mono">{name}</td>
-              <td className="px-3 py-1.5">{String(p.type || 'any')}</td>
-              <td className="px-3 py-1.5">{required.includes(name) ? '✓' : ''}</td>
-              <td className="px-3 py-1.5 text-gray-500">{String(p.description || '')}</td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <Table<SchemaRow>
+      size="small"
+      pagination={false}
+      columns={columns}
+      dataSource={data}
+    />
   );
 }
 
 function CodeBlock({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
+  const onCopy = () => {
+    navigator.clipboard.writeText(code);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
   return (
-    <div className="relative">
-      <pre className="bg-gray-900 text-gray-100 p-4 rounded text-sm overflow-x-auto">
+    <div style={{ position: 'relative' }}>
+      <pre
+        style={{
+          background: '#0f172a',
+          color: '#e2e8f0',
+          padding: 16,
+          borderRadius: 6,
+          overflowX: 'auto',
+          fontSize: 13,
+          margin: 0,
+        }}
+      >
         <code>{code}</code>
       </pre>
-      <button
-        className="absolute top-2 right-2 text-xs bg-gray-700 px-2 py-1 rounded text-gray-300 hover:bg-gray-600"
-        onClick={() => { navigator.clipboard.writeText(code); setCopied(true); setTimeout(() => setCopied(false), 2000); }}
+      <Button
+        size="small"
+        onClick={onCopy}
+        style={{ position: 'absolute', top: 8, right: 8 }}
       >
         {copied ? '已复制' : '复制'}
-      </button>
+      </Button>
     </div>
   );
 }
@@ -121,14 +178,17 @@ export function ApiDetail() {
   const nav = useNavigate();
   const [detail, setDetail] = useState<ApiDetailData | null>(null);
   const [examples, setExamples] = useState<ExampleResponse | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>('docs');
+  const [activeTab, setActiveTab] = useState<TabKey>('docs');
   const [selectedVerIdx, setSelectedVerIdx] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  // Try-it 状态：API Key 必须是明文手动输入（P1 修复语义），不得改成下拉选 app。
   const [selectedKey, setSelectedKey] = useState('');
   const [pathParams, setPathParams] = useState<Record<string, string>>({});
-  const [queryParams, setQueryParams] = useState<{ key: string; value: string }[]>([]);
+  const [queryParams, setQueryParams] = useState<{ key: string; value: string }[]>(
+    [],
+  );
   const [bodyText, setBodyText] = useState('');
   const [tryResp, setTryResp] = useState<TryResponse | null>(null);
   const [tryLoading, setTryLoading] = useState(false);
@@ -138,13 +198,15 @@ export function ApiDetail() {
     if (!id) return;
     setLoading(true);
     setError('');
-    api.get<ApiDetailData>(`/v1/portal/apis/${id}`)
+    api
+      .get<ApiDetailData>(`/v1/portal/apis/${id}`)
       .then((d) => {
         setDetail(d);
         const v = d.versions[0];
         if (v) {
           if (v.request_schema) {
-            const example = (v.request_schema as Record<string, unknown>).example;
+            const example = (v.request_schema as Record<string, unknown>)
+              .example;
             setBodyText(example ? JSON.stringify(example, null, 2) : '{\n  \n}');
           }
           const extracted: Record<string, string> = {};
@@ -160,7 +222,8 @@ export function ApiDetail() {
 
   useEffect(() => {
     if (activeTab === 'examples' && id && !examples) {
-      api.get<ExampleResponse>(`/v1/docs/apis/${id}/examples`)
+      api
+        .get<ExampleResponse>(`/v1/docs/apis/${id}/examples`)
         .then(setExamples)
         .catch(() => {});
     }
@@ -172,6 +235,24 @@ export function ApiDetail() {
     if (!id || !version || !selectedKey) return;
     setTryLoading(true);
     setTryResp(null);
+    let parsedBody: unknown = null;
+    if (bodyText.trim()) {
+      try {
+        parsedBody = JSON.parse(bodyText);
+      } catch (e) {
+        setTryResp({
+          status: 0,
+          headers: {},
+          body: null,
+          latency_ms: 0,
+          error:
+            '请求体 JSON 解析失败：' +
+            (e instanceof Error ? e.message : String(e)),
+        });
+        setTryLoading(false);
+        return;
+      }
+    }
     try {
       const resp = await api.post<TryResponse>('/v1/portal/try', {
         api_id: id,
@@ -181,14 +262,20 @@ export function ApiDetail() {
         query_params: Object.fromEntries(
           queryParams.filter((q) => q.key).map((q) => [q.key, q.value]),
         ),
-        body: bodyText ? JSON.parse(bodyText) : null,
+        body: parsedBody,
         api_key: selectedKey,
         environment: sandbox ? 'sandbox' : 'production',
       });
       setTryResp(resp);
     } catch (err) {
       const msg = err instanceof ApiError ? err.message : String(err);
-      setTryResp({ status: 0, headers: {}, body: null, latency_ms: 0, error: msg });
+      setTryResp({
+        status: 0,
+        headers: {},
+        body: null,
+        latency_ms: 0,
+        error: msg,
+      });
     } finally {
       setTryLoading(false);
     }
@@ -196,47 +283,311 @@ export function ApiDetail() {
 
   if (loading) {
     return (
-      <div className="flex justify-center py-12">
-        <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />
-      </div>
+      <PageContainer header={{ title: '加载中…' }}>
+        <div style={{ textAlign: 'center', padding: 80 }}>
+          <Spin />
+        </div>
+      </PageContainer>
     );
   }
 
   if (error || !detail) {
     return (
-      <div className="max-w-4xl mx-auto p-4">
-        <button onClick={() => nav('/apis')} className="text-blue-600 mb-4">&larr; 返回目录</button>
-        <div className="bg-red-50 border border-red-200 rounded p-4 text-red-700">
-          {error || 'API 不存在'}
-        </div>
-      </div>
+      <PageContainer header={{ title: 'API 详情' }}>
+        <Button
+          type="link"
+          onClick={() => nav('/apis')}
+          style={{ paddingLeft: 0, marginBottom: 8 }}
+        >
+          ← 返回目录
+        </Button>
+        <Alert type="error" showIcon message={error || 'API 不存在'} />
+      </PageContainer>
     );
   }
 
-  const badge = BACKEND_BADGE[version?.backend_type || ''] || BACKEND_BADGE.http;
+  const badge = BACKEND_TAG[version?.backend_type || ''] || BACKEND_TAG.http;
+
+  const tabItems = [
+    {
+      key: 'docs' as const,
+      label: '文档说明',
+      children: (
+        <div>
+          <Typography.Paragraph>
+            {detail.description || '暂无文档说明'}
+          </Typography.Paragraph>
+          <Space size={[4, 4]} wrap>
+            <Typography.Text type="secondary">标签：</Typography.Text>
+            {detail.tags.map((t) => (
+              <Tag key={t}>#{t}</Tag>
+            ))}
+          </Space>
+        </div>
+      ),
+    },
+    {
+      key: 'schema' as const,
+      label: '请求/响应',
+      children: (
+        <Space direction="vertical" size="large" style={{ width: '100%' }}>
+          <Card title="请求参数">
+            <SchemaTable schema={version?.request_schema || null} />
+          </Card>
+          <Card title="响应参数">
+            <SchemaTable schema={version?.response_schema || null} />
+          </Card>
+        </Space>
+      ),
+    },
+    {
+      key: 'examples' as const,
+      label: '调用示例',
+      children: (
+        <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+          {examples?.notes.map((n, i) => (
+            <Alert key={i} type="warning" showIcon message={n} />
+          ))}
+          {examples ? (
+            <>
+              <div>
+                <Typography.Title level={5}>curl</Typography.Title>
+                <CodeBlock code={examples.curl} />
+              </div>
+              <div>
+                <Typography.Title level={5}>Python</Typography.Title>
+                <CodeBlock code={examples.python} />
+              </div>
+              <div>
+                <Typography.Title level={5}>JavaScript</Typography.Title>
+                <CodeBlock code={examples.javascript} />
+              </div>
+            </>
+          ) : (
+            <Empty description="加载示例中…" />
+          )}
+        </Space>
+      ),
+    },
+    {
+      key: 'try' as const,
+      label: '试试',
+      children: version ? (
+        <Card>
+          <Space direction="vertical" size="middle" style={{ width: '100%' }}>
+            {/* API Key —— 明文手动输入（保留 P1 bug 修复语义，不改为下拉选 app） */}
+            <div>
+              <Typography.Text strong>API Key（明文）</Typography.Text>
+              <Input.Password
+                autoComplete="off"
+                placeholder="粘贴 ak_ 开头的 API Key"
+                value={selectedKey}
+                onChange={(e) => setSelectedKey(e.target.value)}
+                style={{ marginTop: 4, fontFamily: 'monospace' }}
+              />
+              <Typography.Text
+                type="secondary"
+                style={{ fontSize: 12, display: 'block', marginTop: 4 }}
+              >
+                明文 Key 仅创建时显示一次，请到{' '}
+                <Button
+                  type="link"
+                  size="small"
+                  style={{ padding: 0 }}
+                  onClick={() => nav('/apps')}
+                >
+                  应用管理
+                </Button>{' '}
+                创建并复制（服务端只存哈希，无法代为回填）。
+              </Typography.Text>
+            </div>
+
+            {Object.keys(pathParams).length > 0 && (
+              <div>
+                <Typography.Text strong>路径参数</Typography.Text>
+                <Descriptions column={1} size="small" style={{ marginTop: 8 }}>
+                  {Object.entries(pathParams).map(([key, val]) => (
+                    <Descriptions.Item
+                      key={key}
+                      label={<Typography.Text code>{key}</Typography.Text>}
+                    >
+                      <Input
+                        value={val}
+                        onChange={(e) =>
+                          setPathParams((prev) => ({
+                            ...prev,
+                            [key]: e.target.value,
+                          }))
+                        }
+                      />
+                    </Descriptions.Item>
+                  ))}
+                </Descriptions>
+              </div>
+            )}
+
+            <div>
+              <Typography.Text strong>查询参数</Typography.Text>
+              <Space direction="vertical" style={{ width: '100%', marginTop: 8 }}>
+                {queryParams.map((q, i) => (
+                  <Space.Compact key={i} style={{ width: '100%' }}>
+                    <Input
+                      style={{ width: '30%' }}
+                      placeholder="key"
+                      value={q.key}
+                      onChange={(e) => {
+                        const next = [...queryParams];
+                        next[i] = { ...next[i], key: e.target.value };
+                        setQueryParams(next);
+                      }}
+                    />
+                    <Input
+                      style={{ width: '60%' }}
+                      placeholder="value"
+                      value={q.value}
+                      onChange={(e) => {
+                        const next = [...queryParams];
+                        next[i] = { ...next[i], value: e.target.value };
+                        setQueryParams(next);
+                      }}
+                    />
+                    <Button
+                      danger
+                      onClick={() =>
+                        setQueryParams(queryParams.filter((_, j) => j !== i))
+                      }
+                    >
+                      删除
+                    </Button>
+                  </Space.Compact>
+                ))}
+                <Button
+                  type="dashed"
+                  onClick={() =>
+                    setQueryParams([...queryParams, { key: '', value: '' }])
+                  }
+                >
+                  + Add
+                </Button>
+              </Space>
+            </div>
+
+            <Space>
+              <Typography.Text strong>沙箱环境</Typography.Text>
+              <Checkbox
+                checked={sandbox}
+                onChange={(e) => setSandbox(e.target.checked)}
+              >
+                模拟后端
+              </Checkbox>
+              {sandbox && <Tag color="orange">沙箱</Tag>}
+            </Space>
+
+            <div>
+              <Typography.Text strong>请求体（JSON）</Typography.Text>
+              <Input.TextArea
+                rows={8}
+                value={bodyText}
+                onChange={(e) => setBodyText(e.target.value)}
+                placeholder='{"key": "value"}'
+                style={{ marginTop: 4, fontFamily: 'monospace' }}
+              />
+            </div>
+
+            <Space>
+              <Button
+                type="primary"
+                loading={tryLoading}
+                disabled={!selectedKey}
+                onClick={doTry}
+              >
+                ▶ Send
+              </Button>
+              <Button
+                onClick={() => {
+                  setTryResp(null);
+                  setBodyText('{\n  \n}');
+                  setQueryParams([]);
+                }}
+              >
+                Clear
+              </Button>
+            </Space>
+
+            {tryResp && (
+              <Card
+                size="small"
+                title={
+                  <Space>
+                    <StatusTag status={tryResp.status} />
+                    {tryResp.error && (
+                      <Typography.Text type="danger">
+                        {tryResp.error}
+                      </Typography.Text>
+                    )}
+                    {!tryResp.error && tryResp.latency_ms > 0 && (
+                      <Typography.Text type="secondary">
+                        {tryResp.latency_ms}ms
+                      </Typography.Text>
+                    )}
+                  </Space>
+                }
+              >
+                {tryResp.body !== null && tryResp.body !== undefined && (
+                  <pre
+                    style={{
+                      background: '#0f172a',
+                      color: '#e2e8f0',
+                      padding: 16,
+                      borderRadius: 6,
+                      overflowX: 'auto',
+                      fontSize: 13,
+                      margin: 0,
+                    }}
+                  >
+                    <code>{JSON.stringify(tryResp.body, null, 2)}</code>
+                  </pre>
+                )}
+              </Card>
+            )}
+          </Space>
+        </Card>
+      ) : (
+        <Empty description="该版本无可用端点" />
+      ),
+    },
+  ];
 
   return (
-    <div className="max-w-4xl mx-auto p-4">
-      <button onClick={() => nav('/apis')} className="text-blue-600 mb-2">&larr; 返回目录</button>
+    <PageContainer header={{ title: detail.name }}>
+      <Button
+        type="link"
+        onClick={() => nav('/apis')}
+        style={{ paddingLeft: 0, marginBottom: 8 }}
+      >
+        ← 返回目录
+      </Button>
 
-      <div className="flex items-center justify-between mb-2">
-        <h1 className="text-2xl font-bold">{detail.name}</h1>
-        <div className="flex items-center gap-2">
-          <span className={`text-xs font-medium px-2 py-0.5 rounded ${badge.color}`}>{badge.label}</span>
-          <span className="text-xs text-gray-400">{detail.visibility}</span>
-        </div>
-      </div>
-      <p className="text-gray-500 text-sm mb-1">分类: {detail.category}</p>
-      <p className="text-gray-600 mb-4">{detail.description || ''}</p>
+      <Space style={{ marginBottom: 8 }}>
+        <Tag color={badge.color}>{badge.label}</Tag>
+        <Tag>{detail.visibility}</Tag>
+      </Space>
+
+      <Descriptions column={1} size="small" style={{ marginBottom: 16 }}>
+        <Descriptions.Item label="分类">
+          {detail.category}
+        </Descriptions.Item>
+        <Descriptions.Item label="描述">
+          {detail.description || '—'}
+        </Descriptions.Item>
+      </Descriptions>
 
       {detail.versions.length > 1 && (
-        <div className="mb-4 flex items-center gap-2">
-          <label className="text-sm text-gray-500">版本:</label>
-          <select
-            className="border rounded px-3 py-1 text-sm"
+        <Space style={{ marginBottom: 16 }}>
+          <Typography.Text>版本：</Typography.Text>
+          <Select
             value={selectedVerIdx}
-            onChange={(e) => {
-              const idx = parseInt(e.target.value, 10);
+            onChange={(idx) => {
               setSelectedVerIdx(idx);
               const v = detail.versions[idx];
               const ex: Record<string, string> = {};
@@ -245,226 +596,30 @@ export function ApiDetail() {
               }
               setPathParams(ex);
               if (v?.request_schema) {
-                const example = (v.request_schema as Record<string, unknown>).example;
+                const example = (v.request_schema as Record<string, unknown>)
+                  .example;
                 setBodyText(example ? JSON.stringify(example, null, 2) : '{\n  \n}');
               }
             }}
-          >
-            {detail.versions.map((v, i) => (
-              <option key={v.version_id} value={i}>
-                {v.version} ({v.status})
-              </option>
-            ))}
-          </select>
+            options={detail.versions.map((v, i) => ({
+              label: `${v.version} (${v.status})`,
+              value: i,
+            }))}
+            style={{ width: 200 }}
+          />
           {version && (
-            <span className="text-sm text-gray-500">{version.method} {version.path}</span>
+            <Typography.Text code>
+              {version.method} {version.path}
+            </Typography.Text>
           )}
-        </div>
+        </Space>
       )}
 
-      <div className="flex border-b mb-4">
-        {(['docs', 'schema', 'examples', 'try'] as Tab[]).map((tab) => (
-          <button
-            key={tab}
-            className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px ${
-              activeTab === tab
-                ? 'border-blue-500 text-blue-600'
-                : 'border-transparent text-gray-500 hover:text-gray-700'
-            }`}
-            onClick={() => setActiveTab(tab)}
-          >
-            {TAB_LABEL[tab]}
-          </button>
-        ))}
-      </div>
-
-      {activeTab === 'docs' && (
-        <div>
-          <p>{detail.description || '暂无文档说明'}</p>
-          <div className="mt-2">
-            <span className="text-sm text-gray-500">标签: </span>
-            {detail.tags.map((t) => (
-              <span key={t} className="bg-gray-100 text-sm px-2 py-0.5 rounded mr-1">#{t}</span>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {activeTab === 'schema' && (
-        <div className="space-y-6">
-          <div>
-            <h3 className="font-semibold text-sm mb-2">请求参数</h3>
-            <SchemaTable schema={version?.request_schema || null} />
-          </div>
-          <div>
-            <h3 className="font-semibold text-sm mb-2">响应参数</h3>
-            <SchemaTable schema={version?.response_schema || null} />
-          </div>
-        </div>
-      )}
-
-      {activeTab === 'examples' && (
-        <div className="space-y-4">
-          {examples?.notes.map((n, i) => (
-            <p key={i} className="text-yellow-700 bg-yellow-50 p-2 rounded text-sm">{n}</p>
-          ))}
-          {examples ? (
-            <>
-              <div>
-                <h3 className="font-semibold text-sm mb-1">curl</h3>
-                <CodeBlock code={examples.curl} />
-              </div>
-              <div>
-                <h3 className="font-semibold text-sm mb-1">Python</h3>
-                <CodeBlock code={examples.python} />
-              </div>
-              <div>
-                <h3 className="font-semibold text-sm mb-1">JavaScript</h3>
-                <CodeBlock code={examples.javascript} />
-              </div>
-            </>
-          ) : (
-            <p className="text-gray-400 text-sm">加载示例中…</p>
-          )}
-        </div>
-      )}
-
-      {activeTab === 'try' && version && (
-        <div className="border rounded-lg p-4 space-y-4">
-          <div>
-            <label className="text-sm font-semibold">API Key（明文）</label>
-            <input
-              type="password"
-              autoComplete="off"
-              className="w-full border rounded px-3 py-2 mt-1 font-mono text-sm"
-              placeholder="粘贴 ak_ 开头的 API Key"
-              value={selectedKey}
-              onChange={(e) => setSelectedKey(e.target.value)}
-            />
-            <p className="text-xs text-gray-400 mt-1">
-              明文 Key 仅创建时显示一次，请到{' '}
-              <button className="text-blue-600 underline" onClick={() => nav('/apps')}>
-                应用管理
-              </button>
-              {' '}创建并复制（服务端只存哈希，无法代为回填）。
-            </p>
-          </div>
-
-          {Object.keys(pathParams).length > 0 && (
-            <div>
-              <label className="text-sm font-semibold">路径参数</label>
-              {Object.entries(pathParams).map(([key, val]) => (
-                <div key={key} className="flex items-center gap-2 mt-1">
-                  <span className="text-sm font-mono text-gray-500 w-24">{key}</span>
-                  <input
-                    className="flex-1 border rounded px-3 py-1.5 text-sm"
-                    value={val}
-                    onChange={(e) => setPathParams((prev) => ({ ...prev, [key]: e.target.value }))}
-                  />
-                </div>
-              ))}
-            </div>
-          )}
-
-          <div>
-            <label className="text-sm font-semibold">查询参数</label>
-            {queryParams.map((q, i) => (
-              <div key={i} className="flex items-center gap-2 mt-1">
-                <input
-                  className="border rounded px-2 py-1 text-sm w-32"
-                  placeholder="key"
-                  value={q.key}
-                  onChange={(e) => {
-                    const next = [...queryParams];
-                    next[i] = { ...next[i], key: e.target.value };
-                    setQueryParams(next);
-                  }}
-                />
-                <input
-                  className="border rounded px-2 py-1 text-sm flex-1"
-                  placeholder="value"
-                  value={q.value}
-                  onChange={(e) => {
-                    const next = [...queryParams];
-                    next[i] = { ...next[i], value: e.target.value };
-                    setQueryParams(next);
-                  }}
-                />
-                <button
-                  className="text-red-500 text-sm"
-                  onClick={() => setQueryParams(queryParams.filter((_, j) => j !== i))}
-                >
-                  删除
-                </button>
-              </div>
-            ))}
-            <button
-              className="text-blue-600 text-sm mt-1"
-              onClick={() => setQueryParams([...queryParams, { key: '', value: '' }])}
-            >
-              + Add
-            </button>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <label className="text-sm font-semibold">沙箱环境</label>
-            <button
-              className={`relative w-10 h-5 rounded-full transition-colors ${sandbox ? 'bg-blue-500' : 'bg-gray-300'}`}
-              onClick={() => setSandbox(!sandbox)}
-            >
-              <span className={`block w-4 h-4 bg-white rounded-full transition-transform ${sandbox ? 'translate-x-5' : 'translate-x-0.5'}`} />
-            </button>
-            {sandbox && <span className="text-xs text-orange-600">模拟后端</span>}
-          </div>
-
-          <div>
-            <label className="text-sm font-semibold">请求体 (JSON)</label>
-            <textarea
-              className="w-full border rounded px-3 py-2 text-sm font-mono mt-1"
-              rows={8}
-              value={bodyText}
-              onChange={(e) => setBodyText(e.target.value)}
-              placeholder='{"key": "value"}'
-            />
-          </div>
-
-          <button
-            className="bg-blue-600 text-white px-6 py-2 rounded font-medium disabled:opacity-50"
-            disabled={tryLoading || !selectedKey}
-            onClick={doTry}
-          >
-            {tryLoading ? '发送中…' : '▶ Send'}
-          </button>
-
-          <button
-            className="ml-2 px-4 py-2 border rounded"
-            onClick={() => {
-              setTryResp(null);
-              setBodyText('{\n  \n}');
-              setQueryParams([]);
-            }}
-          >
-            Clear
-          </button>
-
-          {tryResp && (
-            <div className="border rounded p-4 bg-gray-50">
-              <div className="flex items-center gap-2 mb-2">
-                <StatusBadge status={tryResp.status} />
-                {tryResp.error && <span className="text-red-600 text-sm">{tryResp.error}</span>}
-                {!tryResp.error && tryResp.latency_ms > 0 && (
-                  <span className="text-gray-400 text-sm">{tryResp.latency_ms}ms</span>
-                )}
-              </div>
-              {tryResp.body !== null && tryResp.body !== undefined && (
-                <pre className="bg-gray-900 text-gray-100 p-4 rounded text-sm overflow-x-auto">
-                  <code>{JSON.stringify(tryResp.body, null, 2)}</code>
-                </pre>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-    </div>
+      <Tabs
+        activeKey={activeTab}
+        onChange={(k) => setActiveTab(k as TabKey)}
+        items={tabItems}
+      />
+    </PageContainer>
   );
 }

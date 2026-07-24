@@ -1,4 +1,22 @@
 import { useEffect, useState } from 'react';
+import { PageContainer } from '@ant-design/pro-components';
+import {
+  Alert,
+  Button,
+  Card,
+  Col,
+  Empty,
+  Progress,
+  Row,
+  Space,
+  Spin,
+  Statistic,
+  Table,
+  Tag,
+  Typography,
+} from 'antd';
+import type { ColumnsType } from 'antd/es/table';
+
 import { api } from '../api/client';
 
 interface PlanSummary {
@@ -37,20 +55,17 @@ interface PlanInfo {
   sort_order: number;
 }
 
+interface ApiUsageRow {
+  key: string;
+  name: string;
+  calls: number;
+  tokens: number;
+  pct: string;
+}
+
 function fmtNum(n: number): string {
   if (n >= 10000) return (n / 10000).toFixed(1) + '万';
   return n.toLocaleString();
-}
-
-function ProgressBar({ used, total }: { used: number; total: number }) {
-  const pct = total > 0 ? Math.min(100, (used / total) * 100) : 0;
-  const color = pct >= 100 ? 'bg-red-500' : pct >= 80 ? 'bg-orange-500' : 'bg-blue-500';
-  return (
-    <div className="w-full bg-gray-200 rounded h-2 mt-1">
-      <div className={`${color} h-2 rounded`} style={{ width: `${pct}%` }} />
-      {pct >= 100 && <p className="text-xs text-red-600 mt-1">超出配额</p>}
-    </div>
-  );
 }
 
 export function Usage() {
@@ -65,93 +80,186 @@ export function Usage() {
       api.get<BillingData>('/v1/portal/usage'),
       api.get<PlanInfo[]>('/v1/portal/plans'),
     ])
-      .then(([b, p]) => { setData(b); setPlans(p); })
+      .then(([b, p]) => {
+        setData(b);
+        setPlans(p);
+      })
       .catch((e) => setErr(e instanceof Error ? e.message : '加载失败'))
       .finally(() => setLoading(false));
   }, []);
 
-  if (loading) return <div className="flex justify-center py-12"><div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" /></div>;
-  if (err) return <div className="text-red-600 p-4">{err}</div>;
+  if (loading) {
+    return (
+      <PageContainer header={{ title: '用量统计' }}>
+        <div style={{ textAlign: 'center', padding: 80 }}>
+          <Spin />
+        </div>
+      </PageContainer>
+    );
+  }
+  if (err) {
+    return (
+      <PageContainer header={{ title: '用量统计' }}>
+        <Alert type="error" showIcon message={err} />
+      </PageContainer>
+    );
+  }
   if (!data) return null;
 
   const dpd = data.plan.quota_included.calls_per_day || 0;
   const tpm = data.plan.quota_included.tokens_per_month || 0;
 
+  const callsPct = dpd > 0 ? Math.min(100, (data.total_calls / dpd) * 100) : 0;
+  const tokensPct = tpm > 0 ? Math.min(100, (data.total_tokens / tpm) * 100) : 0;
+  const callsStatus: 'success' | 'active' | 'exception' | 'normal' =
+    callsPct >= 100 ? 'exception' : callsPct >= 80 ? 'active' : 'normal';
+  const tokensStatus: 'success' | 'active' | 'exception' | 'normal' =
+    tokensPct >= 100 ? 'exception' : tokensPct >= 80 ? 'active' : 'normal';
+
   const apiMap = new Map<string, { calls: number; tokens: number }>();
   data.daily_usage.forEach((u) => {
     const key = u.api_name || u.api_id;
     const prev = apiMap.get(key) || { calls: 0, tokens: 0 };
-    apiMap.set(key, { calls: prev.calls + u.calls, tokens: prev.tokens + u.tokens });
+    apiMap.set(key, {
+      calls: prev.calls + u.calls,
+      tokens: prev.tokens + u.tokens,
+    });
   });
-  const apiDetails = Array.from(apiMap.entries()).sort((a, b) => b[1].calls - a[1].calls);
+  const apiDetails = Array.from(apiMap.entries()).sort(
+    (a, b) => b[1].calls - a[1].calls,
+  );
+  const apiRows: ApiUsageRow[] = apiDetails.map(([name, u]) => ({
+    key: name,
+    name,
+    calls: u.calls,
+    tokens: u.tokens,
+    pct:
+      data.total_calls > 0
+        ? ((u.calls / data.total_calls) * 100).toFixed(0) + '%'
+        : '0%',
+  }));
+
+  const planColumns: ColumnsType<PlanInfo> = [
+    {
+      title: 'Plan',
+      dataIndex: 'name',
+      render: (v: string, r: PlanInfo) =>
+        r.code === data.plan.code ? (
+          <Typography.Text strong>{v}</Typography.Text>
+        ) : (
+          v
+        ),
+    },
+    {
+      title: '月费',
+      dataIndex: 'price_cents',
+      align: 'right',
+      render: (v: number) => (v > 0 ? `¥${v / 100}/月` : '免费'),
+    },
+    {
+      title: '日调用',
+      align: 'right',
+      render: (_, r) => fmtNum(r.quota_included.calls_per_day || 0),
+    },
+    {
+      title: 'SDK',
+      align: 'right',
+      render: (_, r) => (r.features?.sdk ? '✓' : '✗'),
+    },
+    {
+      title: '',
+      align: 'right',
+      render: (_, r) =>
+        r.code === data.plan.code ? <Tag color="blue">当前</Tag> : null,
+    },
+  ];
+
+  const apiColumns: ColumnsType<ApiUsageRow> = [
+    { title: 'API', dataIndex: 'name' },
+    {
+      title: '调用',
+      dataIndex: 'calls',
+      align: 'right',
+      render: (v: number) => fmtNum(v),
+    },
+    {
+      title: 'Token',
+      dataIndex: 'tokens',
+      align: 'right',
+      render: (v: number) => fmtNum(v),
+    },
+    { title: '占比', dataIndex: 'pct', align: 'right' },
+  ];
 
   return (
-    <div className="max-w-4xl mx-auto p-4">
-      <h1 className="text-2xl font-bold mb-4">用量统计</h1>
-      <p className="text-sm text-gray-500 mb-4">{data.month}</p>
+    <PageContainer header={{ title: '用量统计' }}>
+      <Typography.Paragraph type="secondary">
+        账期：{data.month}
+      </Typography.Paragraph>
 
-      <div className="border rounded-lg p-4 mb-4 bg-blue-50">
-        <div className="flex items-center justify-between">
+      <Card style={{ marginBottom: 16 }}>
+        <Space style={{ justifyContent: 'space-between', width: '100%' }}>
           <div>
-            <p className="text-sm text-gray-500">当前 Plan</p>
-            <p className="text-lg font-bold">{data.plan.name}</p>
+            <Typography.Text type="secondary">当前 Plan</Typography.Text>
+            <Typography.Title level={4} style={{ margin: 0 }}>
+              {data.plan.name}
+            </Typography.Title>
           </div>
-          <a href="/plans" className="text-blue-600 text-sm">升级 Plan →</a>
-        </div>
-      </div>
+          <Button type="link" href="/plans">
+            升级 Plan →
+          </Button>
+        </Space>
+      </Card>
 
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        <div className="border rounded-lg p-4">
-          <p className="text-sm text-gray-500">调用次数</p>
-          <p className="text-xl font-bold">{fmtNum(data.total_calls)} / {fmtNum(dpd)}</p>
-          <ProgressBar used={data.total_calls} total={dpd} />
-          <p className="text-xs text-gray-400 mt-1">今日剩余: {fmtNum(data.remaining_calls_today)}</p>
-        </div>
-        <div className="border rounded-lg p-4">
-          <p className="text-sm text-gray-500">Token 消耗</p>
-          <p className="text-xl font-bold">{fmtNum(data.total_tokens)} / {fmtNum(tpm)}</p>
-          <ProgressBar used={data.total_tokens} total={tpm} />
-        </div>
-      </div>
+      <Row gutter={16} style={{ marginBottom: 16 }}>
+        <Col span={12}>
+          <Card>
+            <Statistic
+              title="调用次数"
+              value={fmtNum(data.total_calls)}
+              suffix={` / ${fmtNum(dpd)}`}
+            />
+            <Progress percent={Math.round(callsPct)} status={callsStatus} />
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              今日剩余：{fmtNum(data.remaining_calls_today)}
+            </Typography.Text>
+          </Card>
+        </Col>
+        <Col span={12}>
+          <Card>
+            <Statistic
+              title="Token 消耗"
+              value={fmtNum(data.total_tokens)}
+              suffix={` / ${fmtNum(tpm)}`}
+            />
+            <Progress percent={Math.round(tokensPct)} status={tokensStatus} />
+          </Card>
+        </Col>
+      </Row>
 
-      <div className="border rounded-lg p-4 mb-6">
-        <h2 className="font-semibold mb-2">当前: {data.plan.name}</h2>
-        <table className="w-full text-sm">
-          <thead><tr className="border-b"><th className="text-left py-2">Plan</th><th className="text-right py-2">月费</th><th className="text-right py-2">日调用</th><th className="text-right py-2">SDK</th><th className="text-right py-2" /></tr></thead>
-          <tbody>
-            {plans.map((p) => (
-              <tr key={p.code} className={p.code === data.plan.code ? 'bg-blue-50' : ''}>
-                <td className="py-1.5">{p.name}</td>
-                <td className="text-right">{p.price_cents > 0 ? `¥${p.price_cents / 100}/月` : '免费'}</td>
-                <td className="text-right">{fmtNum(p.quota_included.calls_per_day || 0)}</td>
-                <td className="text-right">{p.features?.sdk ? '✓' : '✗'}</td>
-                <td className="text-right">{p.code === data.plan.code ? '当前' : ''}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <Card title={`Plan 对比`} style={{ marginBottom: 16 }}>
+        <Table<PlanInfo>
+          rowKey="code"
+          size="small"
+          columns={planColumns}
+          dataSource={plans}
+          pagination={false}
+        />
+      </Card>
 
-      <div className="border rounded-lg p-4">
-        <h2 className="font-semibold mb-2">按 API 明细</h2>
-        {apiDetails.length === 0 ? (
-          <p className="text-gray-400 text-sm">本月尚无 API 调用记录</p>
+      <Card title="按 API 明细">
+        {apiRows.length === 0 ? (
+          <Empty description="本月尚无 API 调用记录" />
         ) : (
-          <table className="w-full text-sm">
-            <thead><tr className="border-b"><th className="text-left py-2">API</th><th className="text-right py-2">调用</th><th className="text-right py-2">Token</th><th className="text-right py-2">占比</th></tr></thead>
-            <tbody>
-              {apiDetails.map(([api, u]) => (
-                <tr key={api} className="border-b">
-                  <td className="py-1.5">{api}</td>
-                  <td className="text-right">{fmtNum(u.calls)}</td>
-                  <td className="text-right">{fmtNum(u.tokens)}</td>
-                  <td className="text-right">{data.total_calls > 0 ? ((u.calls / data.total_calls) * 100).toFixed(0) + '%' : '0%'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <Table<ApiUsageRow>
+            rowKey="key"
+            size="small"
+            columns={apiColumns}
+            dataSource={apiRows}
+            pagination={false}
+          />
         )}
-      </div>
-    </div>
+      </Card>
+    </PageContainer>
   );
 }
