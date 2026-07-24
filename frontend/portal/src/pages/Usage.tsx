@@ -106,8 +106,8 @@ export function Usage() {
   }
   if (!data) return null;
 
-  const dpd = data.plan.quota_included.calls_per_day || 0;
-  const tpm = data.plan.quota_included.tokens_per_month || 0;
+  const dpd = data.plan?.quota_included?.calls_per_day || 0;
+  const tpm = data.plan?.quota_included?.tokens_per_month || 0;
 
   const callsPct = dpd > 0 ? Math.min(100, (data.total_calls / dpd) * 100) : 0;
   const tokensPct = tpm > 0 ? Math.min(100, (data.total_tokens / tpm) * 100) : 0;

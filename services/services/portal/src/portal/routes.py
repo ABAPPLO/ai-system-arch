@@ -183,40 +183,51 @@ def register_routes(app: FastAPI) -> None:
     # ========== Webhook 管理（需 JWT）==========
     notif_base = settings.notification_service_url
 
+    async def _notif_forward(
+        method: str, path: str, request: Request, *, json_body=None, timeout: float = 5.0  # noqa: ASYNC109  # httpx transport timeout，非 asyncio deadline
+    ):
+        """转发 webhook 操作到 notification-svc，透传用户 JWT（notification 走标准中间件验签）。"""
+        async with httpx.AsyncClient(timeout=timeout) as c:
+            r = await c.request(
+                method,
+                f"{notif_base}{path}",
+                headers={"Authorization": request.headers.get("Authorization", "")},
+                json=json_body,
+            )
+        try:
+            body = r.json()
+        except ValueError:
+            body = {"raw": r.text[:200]}
+        if r.status_code >= 400:
+            raise ApiError(
+                ErrorCode.INTERNAL, f"notification error: {body}", http_status=r.status_code
+            )
+        return body
+
     @app.get("/v1/portal/webhooks")
-    async def portal_list_webhooks():
+    async def portal_list_webhooks(request: Request):
         require_tenant()
-        async with httpx.AsyncClient(timeout=5.0) as c:
-            r = await c.get(f"{notif_base}/webhooks")
-        return r.json()
+        return await _notif_forward("GET", "/webhooks", request)
 
     @app.post("/v1/portal/webhooks", status_code=201)
-    async def portal_create_webhook(payload: dict):
+    async def portal_create_webhook(request: Request, payload: dict):
         require_tenant()
-        async with httpx.AsyncClient(timeout=5.0) as c:
-            r = await c.post(f"{notif_base}/webhooks", json=payload)
-        return r.json()
+        return await _notif_forward("POST", "/webhooks", request, json_body=payload)
 
     @app.put("/v1/portal/webhooks/{webhook_id}")
-    async def portal_update_webhook(webhook_id: str, payload: dict):
+    async def portal_update_webhook(request: Request, webhook_id: str, payload: dict):
         require_tenant()
-        async with httpx.AsyncClient(timeout=5.0) as c:
-            r = await c.put(f"{notif_base}/webhooks/{webhook_id}", json=payload)
-        return r.json()
+        return await _notif_forward("PUT", f"/webhooks/{webhook_id}", request, json_body=payload)
 
     @app.delete("/v1/portal/webhooks/{webhook_id}")
-    async def portal_delete_webhook(webhook_id: str):
+    async def portal_delete_webhook(request: Request, webhook_id: str):
         require_tenant()
-        async with httpx.AsyncClient(timeout=5.0) as c:
-            await c.delete(f"{notif_base}/webhooks/{webhook_id}")
-        return {"status": "deleted"}
+        await _notif_forward("DELETE", f"/webhooks/{webhook_id}", request)
 
     @app.post("/v1/portal/webhooks/{webhook_id}/test")
-    async def portal_test_webhook(webhook_id: str):
+    async def portal_test_webhook(request: Request, webhook_id: str):
         require_tenant()
-        async with httpx.AsyncClient(timeout=15.0) as c:
-            r = await c.post(f"{notif_base}/webhooks/{webhook_id}/test")
-        return r.json()
+        return await _notif_forward("POST", f"/webhooks/{webhook_id}/test", request, timeout=15.0)
 
     # ========== 高级分析（需 JWT → 转发 trace-svc，§9-B 护栏：前端不得直连 trace）==========
     trace_base = settings.trace_service_url
