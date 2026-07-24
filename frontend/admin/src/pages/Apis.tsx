@@ -273,7 +273,16 @@ export default function Apis() {
         modalProps={{ destroyOnClose: true }}
         onFinish={async (values) => {
           try {
-            await api.post(`${REGISTRY}/apis`, values);
+            const body = {
+              ...values,
+              tags: values.tags
+                ? String(values.tags)
+                    .split(',')
+                    .map((s) => s.trim())
+                    .filter(Boolean)
+                : [],
+            };
+            await api.post(`${REGISTRY}/apis`, body);
             message.success('API 已创建（draft）');
             void load();
             return true;
