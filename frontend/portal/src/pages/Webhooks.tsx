@@ -1,4 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useRef, useState } from 'react';
+import {
+  ModalForm,
+  PageContainer,
+  ProFormText,
+  ProTable,
+  type ActionType,
+  type ProColumns,
+} from '@ant-design/pro-components';
+import { Button, Popconfirm, Space, Tag, Typography, message } from 'antd';
+import { PlusOutlined, ThunderboltOutlined } from '@ant-design/icons';
+import dayjs from 'dayjs';
+
 import { api } from '../api/client';
 
 interface Webhook {
@@ -9,80 +21,182 @@ interface Webhook {
   created_at: string;
 }
 
+const STATUS_COLOR: Record<string, string> = {
+  active: 'green',
+  disabled: 'default',
+};
+
 export function Webhooks() {
-  const [hooks, setHooks] = useState<Webhook[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [url, setUrl] = useState('');
-  const [events, setEvents] = useState('');
-  const [err, setErr] = useState('');
-  const [testResult, setTestResult] = useState('');
+  const actionRef = useRef<ActionType | null>(null);
+  const [createOpen, setCreateOpen] = useState(false);
 
-  const load = async () => {
-    setLoading(true);
-    try { setHooks(await api.get<Webhook[]>('/v1/portal/webhooks')); }
-    catch (e) { setErr(String(e)); }
-    finally { setLoading(false); }
-  };
-
-  useEffect(() => { load(); }, []);
-
-  const create = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await api.post('/v1/portal/webhooks', {
-      url, events: events.split(',').map(s => s.trim()).filter(Boolean),
-    });
-    setUrl(''); setEvents('');
-    load();
-  };
-
-  const remove = async (id: string) => {
-    await api.del(`/v1/portal/webhooks/${id}`);
-    load();
-  };
-
-  const test = async (id: string) => {
+  async function test(id: string) {
     try {
-      const r = await api.post<{ success: boolean; status_code: number | null; latency_ms: number | null; error: string | null }>(`/v1/portal/webhooks/${id}/test`);
-      setTestResult(r.success ? `✅ ${r.status_code} in ${r.latency_ms}ms` : `❌ ${r.error || r.status_code}`);
-    } catch (e) { setTestResult(`❌ ${String(e)}`); }
-    setTimeout(() => setTestResult(''), 5000);
-  };
+      const r = await api.post<{
+        success: boolean;
+        status_code: number | null;
+        latency_ms: number | null;
+        error: string | null;
+      }>(`/v1/portal/webhooks/${id}/test`);
+      if (r.success) {
+        message.success(`✅ ${r.status_code} in ${r.latency_ms}ms`);
+      } else {
+        message.error(`❌ ${r.error || r.status_code}`);
+      }
+    } catch (e) {
+      message.error(`❌ ${String(e)}`);
+    }
+  }
 
-  if (loading) return <div className="flex justify-center py-8"><div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" /></div>;
+  async function remove(id: string) {
+    try {
+      await api.del(`/v1/portal/webhooks/${id}`);
+      message.success('已删除');
+      actionRef.current?.reload();
+    } catch (e) {
+      message.error((e as Error).message);
+    }
+  }
+
+  const columns: ProColumns<Webhook>[] = [
+    {
+      title: 'URL',
+      dataIndex: 'url',
+      ellipsis: true,
+      render: (_, r) => <Typography.Text code>{r.url}</Typography.Text>,
+    },
+    {
+      title: '事件',
+      dataIndex: 'events',
+      width: 280,
+      search: false,
+      render: (_, r) =>
+        r.events && r.events.length ? (
+          <Space size={[4, 4]} wrap>
+            {r.events.map((e) => (
+              <Tag key={e}>{e}</Tag>
+            ))}
+          </Space>
+        ) : (
+          '—'
+        ),
+    },
+    {
+      title: '状态',
+      dataIndex: 'status',
+      width: 100,
+      search: false,
+      render: (_, r) => (
+        <Tag color={STATUS_COLOR[r.status] ?? 'default'}>{r.status}</Tag>
+      ),
+    },
+    {
+      title: '创建时间',
+      dataIndex: 'created_at',
+      width: 150,
+      search: false,
+      render: (v) => dayjs(v as string).format('YYYY-MM-DD HH:mm'),
+    },
+    {
+      title: '操作',
+      width: 170,
+      fixed: 'right',
+      search: false,
+      render: (_, r) => (
+        <Space>
+          <Button
+            size="small"
+            icon={<ThunderboltOutlined />}
+            onClick={() => void test(r.id)}
+          >
+            测试
+          </Button>
+          <Popconfirm
+            title="确认删除该 Webhook？"
+            onConfirm={() => void remove(r.id)}
+          >
+            <Button size="small" type="link" danger>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
+      ),
+    },
+  ];
 
   return (
-    <div className="max-w-4xl mx-auto p-4">
-      <h1 className="text-2xl font-bold mb-4">Webhook 通知</h1>
+    <PageContainer header={{ title: 'Webhook 通知' }}>
+      <ProTable<Webhook>
+        rowKey="id"
+        actionRef={actionRef}
+        columns={columns}
+        search={false}
+        pagination={false}
+        scroll={{ x: 1000 }}
+        toolBarRender={() => [
+          <Button
+            key="create"
+            type="primary"
+            icon={<PlusOutlined />}
+            onClick={() => setCreateOpen(true)}
+          >
+            新增 Webhook
+          </Button>,
+        ]}
+        request={async () => {
+          try {
+            const data = await api.get<Webhook[]>('/v1/portal/webhooks');
+            return { data, success: true };
+          } catch (e) {
+            return {
+              data: [],
+              success: false,
+              errorMessage: (e as Error).message,
+            };
+          }
+        }}
+      />
 
-      {err && <div className="bg-red-50 p-3 rounded text-red-700 mb-4">{err}</div>}
-      {testResult && <div className="bg-blue-50 p-3 rounded text-blue-700 mb-4">{testResult}</div>}
-
-      <form onSubmit={create} className="border rounded-lg p-4 mb-6 space-y-3">
-        <h2 className="font-semibold">新增 Webhook</h2>
-        <input className="w-full border rounded px-3 py-2" placeholder="回调 URL" value={url} onChange={e => setUrl(e.target.value)} />
-        <input className="w-full border rounded px-3 py-2" placeholder="事件类型（逗号分隔，如 api.call.succeeded,api.call.failed）" value={events} onChange={e => setEvents(e.target.value)} />
-        <button className="bg-blue-600 text-white px-4 py-2 rounded" type="submit">创建</button>
-      </form>
-
-      {hooks.length === 0 ? (
-        <p className="text-gray-400 text-center py-8">暂无 Webhook</p>
-      ) : (
-        <div className="space-y-3">
-          {hooks.map(h => (
-            <div key={h.id} className="border rounded-lg p-4">
-              <div className="flex items-center justify-between mb-1">
-                <code className="text-sm flex-1 truncate">{h.url}</code>
-                <span className={`text-xs px-2 py-0.5 rounded ${h.status === 'active' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'}`}>{h.status}</span>
-              </div>
-              <p className="text-xs text-gray-400 mb-2">事件: {h.events.join(', ')}</p>
-              <div className="flex gap-2">
-                <button className="text-xs px-3 py-1 border rounded hover:bg-gray-50" onClick={() => test(h.id)}>测试</button>
-                <button className="text-xs px-3 py-1 border rounded text-red-600 hover:bg-red-50" onClick={() => remove(h.id)}>删除</button>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
+      <ModalForm<{ url: string; events: string }>
+        title="新增 Webhook"
+        width={520}
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        modalProps={{ destroyOnClose: true }}
+        onFinish={async (values) => {
+          const events = values.events
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean);
+          try {
+            await api.post('/v1/portal/webhooks', {
+              url: values.url,
+              events,
+            });
+            message.success('已创建');
+            actionRef.current?.reload();
+            return true;
+          } catch (e) {
+            message.error((e as Error).message);
+            return false;
+          }
+        }}
+      >
+        <ProFormText
+          name="url"
+          label="回调 URL"
+          required
+          placeholder="https://example.com/webhook"
+          rules={[{ type: 'url', message: '请输入合法 URL' }]}
+        />
+        <ProFormText
+          name="events"
+          label="事件类型"
+          required
+          placeholder="api.call.succeeded,api.call.failed"
+          tooltip="逗号分隔"
+        />
+      </ModalForm>
+    </PageContainer>
   );
 }

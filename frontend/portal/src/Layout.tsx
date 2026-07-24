@@ -1,51 +1,80 @@
+import { useMemo } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { ProLayout } from '@ant-design/pro-components';
+import {
+  ApiOutlined,
+  AppstoreOutlined,
+  BarChartOutlined,
+  BellOutlined,
+  CrownOutlined,
+  FileTextOutlined,
+  LineChartOutlined,
+  LockOutlined,
+} from '@ant-design/icons';
+import { Dropdown } from 'antd';
+
 import { useStore } from './store';
 
-const NAV = [
-  { path: '/apis', label: 'API 目录' },
-  { path: '/apps', label: '我的应用' },
-  { path: '/usage', label: '用量统计' },
-  { path: '/analytics', label: '高级分析' },
-  { path: '/webhooks', label: 'Webhook' },
-  { path: '/plans', label: '套餐' },
-  { path: '/invoices', label: '账单' },
-  { path: '/privacy', label: '隐私与数据' },
-];
+const ROUTES = {
+  path: '/',
+  routes: [
+    { path: '/apis', name: 'API 目录', icon: <ApiOutlined /> },
+    { path: '/apps', name: '我的应用', icon: <AppstoreOutlined /> },
+    { path: '/usage', name: '用量统计', icon: <BarChartOutlined /> },
+    { path: '/analytics', name: '高级分析', icon: <LineChartOutlined /> },
+    { path: '/webhooks', name: 'Webhook', icon: <BellOutlined /> },
+    { path: '/plans', name: '套餐', icon: <CrownOutlined /> },
+    { path: '/invoices', name: '账单', icon: <FileTextOutlined /> },
+    { path: '/privacy', name: '隐私与数据', icon: <LockOutlined /> },
+  ],
+};
 
 export function Layout({ children }: { children: React.ReactNode }) {
-  const location = useLocation();
   const navigate = useNavigate();
-  const logout = useStore((s) => s.logout);
+  const location = useLocation();
   const auth = useStore((s) => s.auth);
+  const logout = useStore((s) => s.logout);
+
+  const userMenu = useMemo(
+    () => [
+      {
+        key: 'logout',
+        label: '退出登录',
+        onClick: () => {
+          logout();
+          navigate('/login');
+        },
+      },
+    ],
+    [logout, navigate],
+  );
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <nav className="bg-white border-b sticky top-0 z-10">
-        <div className="max-w-6xl mx-auto px-4 flex items-center justify-between h-12">
-          <div className="flex items-center gap-1 overflow-x-auto">
-            {NAV.map((item) => (
-              <button
-                key={item.path}
-                onClick={() => navigate(item.path)}
-                className={`px-3 py-1.5 text-sm rounded whitespace-nowrap ${
-                  location.pathname === item.path || location.pathname.startsWith(item.path + '/')
-                    ? 'bg-blue-100 text-blue-700 font-medium'
-                    : 'text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-          <div className="flex items-center gap-3 shrink-0 ml-4">
-            <span className="text-sm text-gray-400 truncate max-w-[120px]">{auth?.user.name}</span>
-            <button onClick={() => { logout(); navigate('/login'); }} className="text-sm text-gray-500 hover:text-red-600">
-              退出
-            </button>
-          </div>
-        </div>
-      </nav>
-      <main>{children}</main>
-    </div>
+    <ProLayout
+      title="APIHub"
+      logo={null}
+      layout="mix"
+      fixedHeader
+      fixSiderbar
+      route={ROUTES}
+      location={{ pathname: location.pathname }}
+      menuItemRender={(item, dom) => (
+        <a
+          onClick={(e) => {
+            e.preventDefault();
+            if (item.path) navigate(item.path);
+          }}
+        >
+          {dom}
+        </a>
+      )}
+      avatarProps={{
+        title: auth?.user.name || 'guest',
+        size: 'small',
+        render: (_, dom) => <Dropdown menu={{ items: userMenu }}>{dom}</Dropdown>,
+      }}
+    >
+      {children}
+    </ProLayout>
   );
 }
