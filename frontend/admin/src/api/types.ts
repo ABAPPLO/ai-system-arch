@@ -150,6 +150,7 @@ export interface ApiListItem {
   category: string;
   base_path: string;
   tags: string[] | null;
+  visibility?: string;
   status: string; // draft / reviewing / published / deprecated / retired
   created_at: string;
   updated_at: string;
