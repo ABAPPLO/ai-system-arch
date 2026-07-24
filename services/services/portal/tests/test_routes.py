@@ -173,9 +173,9 @@ async def test_portal_cooccurrence_forwards_to_trace(client, monkeypatch):
 
     r = await client.get("/v1/portal/analytics/co-occurrence?since=2026-01-01&min_pairs=2")
     assert r.status_code == 200
-    assert captured["url"] == "http://trace.apihub-system/v1/trace/analytics/co-occurrence", (
-        captured["url"]
-    )
+    assert (
+        captured["url"] == "http://trace.apihub-system/v1/trace/analytics/co-occurrence"
+    ), captured["url"]
     # query 透传给 trace-svc（dict(QueryParams) 值均为 str）
     assert captured["params"] == {"since": "2026-01-01", "min_pairs": "2"}, captured["params"]
     assert r.json()[0]["pair_count"] == 5
@@ -227,6 +227,121 @@ async def test_create_api_key_forwards_and_maps_prefix(client, monkeypatch):
     assert "display_prefix" not in body  # portal 不暴露 auth 原字段
     assert captured["url"] == "http://auth.apihub-system/v1/apps/app_x/api-keys"
     assert captured["json"] == {"name": "prod key"}
+
+
+async def test_list_api_keys_forwards_to_auth(client, monkeypatch):
+    import httpx as _httpx
+
+    captured = {}
+
+    class _FakeResp:
+        status_code = 200
+
+        def json(self):
+            return [
+                {
+                    "id": "key_1",
+                    "app_id": "app_x",
+                    "name": "k",
+                    "scopes": [],
+                    "display_prefix": "ak_ab",
+                    "status": "active",
+                    "last_used_at": None,
+                    "expires_at": None,
+                    "created_at": "2026-07-16T00:00:00",
+                    "revoked_at": None,
+                    "signing": True,
+                }
+            ]
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def request(self, method, url, **kw):
+            captured["method"] = method
+            captured["url"] = url
+            return _FakeResp()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(_httpx, "AsyncClient", _FakeClient)
+    r = await client.get("/v1/portal/apps/app_x/api-keys")
+    assert r.status_code == 200
+    assert r.json()[0]["signing"] is True
+    assert captured["method"] == "GET"
+    assert captured["url"] == "http://auth.apihub-system/v1/apps/app_x/api-keys"
+
+
+async def test_revoke_api_key_forwards_to_auth(client, monkeypatch):
+    import httpx as _httpx
+
+    captured = {}
+
+    class _FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"id": "key_1", "status": "revoked"}
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def request(self, method, url, **kw):
+            captured["method"] = method
+            captured["url"] = url
+            return _FakeResp()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(_httpx, "AsyncClient", _FakeClient)
+    r = await client.delete("/v1/portal/api-keys/key_1")
+    assert r.status_code == 200
+    assert captured["method"] == "DELETE"
+    assert captured["url"] == "http://auth.apihub-system/v1/api-keys/key_1"
+
+
+async def test_rotate_api_key_forwards_to_auth(client, monkeypatch):
+    import httpx as _httpx
+
+    captured = {}
+
+    class _FakeResp:
+        status_code = 200
+
+        def json(self):
+            return {"key_id": "key_1", "hmac_secret": "new_secret_xyz"}
+
+    class _FakeClient:
+        def __init__(self, *a, **kw):
+            pass
+
+        async def request(self, method, url, **kw):
+            captured["method"] = method
+            captured["url"] = url
+            return _FakeResp()
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+    monkeypatch.setattr(_httpx, "AsyncClient", _FakeClient)
+    r = await client.post("/v1/portal/api-keys/key_1/hmac-secret/rotate")
+    assert r.status_code == 200
+    assert r.json()["hmac_secret"] == "new_secret_xyz"
+    assert captured["method"] == "POST"
+    assert captured["url"] == "http://auth.apihub-system/v1/api-keys/key_1/hmac-secret/rotate"
 
 
 async def test_auth_endpoints_skip_auth_paths(monkeypatch):

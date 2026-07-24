@@ -5,9 +5,9 @@
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ApiStatus(StrEnum):
@@ -39,6 +39,21 @@ class ApiCreate(BaseModel):
     category: str = Field(max_length=32)
     base_path: str = Field(pattern=r"^/[a-z0-9-]+")
     tags: list[str] = []
+
+
+class ApiUpdate(BaseModel):
+    """PATCH /v1/apis/{id} —— 部分更新。
+
+    base_path 不可变（不在字段集里）；model_config extra='forbid' → 调用方传
+    任何额外字段（含 base_path）直接 422。
+    """
+
+    model_config = ConfigDict(extra="forbid")
+    name: str | None = Field(default=None, min_length=2, max_length=64)
+    description: str | None = None
+    category: str | None = Field(default=None, max_length=32)
+    tags: list[str] | None = None
+    visibility: Literal["private", "tenant", "public"] | None = None
 
 
 class ApiVersionCreate(BaseModel):

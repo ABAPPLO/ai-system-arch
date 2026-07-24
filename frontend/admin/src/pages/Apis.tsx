@@ -60,6 +60,7 @@ export default function Apis() {
   const [loading, setLoading] = useState(false);
   const [drawerId, setDrawerId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<ApiListItem | null>(null);
   const [page, setPage] = useState({ current: 1, pageSize: 20 });
   const [hasMore, setHasMore] = useState(false);
 
@@ -132,16 +133,41 @@ export default function Apis() {
     },
     {
       title: '操作',
-      width: 90,
+      width: 200,
       fixed: 'right',
       render: (_, r) => (
-        <Button
-          size="small"
-          icon={<EyeOutlined />}
-          onClick={() => setDrawerId(r.id)}
-        >
-          详情
-        </Button>
+        <Space>
+          <Button size="small" icon={<EyeOutlined />} onClick={() => setDrawerId(r.id)}>
+            详情
+          </Button>
+          <Button size="small" onClick={() => setEditTarget(r)}>
+            编辑
+          </Button>
+          <Popconfirm
+            title="删除该 API？"
+            description="若有 published/deprecated 版本将被拒绝；draft/retired 版本会一并删除。"
+            okText="删除"
+            okButtonProps={{ danger: true }}
+            onConfirm={async () => {
+              try {
+                await api.del(`${REGISTRY}/apis/${r.id}`);
+                message.success('已删除');
+                void load();
+              } catch (e) {
+                const err = e as { status?: number; message?: string };
+                if (err.status === 409) {
+                  message.warning('存在 published/deprecated/reviewing 版本，请先下线');
+                } else {
+                  message.error(err.message ?? '删除失败');
+                }
+              }
+            }}
+          >
+            <Button size="small" danger>
+              删除
+            </Button>
+          </Popconfirm>
+        </Space>
       ),
     },
   ];
@@ -184,6 +210,60 @@ export default function Apis() {
         />
       </Card>
       <ApiDrawer id={drawerId} onClose={() => setDrawerId(null)} onReload={load} />
+
+      <ModalForm
+        title="编辑 API"
+        width={560}
+        open={editTarget !== null}
+        onOpenChange={(open) => { if (!open) setEditTarget(null); }}
+        modalProps={{ destroyOnClose: true }}
+        initialValues={
+          editTarget
+            ? {
+                name: editTarget.name,
+                description: editTarget.description,
+                category: editTarget.category,
+                tags: (editTarget.tags ?? []).join(','),
+                visibility: editTarget.visibility,
+                base_path: editTarget.base_path,
+              }
+            : {}
+        }
+        onFinish={async (values) => {
+          if (!editTarget) return false;
+          const body: Record<string, unknown> = {};
+          if (values.name != null) body.name = values.name;
+          if (values.description != null) body.description = values.description;
+          if (values.category != null) body.category = values.category;
+          if (values.tags != null)
+            body.tags = String(values.tags).split(',').map((s) => s.trim()).filter(Boolean);
+          if (values.visibility != null) body.visibility = values.visibility;
+          try {
+            await api.patch(`${REGISTRY}/apis/${editTarget.id}`, body);
+            message.success('已保存');
+            void load();
+            return true;
+          } catch (e) {
+            message.error((e as Error).message);
+            return false;
+          }
+        }}
+      >
+        <ProFormText name="name" label="名称" />
+        <ProFormText name="description" label="描述" />
+        <ProFormText name="category" label="分类" />
+        <ProFormText name="tags" label="标签（逗号分隔）" />
+        <ProFormSelect
+          name="visibility"
+          label="可见性"
+          options={[
+            { label: 'private', value: 'private' },
+            { label: 'tenant', value: 'tenant' },
+            { label: 'public', value: 'public' },
+          ]}
+        />
+        <ProFormText name="base_path" label="base_path（不可改）" disabled />
+      </ModalForm>
 
       <ModalForm<ApiCreateBody>
         title="新建 API"
