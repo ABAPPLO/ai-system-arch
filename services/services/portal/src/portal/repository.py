@@ -275,9 +275,14 @@ async def get_billing_summary(tenant_id: str) -> dict:
     quota_url = getattr(
         settings, "quota_service_url", "http://quota.apihub-system/v1/quota/billing"
     )
-    async with httpx.AsyncClient(timeout=10.0) as c:
-        r = await c.get(quota_url, params={"tenant_id": tenant_id, "month": month})
-    if r.status_code != 200:
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as c:
+            r = await c.get(quota_url, params={"tenant_id": tenant_id, "month": month})
+        if r.status_code != 200:
+            r.raise_for_status()
+        return r.json()
+    except httpx.HTTPError:
+        # quota-svc 不可用/出错 → 降级空概览，页面仍可渲染（不 500）
         return {
             "tenant_id": tenant_id,
             "month": month,
@@ -287,7 +292,6 @@ async def get_billing_summary(tenant_id: str) -> dict:
             "total_tokens": 0,
             "remaining_calls_today": 0,
         }
-    return r.json()
 
 
 async def list_plans() -> list[PlanInfo]:
@@ -345,10 +349,18 @@ async def get_invoices(tenant_id: str, limit: int = 12, offset: int = 0) -> dict
             tenant_id,
         )
         rows = await conn.fetch(
-            """SELECT id, period, plan_name, total_calls, total_tokens,
-                      base_cents, overage_cents, status, created_at
-               FROM billing_record WHERE tenant_id=$1
-               ORDER BY created_at DESC LIMIT $2 OFFSET $3""",
+            """SELECT br.id, br.period,
+                      p.name AS plan_name,
+                      br.call_count AS total_calls,
+                      br.token_count AS total_tokens,
+                      br.base_charge_cents AS base_cents,
+                      br.overage_charge_cents AS overage_cents,
+                      br.status, br.created_at
+               FROM billing_record br
+               LEFT JOIN subscription s ON s.id = br.subscription_id
+               LEFT JOIN plan p ON p.code = s.plan_code
+               WHERE br.tenant_id=$1
+               ORDER BY br.created_at DESC LIMIT $2 OFFSET $3""",
             tenant_id,
             limit,
             offset,
