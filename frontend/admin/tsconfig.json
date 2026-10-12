@@ -18,7 +18,8 @@
     "esModuleInterop": true,
     "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"]
+      "@/*": ["src/*"],
+      "@apihub/shared": ["../shared/src"]
     }
   },
   "include": ["src"]

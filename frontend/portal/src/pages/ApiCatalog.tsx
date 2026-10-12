@@ -65,27 +65,36 @@ export function ApiCatalog() {
   const offset = parseInt(params.get('offset') || '0', 10);
   const limit = 50;
 
-  const fetchApis = async () => {
+  const fetchApis = async (signal?: AbortSignal) => {
     setLoading(true);
     setError('');
     try {
-      const result = await api.get<ApiListResponse>('/v1/portal/apis', {
-        search: search || undefined,
-        category: category || undefined,
-        tag: tag || undefined,
-        limit,
-        offset,
-      });
-      setData(result);
+      const result = await api.get<ApiListResponse>(
+        '/v1/portal/apis',
+        {
+          search: search || undefined,
+          category: category || undefined,
+          tag: tag || undefined,
+          limit,
+          offset,
+        },
+        { signal },
+      );
+      if (!signal?.aborted) setData(result);
     } catch (err) {
+      // abort 属预期竞态（依赖已变/组件卸载），静默丢弃
+      if (signal?.aborted) return;
       setError(err instanceof Error ? err.message : '加载失败');
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
   };
 
   useEffect(() => {
-    void fetchApis();
+    // 竞态守卫：搜索/筛选/翻页快速变化时 abort 旧请求，旧响应不再覆盖新数据
+    const ac = new AbortController();
+    void fetchApis(ac.signal);
+    return () => ac.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, category, tag, offset]);
 

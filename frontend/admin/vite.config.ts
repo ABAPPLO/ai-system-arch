@@ -1,3 +1,4 @@
+import path from 'node:path';
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
@@ -18,6 +19,12 @@ const targets = {
 };
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      // 共享包（client/format）以源码形式被两 app 引用，无需发布
+      '@apihub/shared': path.resolve(__dirname, '../shared/src'),
+    },
+  },
   plugins: [react()],
   server: {
     port: 5173,

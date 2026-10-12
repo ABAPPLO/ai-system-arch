@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useRef,  useEffect, useMemo, useState  } from 'react';
 import {
   ModalForm,
   PageContainer,
@@ -64,28 +64,38 @@ export default function Apis() {
   const [page, setPage] = useState({ current: 1, pageSize: 20 });
   const [hasMore, setHasMore] = useState(false);
 
+  const loadAbortRef = useRef<AbortController | null>(null);
+
   async function load(current = 1, pageSize = 20) {
+    // 竞态守卫：手动刷新/翻页与自动加载交错时，旧响应不覆盖新数据
+    loadAbortRef.current?.abort();
+    const ac = new AbortController();
+    loadAbortRef.current = ac;
     setLoading(true);
     try {
       const r = await api.get<{ items: ApiListItem[] }>(
         `${REGISTRY}/apis`,
         { limit: pageSize, offset: (current - 1) * pageSize },
+        { signal: ac.signal },
       );
+      if (ac.signal.aborted) return;
       const rows = r.items ?? [];
       setItems(rows);
       setHasMore(rows.length >= pageSize);
       setPage({ current, pageSize });
     } catch (e) {
+      if (ac.signal.aborted) return;
       console.error(e);
       setItems([]);
       setHasMore(false);
     } finally {
-      setLoading(false);
+      if (!ac.signal.aborted) setLoading(false);
     }
   }
 
   useEffect(() => {
     void load();
+    return () => loadAbortRef.current?.abort();
   }, []);
 
   const filtered = useMemo(() => {

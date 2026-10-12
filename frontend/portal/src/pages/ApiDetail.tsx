@@ -178,6 +178,7 @@ export function ApiDetail() {
   const nav = useNavigate();
   const [detail, setDetail] = useState<ApiDetailData | null>(null);
   const [examples, setExamples] = useState<ExampleResponse | null>(null);
+  const [examplesError, setExamplesError] = useState('');
   const [activeTab, setActiveTab] = useState<TabKey>('docs');
   const [selectedVerIdx, setSelectedVerIdx] = useState(0);
   const [loading, setLoading] = useState(true);
@@ -196,11 +197,14 @@ export function ApiDetail() {
 
   useEffect(() => {
     if (!id) return;
+    // 竞态守卫：快速切换 /apis/:id 时 abort 旧请求，旧响应不覆盖新详情
+    const ac = new AbortController();
     setLoading(true);
     setError('');
     api
-      .get<ApiDetailData>(`/v1/portal/apis/${id}`)
+      .get<ApiDetailData>(`/v1/portal/apis/${id}`, undefined, { signal: ac.signal })
       .then((d) => {
+        if (ac.signal.aborted) return;
         setDetail(d);
         const v = d.versions[0];
         if (v) {
@@ -216,16 +220,27 @@ export function ApiDetail() {
           setPathParams(extracted);
         }
       })
-      .catch((err) => setError(err instanceof Error ? err.message : '加载失败'))
-      .finally(() => setLoading(false));
+      .catch((err) => {
+        if (!ac.signal.aborted) setError(err instanceof Error ? err.message : '加载失败');
+      })
+      .finally(() => {
+        if (!ac.signal.aborted) setLoading(false);
+      });
+    return () => ac.abort();
   }, [id]);
 
   useEffect(() => {
     if (activeTab === 'examples' && id && !examples) {
+      // 此前 .catch(() => {}) 静默吞错 → 示例 tab 永久卡在"加载示例中…"；
+      // 现在给出错误态 + 重试入口
+      const ac = new AbortController();
       api
-        .get<ExampleResponse>(`/v1/docs/apis/${id}/examples`)
+        .get<ExampleResponse>(`/v1/docs/apis/${id}/examples`, undefined, { signal: ac.signal })
         .then(setExamples)
-        .catch(() => {});
+        .catch((err) => {
+          if (!ac.signal.aborted) setExamplesError(err instanceof Error ? err.message : '加载失败');
+        });
+      return () => ac.abort();
     }
   }, [activeTab, id, examples]);
 
@@ -363,6 +378,19 @@ export function ApiDetail() {
                 <CodeBlock code={examples.javascript} />
               </div>
             </>
+          ) : examplesError ? (
+            <Empty
+              description={examplesError}
+            >
+              <Button
+                onClick={() => {
+                  setExamplesError('');
+                  setExamples(null);
+                }}
+              >
+                重试
+              </Button>
+            </Empty>
           ) : (
             <Empty description="加载示例中…" />
           )}

@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
+import { fmtCents } from '@apihub/shared';
 import { PageContainer } from '@ant-design/pro-components';
 import {
+  Alert,
   Button,
   Card,
   DatePicker,
@@ -16,9 +18,7 @@ import type { ColumnsType } from 'antd/es/table';
 
 import { api } from '../api/client';
 
-function fmtCents(c: number): string {
-  return `¥${(c / 100).toFixed(2)}`;
-}
+
 
 interface BillingItem {
   tenant_id: string;
@@ -44,26 +44,37 @@ export function Billing() {
   const [period, setPeriod] = useState<string>(currentPeriod);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const fetchData = useCallback(async () => {
-    setLoading(true);
-    try {
-      const r = await api.get<{ items: BillingItem[] }>(
-        '/api/billing/v1/admin/billing/summary',
-        { period, search: search || undefined },
-      );
-      setItems(r.items || []);
-    } catch (e) {
-      // billing-svc 属 P3，端点/代理未就绪时静默置空（后续单独接线）
-      console.error(e);
-      setItems([]);
-    } finally {
-      setLoading(false);
-    }
-  }, [period, search]);
+  const fetchData = useCallback(
+    async (signal?: AbortSignal) => {
+      setLoading(true);
+      try {
+        const r = await api.get<{ items: BillingItem[] }>(
+          '/api/billing/v1/admin/billing/summary',
+          { period, search: search || undefined },
+          { signal },
+        );
+        if (!signal?.aborted) {
+          setItems(r.items || []);
+          setError('');
+        }
+      } catch (e) {
+        // abort 是预期竞态；其余给错误态（不再静默置空——"无数据"和"加载失败"必须可区分）
+        if (signal?.aborted) return;
+        console.error(e);
+        setError(e instanceof Error ? e.message : '加载失败');
+      } finally {
+        if (!signal?.aborted) setLoading(false);
+      }
+    },
+    [period, search],
+  );
 
   useEffect(() => {
-    void fetchData();
+    const ac = new AbortController();
+    void fetchData(ac.signal);
+    return () => ac.abort();
   }, [fetchData]);
 
   const columns: ColumnsType<BillingItem> = [
@@ -101,6 +112,7 @@ export function Billing() {
   return (
     <PageContainer header={{ title: '计费管理' }}>
       <Card>
+        {error ? <Alert type="error" showIcon style={{ marginBottom: 16 }} message={error} /> : null}
         <Space style={{ marginBottom: 16 }} wrap>
           <DatePicker
             picker="month"

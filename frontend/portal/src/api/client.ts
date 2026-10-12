@@ -1,160 +1,36 @@
 /**
- * Portal API client —— 统一 fetch wrapper（JWT 鉴权版）。
+ * Portal API client —— 共享工厂（@apihub/shared）的 portal 配置。
  *
- * 支持 refresh token 自动续期：401 时自动调 /v1/portal/auth/refresh，
- * 成功则用新 token 重试原请求；仅当无 refresh token、refresh 失败、或
- * 重试仍返回 401（真鉴权失效）时才清登录态跳登录。重试遇到 400/500 等
- * 业务错误按正常响应抛 ApiError，不强制登出。
+ * JWT 鉴权 + 401 自动 refresh 的实现在共享包单源维护（admin/portal 一份逻辑），
+ * 这里只声明 portal 的差异：存储键、refresh 端点、默认用户、登录跳转。
  */
 
-const TOKEN_STORAGE = 'apihub_portal_token';
-const REFRESH_STORAGE = 'apihub_portal_refresh';
-const USER_STORAGE = 'apihub_portal_user';
+import { createApiClient } from '@apihub/shared';
+
+export interface PortalUser {
+  id: string;
+  name: string;
+  tenantId: string;
+}
 
 export interface AuthState {
   token: string;
-  user: { id: string; name: string; tenantId: string };
+  user: PortalUser;
 }
 
-export function getAuth(): AuthState | null {
-  const token = localStorage.getItem(TOKEN_STORAGE);
-  const userJson = localStorage.getItem(USER_STORAGE);
-  if (!token || !userJson) return null;
-  try {
-    return { token, user: JSON.parse(userJson) };
-  } catch {
-    return null;
-  }
-}
+const client = createApiClient<PortalUser>({
+  tokenStorageKey: 'apihub_portal_token',
+  refreshStorageKey: 'apihub_portal_refresh',
+  userStorageKey: 'apihub_portal_user',
+  refreshUrl: '/v1/portal/auth/refresh',
+  loginRedirect: '/login',
+  defaultUser: { id: '', name: '', tenantId: '' },
+});
 
-export function getRefreshToken(): string | null {
-  return localStorage.getItem(REFRESH_STORAGE);
-}
+export const getAuth = client.getAuth;
+export const getRefreshToken = client.getRefreshToken;
+export const setTokens = client.setTokens;
+export const clearAuth = client.clearAuth;
+export const api = client.api;
 
-export function setTokens(token: string, refreshToken: string, user: AuthState['user']): void {
-  localStorage.setItem(TOKEN_STORAGE, token);
-  localStorage.setItem(REFRESH_STORAGE, refreshToken);
-  localStorage.setItem(USER_STORAGE, JSON.stringify(user));
-}
-
-export function clearAuth(): void {
-  localStorage.removeItem(TOKEN_STORAGE);
-  localStorage.removeItem(REFRESH_STORAGE);
-  localStorage.removeItem(USER_STORAGE);
-}
-
-export class ApiError extends Error {
-  constructor(
-    public status: number,
-    public code: number,
-    message: string,
-  ) {
-    super(message);
-  }
-}
-
-interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
-  body?: unknown;
-  // 跳过 Authorization 注入（注册/登录用）
-  skipAuth?: boolean;
-  query?: Record<string, string | number | undefined | null>;
-}
-
-async function parseResponse<T>(resp: Response): Promise<T> {
-  const ct = resp.headers.get('content-type') || '';
-  let payload: unknown;
-  if (ct.includes('application/json')) {
-    payload = await resp.json();
-  } else {
-    payload = await resp.text();
-  }
-  if (!resp.ok) {
-    const errBody = (payload && typeof payload === 'object'
-      ? (payload as { message?: string; code?: number })
-      : {}) as { message?: string; code?: number };
-    throw new ApiError(
-      resp.status,
-      errBody.code ?? resp.status,
-      errBody.message || `HTTP ${resp.status}`,
-    );
-  }
-  return payload as T;
-}
-
-async function tryRefresh(refreshToken: string): Promise<string | null> {
-  /** 用 refresh token 换新 access token；成功则落盘并返回新 token，失败/拒绝返回 null。 */
-  try {
-    const rr = await fetch('/v1/portal/auth/refresh', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ refresh_token: refreshToken }),
-    });
-    if (!rr.ok) return null;
-    const data = await rr.json();
-    const auth = getAuth();
-    setTokens(data.access_token, data.refresh_token, auth?.user || { id: '', name: '', tenantId: '' });
-    return data.access_token as string;
-  } catch {
-    return null;
-  }
-}
-
-async function request<T>(path: string, opts: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, skipAuth, query } = opts;
-
-  let url = path;
-  if (query) {
-    const sp = new URLSearchParams();
-    for (const [k, v] of Object.entries(query)) {
-      if (v !== undefined && v !== null && v !== '') sp.set(k, String(v));
-    }
-    const qs = sp.toString();
-    if (qs) url += (path.includes('?') ? '&' : '?') + qs;
-  }
-
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-  };
-  if (!skipAuth) {
-    const auth = getAuth();
-    if (auth) headers['Authorization'] = 'Bearer ' + auth.token;
-  }
-
-  const resp = await fetch(url, {
-    method,
-    headers,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
-
-  if (resp.status === 401 && !skipAuth) {
-    // 401 → 尝试用 refresh token 续期后重试一次。
-    const rt = getRefreshToken();
-    const newToken = rt ? await tryRefresh(rt) : null;
-    if (newToken) {
-      headers['Authorization'] = 'Bearer ' + newToken;
-      const retry = await fetch(url, { method, headers, body: body !== undefined ? JSON.stringify(body) : undefined });
-      // retry 仍 401 → 新 token 也无效，真鉴权失效 → 登出；
-      // retry 非 401（含 400/500 等业务错）→ 按正常响应返回，不登出。
-      if (retry.status !== 401) {
-        return parseResponse<T>(retry);
-      }
-    }
-    // 无 refresh token / refresh 失败 / retry 仍 401 → 登出。
-    clearAuth();
-    window.location.href = '/login';
-    throw new ApiError(401, 10002, 'Unauthorized');
-  }
-
-  return parseResponse<T>(resp);
-}
-
-export const api = {
-  get: <T>(path: string, query?: RequestOptions['query']) =>
-    request<T>(path, { method: 'GET', query }),
-  post: <T>(path: string, body?: unknown, opts?: { skipAuth?: boolean }) =>
-    request<T>(path, { method: 'POST', body, ...opts }),
-  put: <T>(path: string, body?: unknown) =>
-    request<T>(path, { method: 'PUT', body }),
-  del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
-};
+export { ApiError } from '@apihub/shared';

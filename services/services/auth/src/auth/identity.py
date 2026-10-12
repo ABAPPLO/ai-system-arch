@@ -65,12 +65,22 @@ async def create_user(*, email: str, password: str, phone: str, name: str) -> di
     verify_token = secrets.token_urlsafe(32)
     await redis.t_set(f"t:verify:{verify_token}", user_id, ex=VERIFY_TTL)
     log.info("user_registered", user_id=user_id, email=email)
-    return {
-        "user_id": user_id,
-        "status": "pending",
-        "verification_level": "email",
-        "verify_token": verify_token,
-    }
+    from apihub_core.config import get_settings
+
+    return _registration_response(user_id, verify_token, get_settings().env)
+
+
+def _registration_response(user_id: str, verify_token: str, env: str) -> dict:
+    """注册响应。verify_token 只在非 prod 返回。
+
+    dev/test/staging 无邮件通道，token 随响应返回（前端自动完成验证）；
+    prod 若返回，任何人都能即刻"验证"任意他人邮箱 → 接管账号。
+    TODO: notification-svc 接入真实发信后，删除该分支（全环境都走邮件）。
+    """
+    resp = {"user_id": user_id, "status": "pending", "verification_level": "email"}
+    if env != "prod":
+        resp["verify_token"] = verify_token
+    return resp
 
 
 async def verify_email(token: str) -> dict:
@@ -272,20 +282,34 @@ async def anonymize_user(*, user_id: str) -> None:
             )
 
     try:
-        for pattern in ("t:refresh:*", "t:verify:*"):
-            cursor: bytes | str = "0"
-            while cursor:
-                cursor, keys = await redis.raw_client().scan(  # type: ignore
-                    cursor,  # type: ignore
-                    match=pattern,
-                    count=100,
-                )
-                if keys:
-                    await redis.raw_client().delete(*keys)
+        await _delete_user_tokens(user_id)
     except Exception as e:
         log.warning("redis_cleanup_partial", error=str(e))
 
     log.info("user_anonymized", user_id=user_id)
+
+
+async def _delete_user_tokens(user_id: str) -> int:
+    """只清「该用户」的 refresh / verify token，返回删除数。
+
+    token key 形如 t:refresh:{jti} / t:verify:{token}，**value 即 user_id**
+    （issue/refresh 时写入）。此前是 blind delete t:refresh:* / t:verify:* ——
+    任何一个用户行使删除权（GDPR erasure）会把全站所有用户登出、
+    并作废全部在途邮箱验证 token。
+    """
+    r = redis.raw_client()
+    victims: list[str] = []
+    for pattern in ("t:refresh:*", "t:verify:*"):
+        cursor: bytes | str = "0"
+        while cursor:
+            cursor, keys = await r.scan(cursor, match=pattern, count=100)  # type: ignore[arg-type,assignment]
+            for k in keys:
+                key = k.decode() if isinstance(k, bytes) else k
+                if await r.get(key) == user_id:
+                    victims.append(key)
+    if victims:
+        await r.delete(*victims)
+    return len(victims)
 
 
 CONSENT_PURPOSES: dict[str, str] = {

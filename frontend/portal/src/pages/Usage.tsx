@@ -75,17 +75,25 @@ export function Usage() {
   const [err, setErr] = useState('');
 
   useEffect(() => {
+    // 竞态守卫：卸载/重挂载时 abort，旧响应不覆盖新数据
+    const ac = new AbortController();
     setLoading(true);
     Promise.all([
-      api.get<BillingData>('/v1/portal/usage'),
-      api.get<PlanInfo[]>('/v1/portal/plans'),
+      api.get<BillingData>('/v1/portal/usage', undefined, { signal: ac.signal }),
+      api.get<PlanInfo[]>('/v1/portal/plans', undefined, { signal: ac.signal }),
     ])
       .then(([b, p]) => {
+        if (ac.signal.aborted) return;
         setData(b);
         setPlans(p);
       })
-      .catch((e) => setErr(e instanceof Error ? e.message : '加载失败'))
-      .finally(() => setLoading(false));
+      .catch((e) => {
+        if (!ac.signal.aborted) setErr(e instanceof Error ? e.message : '加载失败');
+      })
+      .finally(() => {
+        if (!ac.signal.aborted) setLoading(false);
+      });
+    return () => ac.abort();
   }, []);
 
   if (loading) {
@@ -106,6 +114,8 @@ export function Usage() {
   }
   if (!data) return null;
 
+  // 降级路径 plan 可能是 null（80f75cf 只修了一半）
+  const currentPlanCode = data.plan?.code;
   const dpd = data.plan?.quota_included?.calls_per_day || 0;
   const tpm = data.plan?.quota_included?.tokens_per_month || 0;
 
@@ -117,7 +127,7 @@ export function Usage() {
     tokensPct >= 100 ? 'exception' : tokensPct >= 80 ? 'active' : 'normal';
 
   const apiMap = new Map<string, { calls: number; tokens: number }>();
-  data.daily_usage.forEach((u) => {
+  ;(data.daily_usage || []).forEach((u) => {
     const key = u.api_name || u.api_id;
     const prev = apiMap.get(key) || { calls: 0, tokens: 0 };
     apiMap.set(key, {
@@ -144,7 +154,7 @@ export function Usage() {
       title: 'Plan',
       dataIndex: 'name',
       render: (v: string, r: PlanInfo) =>
-        r.code === data.plan.code ? (
+        r.code === currentPlanCode ? (
           <Typography.Text strong>{v}</Typography.Text>
         ) : (
           v
@@ -170,7 +180,7 @@ export function Usage() {
       title: '',
       align: 'right',
       render: (_, r) =>
-        r.code === data.plan.code ? <Tag color="blue">当前</Tag> : null,
+        r.code === currentPlanCode ? <Tag color="blue">当前</Tag> : null,
     },
   ];
 

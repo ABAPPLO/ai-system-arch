@@ -3,6 +3,7 @@ import {
   ProTable,
   type ProColumns,
 } from '@ant-design/pro-components';
+import { fmtCents } from '@apihub/shared';
 import { Tag } from 'antd';
 import dayjs from 'dayjs';
 
@@ -21,9 +22,7 @@ interface InvoiceItem {
   created_at: string;
 }
 
-function fmtCents(c: number): string {
-  return `¥${(c / 100).toFixed(2)}`;
-}
+
 
 const STATUS_COLOR: Record<string, string> = {
   pending: 'orange',
