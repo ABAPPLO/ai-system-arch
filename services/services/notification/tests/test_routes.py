@@ -103,6 +103,7 @@ class TestCreateWebhook:
             captured["secret"] = secret
             return {"id": "wh_new123", "url": url, "events": events, "status": "active"}
 
+        monkeypatch.setattr("notification.routes.assert_public_webhook_url", lambda url: None)
         monkeypatch.setattr(repo_mod, "create_webhook", _create)
 
         resp = await client.post("/v1/notification/webhooks", json=payload)
@@ -127,6 +128,7 @@ class TestCreateWebhook:
             captured["secret"] = secret
             return {"id": "wh_secret1", "url": url, "events": events, "status": "active"}
 
+        monkeypatch.setattr("notification.routes.assert_public_webhook_url", lambda url: None)
         monkeypatch.setattr(repo_mod, "create_webhook", _create)
 
         resp = await client.post("/v1/notification/webhooks", json=payload)
@@ -166,6 +168,7 @@ class TestUpdateWebhook:
                 "created_at": "2026-07-01T00:00:00+00:00",
             }
 
+        monkeypatch.setattr("notification.routes.assert_public_webhook_url", lambda url: None)
         monkeypatch.setattr(repo_mod, "update_webhook", _update)
 
         resp = await client.put(
@@ -212,6 +215,7 @@ class TestUpdateWebhook:
 
             raise ApiError(ErrorCode.NOT_FOUND, "webhook not found")
 
+        monkeypatch.setattr("notification.routes.assert_public_webhook_url", lambda url: None)
         monkeypatch.setattr(repo_mod, "update_webhook", _update)
 
         resp = await client.put(
@@ -267,6 +271,8 @@ class TestTestWebhook:
         mock = _MockAsyncClient()
         mock.set_post(handler)
         monkeypatch.setattr(httpx, "AsyncClient", lambda *a, **kw: mock)
+        # SSRF 校验在 TestWebhookSSRF 单测；这里 stub 避免 example.com 真实 DNS
+        monkeypatch.setattr("notification.routes.assert_public_webhook_url", lambda url: None)
         return mock
 
     async def test_ping_success(self, client, monkeypatch):
@@ -497,3 +503,56 @@ class TestNotifySend:
         )
         assert r.status_code == 200 and len(r.json()) == 2
         assert all(x["success"] for x in r.json())
+
+
+# ---------- SSRF（路由层） ----------
+
+
+class TestWebhookSSRF:
+    """创建/更新 webhook 的 URL 安全校验走真实校验函数（IP 字面量用例不打网络）。"""
+
+    async def test_create_private_ip_rejected(self, client, monkeypatch):
+        async def _create(**kw):
+            raise AssertionError("repository must not be called")
+
+        monkeypatch.setattr(repo_mod, "create_webhook", _create)
+        resp = await client.post(
+            "/v1/notification/webhooks",
+            json={"url": "https://192.168.1.10/hook", "events": ["api.call.succeeded"]},
+        )
+        assert resp.status_code == 400
+
+    async def test_create_metadata_endpoint_rejected(self, client):
+        resp = await client.post(
+            "/v1/notification/webhooks",
+            json={"url": "http://169.254.169.254/latest/meta-data", "events": ["api.call.*"]},
+        )
+        assert resp.status_code == 400
+
+    async def test_create_localhost_rejected(self, client):
+        resp = await client.post(
+            "/v1/notification/webhooks",
+            json={"url": "https://localhost:8000/hook", "events": ["api.call.*"]},
+        )
+        assert resp.status_code == 400
+
+    async def test_create_internal_svc_rejected(self, client):
+        resp = await client.post(
+            "/v1/notification/webhooks",
+            json={
+                "url": "https://auth.apihub-system.svc/v1/apikey/verify",
+                "events": ["api.call.*"],
+            },
+        )
+        assert resp.status_code == 400
+
+    async def test_update_url_to_private_rejected(self, client, monkeypatch):
+        async def _update(**kw):
+            raise AssertionError("repository must not be called")
+
+        monkeypatch.setattr(repo_mod, "update_webhook", _update)
+        resp = await client.put(
+            "/v1/notification/webhooks/wh_1",
+            json={"url": "https://10.0.0.5/hook"},
+        )
+        assert resp.status_code == 400

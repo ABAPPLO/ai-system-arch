@@ -16,7 +16,67 @@ from quota.models import LimitRule, QuotaRules
 
 @pytest.fixture
 def client():
+    """对内部端点（check/check-strict/refund）自动注入 X-Ingress-Auth。
+
+    这些端点走 require_ingress_auth（fail-closed），直连不带头必 401；
+    守卫本身的 401 路径由 TestIngressGuard 用裸 transport 单测。
+    """
+    import os
+
+    secret = os.environ["INGRESS_SHARED_SECRET"]
+
+    class _IngressAuthTransport(ASGITransport):
+        async def handle_async_request(self, request):
+            if request.url.path.startswith(("/v1/quota/check", "/v1/quota/refund")):
+                request.headers["X-Ingress-Auth"] = secret
+            return await super().handle_async_request(request)
+
+    return AsyncClient(transport=_IngressAuthTransport(app=app), base_url="http://test")
+
+
+@pytest.fixture
+def bare_client():
+    """不注入 X-Ingress-Auth 的裸 client —— 守卫 401 路径专用。"""
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+
+
+class TestIngressGuard:
+    """内部端点 fail-closed 鉴权 —— 无头/错 secret/未配置 secret 一律 401。"""
+
+    async def test_check_without_header_401(self, bare_client):
+        resp = await bare_client.post(
+            "/v1/quota/check",
+            json={"tenant_id": "t1", "app_id": "a", "api_id": "x"},
+        )
+        assert resp.status_code == 401
+
+    async def test_check_wrong_secret_401(self, bare_client):
+        resp = await bare_client.post(
+            "/v1/quota/check",
+            json={"tenant_id": "t1", "app_id": "a", "api_id": "x"},
+            headers={"X-Ingress-Auth": "wrong-secret"},
+        )
+        assert resp.status_code == 401
+
+    async def test_refund_without_header_401(self, bare_client):
+        resp = await bare_client.post(
+            "/v1/quota/refund",
+            json={"tenant_id": "t1", "app_id": "a", "api_id": "x"},
+        )
+        assert resp.status_code == 401
+
+    async def test_unset_secret_fails_closed(self, bare_client, monkeypatch):
+        """INGRESS_SHARED_SECRET 未配置 → 401（不得裸奔）。"""
+        from apihub_core.config import get_settings
+
+        monkeypatch.delenv("INGRESS_SHARED_SECRET", raising=False)
+        get_settings.cache_clear()
+        resp = await bare_client.post(
+            "/v1/quota/check",
+            json={"tenant_id": "t1", "app_id": "a", "api_id": "x"},
+            headers={"X-Ingress-Auth": "test-ingress-secret"},
+        )
+        assert resp.status_code == 401
 
 
 @pytest.fixture

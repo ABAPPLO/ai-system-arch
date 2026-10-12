@@ -28,6 +28,8 @@ data:
   K8S_API_SERVER: https://kubernetes.default.svc
   ARGO_SERVER_URL: https://argo-server.argo:2746
   ARGO_SERVER_INSECURE: "false"   # prod 默认安全；dev 由 kind overlay 翻 true
+  # 用户提交 workflow 的目标 namespace 白名单（逗号分隔）——越界直接 403
+  ARGO_ALLOWED_NAMESPACES: apihub-workflow
 
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.apihub-monitoring:4317
   OTEL_SERVICE_NAME: workflow

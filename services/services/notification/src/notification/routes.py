@@ -1,5 +1,7 @@
 """notification 路由 —— Webhook CRUD + 测试。"""
 
+import asyncio
+
 from apihub_core.errors import ApiError, ErrorCode
 from apihub_core.tenant import require_tenant
 from fastapi import FastAPI
@@ -13,6 +15,12 @@ from notification.models import (
     WebhookTestResult,
     WebhookUpdate,
 )
+from notification.ssrf import assert_public_webhook_url
+
+
+async def _validate_webhook_url(url: str) -> None:
+    """SSRF 校验（DNS 解析阻塞，放线程池）。"""
+    await asyncio.to_thread(assert_public_webhook_url, url)
 
 
 async def _test_webhook(url: str, secret: str | None) -> WebhookTestResult:
@@ -46,6 +54,7 @@ def register_routes(app: FastAPI) -> None:
     @app.post("/v1/notification/webhooks", status_code=201)
     async def create_webhook(payload: WebhookCreate):
         ctx = require_tenant()
+        await _validate_webhook_url(payload.url)
         return await repository.create_webhook(
             tenant_id=ctx.tenant_id,
             url=payload.url,
@@ -59,6 +68,8 @@ def register_routes(app: FastAPI) -> None:
         updates = payload.model_dump(exclude_none=True)
         if not updates:
             raise ApiError(ErrorCode.INVALID_INPUT, "no fields to update", http_status=400)
+        if "url" in updates:
+            await _validate_webhook_url(updates["url"])
         return await repository.update_webhook(
             tenant_id=ctx.tenant_id,
             webhook_id=webhook_id,
@@ -78,6 +89,7 @@ def register_routes(app: FastAPI) -> None:
         hook = next((h for h in hooks if h["id"] == webhook_id), None)
         if not hook:
             raise ApiError(ErrorCode.NOT_FOUND, "webhook not found")
+        await _validate_webhook_url(hook["url"])
         return await _test_webhook(hook["url"], hook.get("secret"))
 
     # ===== /v1/notification/channel-configs（per-tenant CRUD）=====

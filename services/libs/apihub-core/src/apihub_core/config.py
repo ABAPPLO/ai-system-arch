@@ -68,6 +68,8 @@ class Settings(BaseSettings):
     k8s_api_server: str = "https://kubernetes.default.svc"
     argo_server_url: str = "https://argo-server.argo:2746"
     argo_server_insecure: bool = True  # dev：argo-server 自签证书；prod 改 False + 真 CA
+    # workflow 提交目标 namespace 白名单（逗号分隔）——用户提交的 namespace 不得越出此列表
+    argo_allowed_namespaces: str = "apihub-workflow"
 
     # OTel
     otel_exporter_otlp_endpoint: str | None = None

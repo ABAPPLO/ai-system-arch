@@ -1,3 +1,5 @@
+from apihub_core.auth import require_platform_admin
+from apihub_core.tenant import require_tenant
 from fastapi import APIRouter
 
 from billing import billing_job
@@ -16,13 +18,13 @@ router = APIRouter()
 async def run_billing(
     period: str = "", dry_run: bool = False, tenant_ids: list[str] | None = None
 ) -> BillingJobResult:
+    """触发全局出账 —— 平台超管专用（普通租户 Key 不可触发/篡改账期）。"""
+    require_platform_admin()
     return await billing_job.run_billing(period=period, dry_run=dry_run, tenant_ids=tenant_ids)
 
 
 @router.get("/v1/billing/records")
 async def list_billing_records(limit: int = 12, offset: int = 0):
-    from apihub_core.auth import require_tenant  # type: ignore
-
     ctx = require_tenant()
     items, total = await get_billing_records(ctx.tenant_id, limit, offset)
     return {"items": items, "total": total, "limit": limit, "offset": offset}
@@ -30,6 +32,7 @@ async def list_billing_records(limit: int = 12, offset: int = 0):
 
 @router.get("/v1/admin/billing/summary")
 async def admin_summary(period: str = "", tenant_search: str = ""):
+    require_platform_admin()
     items = await get_admin_billing_summary(period, tenant_search)
     return {
         "items": items,
@@ -41,11 +44,13 @@ async def admin_summary(period: str = "", tenant_search: str = ""):
 
 @router.post("/v1/admin/billing/adjust")
 async def admin_adjust(req: BillingAdjustRequest):
+    require_platform_admin()
     await adjust_billing_record(req.record_id, req.delta_cents, req.reason)
     return {"ok": True}
 
 
 @router.post("/v1/admin/subscription/override")
 async def admin_override(req: SubscriptionOverrideRequest):
+    require_platform_admin()
     await override_subscription(req.tenant_id, req.plan_code)
     return {"ok": True}

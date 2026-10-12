@@ -22,6 +22,7 @@ from workflow_svc.models import (
     WorkflowListItem,
     WorkflowStatus,
 )
+from workflow_svc.security import validate_namespace, validate_spec_safety
 
 
 def register_routes(app: FastAPI) -> None:
@@ -32,9 +33,16 @@ def register_routes(app: FastAPI) -> None:
 
     @app.post("/v1/workflows", response_model=Workflow, status_code=201)
     async def submit_workflow(req: SubmitWorkflowRequest):
-        """提交工作流到 Argo + 写 PG 索引。"""
+        """提交工作流到 Argo + 写 PG 索引。
+
+        namespace 只能落在白名单内；spec 拒绝 privileged/hostNetwork/hostPID/
+        hostIPC/hostPath（用户 spec 直接进 K8s API，须在信任边界收口）。
+        """
         ctx = require_tenant()
         tenant_id = ctx.tenant_id
+
+        validate_namespace(req.namespace)
+        validate_spec_safety(req.spec)
 
         workflow_uuid = argo_client.gen_workflow_uuid()
         client = argo_client.get_argo_client()

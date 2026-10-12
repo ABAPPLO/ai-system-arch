@@ -13,11 +13,33 @@ import time
 import httpx
 from fastapi import Request
 
-from apihub_core.config import Settings
+from apihub_core.config import Settings, get_settings
 from apihub_core.errors import ApiError, ErrorCode
-from apihub_core.tenant import TenantContext, set_tenant_context
+from apihub_core.tenant import TenantContext, require_tenant, set_tenant_context
 
 _auth_httpx_client: httpx.AsyncClient | None = None
+
+
+def require_platform_admin() -> TenantContext:
+    """仅平台超管可调用（否则 403）。管理端点统一走这里，防各服务手写漏检。"""
+    ctx = require_tenant()
+    if not ctx.is_platform_admin:
+        raise ApiError(ErrorCode.FORBIDDEN, "platform admin only")
+    return ctx
+
+
+def require_ingress_auth(request: Request) -> None:
+    """内部端点守卫：验 X-Ingress-Auth == ingress_shared_secret。
+
+    与 Go quota 的 ingressAuth 中间件同款语义（fail-closed）：未配置 secret
+    时拒绝所有请求，防「忘配 secret → 端点裸奔」。安全前提同 R1d 信任路径：
+    服务仅经 APISIX / 集群内可达。
+    """
+    settings = get_settings()
+    secret = settings.ingress_shared_secret
+    provided = request.headers.get("X-Ingress-Auth") or ""
+    if not secret or not secrets.compare_digest(provided, secret):
+        raise ApiError(ErrorCode.UNAUTHORIZED, "unauthorized")
 
 
 def _get_auth_httpx_client() -> httpx.AsyncClient:

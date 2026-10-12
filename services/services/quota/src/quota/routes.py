@@ -9,10 +9,11 @@
 """
 
 from apihub_core import kafka
+from apihub_core.auth import require_ingress_auth
 from apihub_core.errors import ApiError, ErrorCode
 from apihub_core.logging import get_logger
 from apihub_core.tenant import require_tenant
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 
 from quota import repository
 from quota.limiter import (
@@ -38,12 +39,15 @@ log = get_logger(__name__)
 
 def register_routes(app: FastAPI) -> None:
     @app.post("/v1/quota/check", response_model=QuotaCheckResponse)
-    async def check(payload: QuotaCheckRequest):
+    async def check(payload: QuotaCheckRequest, request: Request):
         """网关调用：原子 check + 扣减。
 
+        内部端点：须带 X-Ingress-Auth（与 Go quota 的 ingressAuth 同语义，
+        fail-closed），body 里的 tenant_id 不再是任意人可刷的口子。
         失败响应也是 200（业务层语义），allowed=False 表示被挡。
         429 只在 raise_if_blocked 抛 ApiError 时出现（部分场景调用方期望直接抛错）。
         """
+        require_ingress_auth(request)
         rules, source = await repository.load_rules(
             payload.tenant_id, payload.app_id, payload.api_id
         )
@@ -79,8 +83,9 @@ def register_routes(app: FastAPI) -> None:
         return resp
 
     @app.post("/v1/quota/check-strict", response_model=QuotaCheckResponse)
-    async def check_strict(payload: QuotaCheckRequest):
+    async def check_strict(payload: QuotaCheckRequest, request: Request):
         """严格版：超了直接抛 429。给不想自己处理 allowed=False 的调用方用。"""
+        require_ingress_auth(request)
         rules, source = await repository.load_rules(
             payload.tenant_id, payload.app_id, payload.api_id
         )
@@ -96,8 +101,12 @@ def register_routes(app: FastAPI) -> None:
         return resp
 
     @app.post("/v1/quota/refund")
-    async def refund_endpoint(payload: QuotaRefundRequest):
-        """退回扣减（业务失败时）。best-effort，失败也返回 200。"""
+    async def refund_endpoint(payload: QuotaRefundRequest, request: Request):
+        """退回扣减（业务失败时）。best-effort，失败也返回 200。
+
+        内部端点：须带 X-Ingress-Auth（fail-closed），否则任意人可无限回充配额。
+        """
+        require_ingress_auth(request)
         ok = await refund_quota(
             payload.tenant_id,
             payload.app_id,

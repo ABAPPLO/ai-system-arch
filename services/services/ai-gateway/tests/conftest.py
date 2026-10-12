@@ -52,3 +52,24 @@ def client():
     from ai_gateway.main import app
 
     return AsyncClient(transport=ASGITransport(app=app), base_url="http://test")
+
+
+@pytest.fixture
+def auth_client(client, monkeypatch):
+    """带租户上下文的 client（/v1/chat/completions 现在要求鉴权）。
+
+    stub authenticate_request + 默认带 X-API-Key 头（中间件在调 auth 前就
+    会因缺头 401）。用法：test_x(auth_client)。不带头的裸 client 仍走真实 401。
+    """
+    from apihub_core import auth as core_auth
+    from apihub_core.tenant import TenantContext, set_tenant_context
+
+    ctx = TenantContext(tenant_id="42", tenant_type="internal", app_id="app_1")
+
+    async def _fake_auth(request, settings, api_key, **kw):
+        set_tenant_context(ctx)
+        return ctx
+
+    monkeypatch.setattr(core_auth, "authenticate_request", _fake_auth)
+    client.headers["X-API-Key"] = "ak_test"
+    return client

@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import time
 from contextlib import asynccontextmanager, suppress
 
 import aiokafka
@@ -11,6 +12,8 @@ from apihub_core.config import get_settings
 from apihub_core.crypto import decrypt_secret
 from apihub_core.logging import get_logger
 from apihub_core.signing import sign_webhook
+
+from notification.ssrf import assert_public_webhook_url
 
 log = get_logger(__name__)
 
@@ -53,15 +56,34 @@ async def _get_active_webhooks() -> list[dict]:
 
 
 async def process_event(event: dict) -> None:
-    """处理一条 api-call-event → 匹配 webhook → 推送。"""
+    """处理一条 api-call-event → 匹配 webhook → 推送。
+
+    租户隔离：webhook 只能收到**本租户**的事件。事件缺 tenant_id 时
+    fail-closed（谁也不推），防止无主事件广播给全部订阅者。
+    """
+    tenant_id = event.get("tenant_id")
+    if not tenant_id:
+        return
     event_type = f"api.call.{'succeeded' if event.get('allowed', True) else 'failed'}"
     hooks = await _get_active_webhooks()
-    matched = [h for h in hooks if event_type in h["events"] or "api.call.*" in h["events"]]
+    matched = [
+        h
+        for h in hooks
+        if h["tenant_id"] == tenant_id
+        and (event_type in h["events"] or "api.call.*" in h["events"])
+    ]
     if not matched:
         return
 
-    payload = {"event": event_type, "data": event, "timestamp": asyncio.get_event_loop().time()}
+    payload = {"event": event_type, "data": event, "timestamp": time.time()}
     for hook in matched:
+        # SSRF 二次校验：拦「登记时公网、投递时 DNS 重绑内网」。
+        # 失败不重试（重试也不会变公网），跳过该 hook 留痕即可。
+        try:
+            await asyncio.to_thread(assert_public_webhook_url, hook["url"])
+        except Exception as e:
+            log.warning("webhook_url_blocked", webhook_id=hook["id"], url=hook["url"], error=str(e))
+            continue
         for attempt in range(MAX_RETRIES):
             ok = await _deliver(hook["url"], payload, hook.get("secret") or "")
             if ok:

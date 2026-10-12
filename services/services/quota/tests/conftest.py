@@ -13,6 +13,8 @@ _ENV_DEFAULTS = {
     "REDIS_PASSWORD": "apihub_dev_pwd",
     "ENV": "test",
     "OTEL_SERVICE_NAME": "quota-test",
+    # 内部端点（check/check-strict/refund）require_ingress_auth 用（fail-closed）
+    "INGRESS_SHARED_SECRET": "test-ingress-secret",
 }
 for _k, _v in _ENV_DEFAULTS.items():
     os.environ.setdefault(_k, _v)

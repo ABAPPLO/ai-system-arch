@@ -201,6 +201,8 @@ class TestProcessEvent:
         async def _get_hooks():
             return hooks
 
+        # SSRF 校验在 test_ssrf.py 单测，这里 stub 掉避免真实 DNS
+        monkeypatch.setattr("notification.consumer.assert_public_webhook_url", lambda url: None)
         monkeypatch.setattr("notification.consumer._get_active_webhooks", _get_hooks)
 
         delivered = []
@@ -239,6 +241,7 @@ class TestProcessEvent:
         async def _get_hooks():
             return hooks
 
+        monkeypatch.setattr("notification.consumer.assert_public_webhook_url", lambda url: None)
         monkeypatch.setattr("notification.consumer._get_active_webhooks", _get_hooks)
 
         real_delivered = []
@@ -249,7 +252,9 @@ class TestProcessEvent:
 
         monkeypatch.setattr("notification.consumer._deliver", _recording_deliver)
 
-        await process_event({"allowed": True, "api_id": "api-1", "app_id": "app-1"})
+        await process_event(
+            {"tenant_id": "t1", "allowed": True, "api_id": "api-1", "app_id": "app-1"}
+        )
 
         # 只匹配 api.call.succeeded
         assert len(real_delivered) == 1
@@ -277,7 +282,7 @@ class TestProcessEvent:
 
         self._patch(monkeypatch, hooks, _recording_deliver)
 
-        await process_event({"allowed": False, "api_id": "api-1"})
+        await process_event({"tenant_id": "t1", "allowed": False, "api_id": "api-1"})
         assert len(delivered) == 1
         assert delivered[0] == "https://a.com/hook"
 
@@ -300,7 +305,7 @@ class TestProcessEvent:
             lambda url, payload, secret: delivered.append(url) or True,
         )
 
-        await process_event({"allowed": True, "api_id": "api-1"})
+        await process_event({"tenant_id": "t1", "allowed": True, "api_id": "api-1"})
         assert delivered == []
 
     async def test_deliver_multiple_webhooks(self, monkeypatch):
@@ -316,14 +321,14 @@ class TestProcessEvent:
             },
             {
                 "id": "wh_2",
-                "tenant_id": "t2",
+                "tenant_id": "t1",
                 "url": "https://b.com/hook",
                 "events": ["api.call.succeeded"],
                 "secret": "",
             },
             {
                 "id": "wh_3",
-                "tenant_id": "t3",
+                "tenant_id": "t1",
                 "url": "https://c.com/hook",
                 "events": ["api.call.failed"],
                 "secret": "",
@@ -338,7 +343,7 @@ class TestProcessEvent:
 
         self._patch(monkeypatch, hooks, _recording_deliver)
 
-        await process_event({"allowed": True, "api_id": "api-1"})
+        await process_event({"tenant_id": "t1", "allowed": True, "api_id": "api-1"})
         assert len(delivered) == 2
         assert "https://a.com/hook" in delivered
         assert "https://b.com/hook" in delivered
@@ -367,7 +372,7 @@ class TestProcessEvent:
 
         self._patch(monkeypatch, hooks, _retry_deliver)
 
-        await process_event({"allowed": True, "api_id": "api-1"})
+        await process_event({"tenant_id": "t1", "allowed": True, "api_id": "api-1"})
         assert len(attempts_log) == 3
 
     async def test_retry_exhausted(self, monkeypatch):
@@ -391,7 +396,7 @@ class TestProcessEvent:
 
         self._patch(monkeypatch, hooks, _exhausted_deliver)
 
-        await process_event({"allowed": True, "api_id": "api-1"})
+        await process_event({"tenant_id": "t1", "allowed": True, "api_id": "api-1"})
         assert len(attempts) == 3  # MAX_RETRIES=3, 全部失败放弃
 
     async def test_allowed_false_sends_failed_event(self, monkeypatch):
@@ -415,7 +420,168 @@ class TestProcessEvent:
 
         self._patch(monkeypatch, hooks, _recording_deliver)
 
-        await process_event({"allowed": False, "api_id": "api-1", "app_id": "app-1"})
+        await process_event(
+            {"tenant_id": "t1", "allowed": False, "api_id": "api-1", "app_id": "app-1"}
+        )
         assert len(delivered) == 1
         assert delivered[0][1] == "api.call.failed"
         assert delivered[0][2]["allowed"] is False
+
+
+class TestTenantIsolation:
+    """租户隔离回归测试 —— webhook 只能收到本租户事件（跨租户泄漏修复）。"""
+
+    def _patch(self, monkeypatch, hooks):
+        async def _get_hooks():
+            return hooks
+
+        monkeypatch.setattr("notification.consumer.assert_public_webhook_url", lambda url: None)
+        monkeypatch.setattr("notification.consumer._get_active_webhooks", _get_hooks)
+
+        delivered = []
+
+        async def _recording_deliver(url, payload, secret):
+            delivered.append(url)
+            return True
+
+        monkeypatch.setattr("notification.consumer._deliver", _recording_deliver)
+        return delivered
+
+    async def test_cross_tenant_event_not_delivered(self, monkeypatch):
+        """t1 的事件不能推给 t2 的 webhook，即使事件类型匹配。"""
+        from notification.consumer import process_event
+
+        hooks = [
+            {
+                "id": "wh_2",
+                "tenant_id": "t2",
+                "url": "https://b.com/hook",
+                "events": ["api.call.succeeded"],
+                "secret": "",
+            },
+        ]
+        delivered = self._patch(monkeypatch, hooks)
+
+        await process_event({"tenant_id": "t1", "allowed": True, "api_id": "api-1"})
+        assert delivered == []
+
+    async def test_wildcard_does_not_cross_tenant(self, monkeypatch):
+        """api.call.* 通配也只在同租户内匹配。"""
+        from notification.consumer import process_event
+
+        hooks = [
+            {
+                "id": "wh_1",
+                "tenant_id": "t2",
+                "url": "https://evil.example/hook",
+                "events": ["api.call.*"],
+                "secret": "",
+            },
+        ]
+        delivered = self._patch(monkeypatch, hooks)
+
+        await process_event({"tenant_id": "t1", "allowed": True, "api_id": "api-1"})
+        assert delivered == []
+
+    async def test_missing_tenant_id_fail_closed(self, monkeypatch):
+        """事件缺 tenant_id → 谁也不推（fail-closed，防无主事件广播）。"""
+        from notification.consumer import process_event
+
+        hooks = [
+            {
+                "id": "wh_1",
+                "tenant_id": "t1",
+                "url": "https://a.com/hook",
+                "events": ["api.call.*"],
+                "secret": "",
+            },
+        ]
+        delivered = self._patch(monkeypatch, hooks)
+
+        await process_event({"allowed": True, "api_id": "api-1"})
+        assert delivered == []
+
+    async def test_same_tenant_still_delivered(self, monkeypatch):
+        from notification.consumer import process_event
+
+        hooks = [
+            {
+                "id": "wh_1",
+                "tenant_id": "t1",
+                "url": "https://a.com/hook",
+                "events": ["api.call.succeeded"],
+                "secret": "",
+            },
+        ]
+        delivered = self._patch(monkeypatch, hooks)
+
+        await process_event({"tenant_id": "t1", "allowed": True, "api_id": "api-1"})
+        assert delivered == ["https://a.com/hook"]
+
+    async def test_timestamp_is_epoch(self, monkeypatch):
+        """payload.timestamp 应为 Unix epoch（曾被误写为 event loop 单调钟）。"""
+        import time
+
+        from notification.consumer import process_event
+
+        hooks = [
+            {
+                "id": "wh_1",
+                "tenant_id": "t1",
+                "url": "https://a.com/hook",
+                "events": ["api.call.succeeded"],
+                "secret": "",
+            },
+        ]
+        captured = {}
+
+        async def _capture(url, payload, secret):
+            captured["ts"] = payload["timestamp"]
+            return True
+
+        async def _get_hooks():
+            return hooks
+
+        monkeypatch.setattr("notification.consumer.assert_public_webhook_url", lambda url: None)
+        monkeypatch.setattr("notification.consumer._get_active_webhooks", _get_hooks)
+        monkeypatch.setattr("notification.consumer._deliver", _capture)
+
+        before = time.time()
+        await process_event({"tenant_id": "t1", "allowed": True, "api_id": "api-1"})
+        assert abs(captured["ts"] - before) < 5  # 秒级 epoch，不是单调钟大数
+
+    async def test_ssrf_blocked_url_skipped(self, monkeypatch):
+        """投递时 URL 解析到内网（DNS 重绑）→ 跳过该 hook，不投递不重试。"""
+        from notification.consumer import process_event
+
+        hooks = [
+            {
+                "id": "wh_1",
+                "tenant_id": "t1",
+                "url": "https://a.com/hook",
+                "events": ["api.call.succeeded"],
+                "secret": "",
+            },
+        ]
+
+        async def _get_hooks():
+            return hooks
+
+        def _blocked(url):
+            from apihub_core.errors import ApiError, ErrorCode
+
+            raise ApiError(ErrorCode.INVALID_INPUT, "blocked")
+
+        monkeypatch.setattr("notification.consumer.assert_public_webhook_url", _blocked)
+        monkeypatch.setattr("notification.consumer._get_active_webhooks", _get_hooks)
+
+        attempts = []
+
+        async def _deliver(url, payload, secret):
+            attempts.append(url)
+            return True
+
+        monkeypatch.setattr("notification.consumer._deliver", _deliver)
+
+        await process_event({"tenant_id": "t1", "allowed": True, "api_id": "api-1"})
+        assert attempts == []  # blocked → 连第一次尝试都没有

@@ -17,7 +17,6 @@ app = create_app(
         "/metrics",
         "/docs",
         "/openapi.json",
-        "/v1/chat/completions",
     ),
 )
 
