@@ -9,6 +9,7 @@ import {
   AuditOutlined,
   TeamOutlined,
   LineChartOutlined,
+  AccountBookOutlined,
 } from '@ant-design/icons';
 import { Dropdown, Space, Tag } from 'antd';
 
@@ -23,6 +24,7 @@ const ROUTES = {
     { path: '/audit', name: '审计日志', icon: <AuditOutlined /> },
     { path: '/calls', name: '调用日志', icon: <LineChartOutlined /> },
     { path: '/tenants', name: '租户管理', icon: <TeamOutlined /> },
+    { path: '/billing', name: '计费管理', icon: <AccountBookOutlined /> },
   ],
 };
 

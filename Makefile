@@ -13,10 +13,12 @@ SHELL := /bin/bash
 ENV ?= dev
 SERVICE ?= api-registry
 # 优先 docker compose v2，回退 v1
+# override（存在则并入）：把 PG/Redis 映射到 15433/16379，避开宿主已占用的
+# 系统 5432/6379 —— .env.dev 的 PG_PORT/REDIS_PORT 正是这两个高位端口。
 COMPOSE := $(shell \
 	command -v "docker" >/dev/null 2>&1 && docker compose version >/dev/null 2>&1 \
-		&& echo "docker compose --env-file .env.dev -f docker-compose.dev.yml" \
-		|| echo "docker-compose --env-file .env.dev -f docker-compose.dev.yml")
+		&& echo "docker compose --env-file .env.dev -f docker-compose.dev.yml $(shell test -f docker-compose.override.yml && echo -f docker-compose.override.yml)" \
+		|| echo "docker-compose --env-file .env.dev -f docker-compose.dev.yml $(shell test -f docker-compose.override.yml && echo -f docker-compose.override.yml)")
 
 help:  ## 显示所有可用目标
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | \

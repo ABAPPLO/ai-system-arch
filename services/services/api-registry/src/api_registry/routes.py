@@ -23,10 +23,16 @@ def register_routes(app: FastAPI) -> None:
     # ⚠️ 路由顺序：静态段必须在 {param} 之前
 
     @app.get("/v1/apis")
-    async def list_apis(limit: int = 50, offset: int = 0):
+    async def list_apis(limit: int = 50, offset: int = 0, search: str = ""):
+        # search：名称/路径/描述模糊匹配（admin 列表服务端搜索；空串 = 全量）
+        where, params = "", []
+        if search:
+            params.append(f"%{search}%")
+            where = "WHERE name ILIKE $1 OR base_path ILIKE $1 OR description ILIKE $1"
         async with db.db_session() as conn:
             rows = await conn.fetch(
-                "SELECT * FROM api ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+                f"SELECT * FROM api {where} ORDER BY created_at DESC LIMIT ${len(params) + 1} OFFSET ${len(params) + 2}",  # noqa: S608 -- where 仅由受控分支拼接，值全部参数化
+                *params,
                 limit,
                 offset,
             )

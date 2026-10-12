@@ -2,6 +2,7 @@ import { lazy, Suspense } from 'react';
 import { Navigate, Route, Routes } from 'react-router-dom';
 import { Spin } from 'antd';
 
+import { isJwtExpired } from '@apihub/shared';
 import { getAuth } from './api/client';
 import Layout from './components/Layout';
 import Login from './pages/Login';
@@ -18,7 +19,8 @@ const Billing = lazy(() => import('./pages/Billing').then(m => ({ default: m.Bil
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
   const auth = getAuth();
-  if (!auth) return <Navigate to="/login" replace />;
+  // token 缺失或本地判定已过期都直接回登录（此前只查存在，过期用户会先闪一屏再被 401 弹回）
+  if (!auth || isJwtExpired(auth.token)) return <Navigate to="/login" replace />;
   return <>{children}</>;
 }
 

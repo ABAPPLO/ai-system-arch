@@ -7,15 +7,17 @@ import react from '@vitejs/plugin-react';
 //          /api/retry/*    → retry-svc:8009
 //          /api/trace/*    → trace-svc:8008
 // prod：前端 nginx 反代同样的前缀
+// 目标端口可用环境变量覆盖（本机端口冲突时免改代码）：
+//   APIHUB_REGISTRY_PORT=18000 npm run dev
 const targets = {
-  admin: 'http://localhost:8006',
-  registry: 'http://localhost:8000',
-  retry: 'http://localhost:8009',
-  trace: 'http://localhost:8008',
-  tenant: 'http://localhost:8005',
-  docs: 'http://localhost:8007',
-  billing: 'http://localhost:8014',
-  auth: 'http://localhost:8002',
+  admin: `http://localhost:${process.env.APIHUB_ADMIN_PORT || 8006}`,
+  registry: `http://localhost:${process.env.APIHUB_REGISTRY_PORT || 8000}`,
+  retry: `http://localhost:${process.env.APIHUB_RETRY_PORT || 8009}`,
+  trace: `http://localhost:${process.env.APIHUB_TRACE_PORT || 8008}`,
+  tenant: `http://localhost:${process.env.APIHUB_TENANT_PORT || 8005}`,
+  docs: `http://localhost:${process.env.APIHUB_DOCS_PORT || 8007}`,
+  billing: `http://localhost:${process.env.APIHUB_BILLING_PORT || 8014}`,
+  auth: `http://localhost:${process.env.APIHUB_AUTH_PORT || 8002}`,
 };
 
 export default defineConfig({

@@ -198,3 +198,20 @@ export function createApiClient<TUser extends { id: string }>(cfg: ClientConfig<
 }
 
 export type ApiClient = ReturnType<typeof createApiClient>;
+
+
+/** JWT 是否已过期（本地预判，省一次注定失败的请求；最终仍以服务端 401 为准）。 */
+export function isJwtExpired(token: string | null | undefined): boolean {
+  if (!token) return true;
+  const parts = token.split('.');
+  if (parts.length !== 3) return true;
+  try {
+    const payload = JSON.parse(
+      atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')),
+    ) as { exp?: number };
+    if (!payload.exp) return false;
+    return payload.exp * 1000 <= Date.now();
+  } catch {
+    return true;
+  }
+}

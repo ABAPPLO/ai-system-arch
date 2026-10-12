@@ -1,4 +1,4 @@
-import { useRef,  useEffect, useMemo, useState  } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ModalForm,
   PageContainer,
@@ -66,7 +66,7 @@ export default function Apis() {
 
   const loadAbortRef = useRef<AbortController | null>(null);
 
-  async function load(current = 1, pageSize = 20) {
+  async function load(current = 1, pageSize = 20, search = keyword.trim()) {
     // 竞态守卫：手动刷新/翻页与自动加载交错时，旧响应不覆盖新数据
     loadAbortRef.current?.abort();
     const ac = new AbortController();
@@ -75,7 +75,7 @@ export default function Apis() {
     try {
       const r = await api.get<{ items: ApiListItem[] }>(
         `${REGISTRY}/apis`,
-        { limit: pageSize, offset: (current - 1) * pageSize },
+        { limit: pageSize, offset: (current - 1) * pageSize, search: search || undefined },
         { signal: ac.signal },
       );
       if (ac.signal.aborted) return;
@@ -98,14 +98,12 @@ export default function Apis() {
     return () => loadAbortRef.current?.abort();
   }, []);
 
-  const filtered = useMemo(() => {
-    const k = keyword.trim().toLowerCase();
-    if (!k) return items;
-    return items.filter(
-      (i) =>
-        i.name.toLowerCase().includes(k) || i.id.toLowerCase().includes(k),
-    );
-  }, [keyword, items]);
+  // 服务端搜索：关键词防抖 300ms 回源（此前本地过滤只能命中当前页）
+  useEffect(() => {
+    const t = setTimeout(() => void load(1, page.pageSize), 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyword]);
 
   const columns: ColumnsType<ApiListItem> = [
     { title: 'ID', dataIndex: 'id', width: 180, ellipsis: true },
@@ -187,7 +185,7 @@ export default function Apis() {
       <Card>
         <Space style={{ marginBottom: 16 }}>
           <Input.Search
-            placeholder="按名称或 ID 过滤当前页..."
+            placeholder="搜索名称 / 路径 / 描述（服务端搜索）..."
             allowClear
             style={{ width: 320 }}
             onChange={(e) => setKeyword(e.target.value)}
@@ -204,7 +202,7 @@ export default function Apis() {
         <Table<ApiListItem>
           rowKey="id"
           columns={columns}
-          dataSource={filtered}
+          dataSource={items}
           loading={loading}
           pagination={{
             current: page.current,

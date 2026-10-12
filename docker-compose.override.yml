@@ -1,5 +1,9 @@
+# !override：compose 对 ports 是合并语义（15433 与 5432 会同时保留），
+# 宿主 5432/6379 被系统服务占用时必须整体替换。
 services:
   postgres:
-    ports: ["15433:5432"]
+    ports: !override ["15433:5432"]
   redis:
-    ports: ["16379:6379"]
+    ports: !override ["16379:6379"]
+  grafana:
+    ports: !override ["13000:3000"]   # 宿主 3000 被占
