@@ -1,0 +1,10 @@
+# APISIX 前置资源 —— 只含 tenant-affinity 插件 ConfigMap。
+# chart（apisix-values.yaml 的 customPlugins）挂载该 ConfigMap，必须在 APISIX
+# pod 启动前存在；由 ArgoCD app apihub-apigw-config（见 deploy/argocd/apigw.yaml）
+# 先行同步。apisix-values.yaml / consumer-template.yaml 是 chart 的 values 与
+# 模板参考，不是 k8s 资源，故不入 resources。
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+resources:
+  - apisix-plugin-tenant-affinity.yaml

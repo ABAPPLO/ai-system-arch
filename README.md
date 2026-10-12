@@ -38,8 +38,8 @@
 | 长时任务 | Argo Workflow |
 | 链路追踪 | Jaeger + OpenTelemetry |
 | 监控 | Prometheus + Grafana |
-| 日志 | Loki |
-| 前端 | Vue 3 + TypeScript + Element Plus |
+| 日志 | stdout → 采集（Loki 规划中，尚未落地） |
+| 前端 | React 18 + TypeScript + Ant Design 5（admin / portal 双前端） |
 | 编排 | Kubernetes + ArgoCD |
 | IaC | Terraform |
 | 云 | 单云（参考阿里云） |
@@ -80,13 +80,18 @@
 | 实名 | 邮箱 + 手机号 |
 | 开放时间 | Phase 3 内（~M11） |
 
-## 当前状态
+## 当前状态（2026-10 更新）
 
-- ✅ 整体架构设计（2026-07-02）
-- ✅ 12 个核心决策评审锁定（2026-07-02）
-- ⏳ MVP 试点业务确认 + 预算批准
-- ⬜ MVP 开发
-- ⬜ 上线
+- ✅ 整体架构设计 + 15 个核心决策评审锁定
+- ✅ 15 个后端服务 + Go 版 quota 全部实现（含多租户 RLS、HMAC、审计）
+- ✅ admin / portal 双前端（React + Antd）
+- ✅ dev 一键栈（`make dev-up`：PG/Redis/Kafka/CH/MinIO/Jaeger/Prometheus/Grafana/Alertmanager）
+- ✅ 多 Region 双活设计 + failover 演练脚本
+- ⏳ 云上环境首次 apply（Terraform/K8s 清单就绪，Secret 走 ESO+KMS，见 deploy/k8s/base/external-secrets/README.md）
+- ⬜ MVP 试点业务上线
+
+> 设计文档（docs/）写于项目初期，个别细节（如前端框架、告警链路演进）以仓库
+> 实现与 CLAUDE.md 为准；发现不一致欢迎提 issue。
 
 ## 仓库结构
 

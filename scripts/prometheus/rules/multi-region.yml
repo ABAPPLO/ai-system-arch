@@ -1,0 +1,47 @@
+# 告警规则 —— 多 Region / 数据复制（自 deploy/k8s/base/monitoring/alert-rules-multi-region.yaml
+# 迁入并修正：原文件指标名 kafka_consumer_lag 与 infra.yml 的 kafka_consumergroup_lag
+# 不一致、severity 小写 p0 不符合白名单，且未被任何 Prometheus 引用——是死配置）。
+#
+# dev 单 Region 下 RegionDown / PGReplicationLag 天然不触发（无害，进入 prod-bj
+# 双活后生效）；DNSHealthCheckFailed 需部署 blackbox_exporter 后才有数据源。
+
+groups:
+  - name: multi-region-p1
+    interval: 30s
+    rules:
+      - alert: RegionDown
+        # 该 Region 网关全部实例不可用
+        expr: |
+          max by (region) (up{job=~"apisix|apihub-services"}) == 0
+        for: 30s
+        labels:
+          severity: P1
+          team: platform
+        annotations:
+          summary: "Region {{ $labels.region }} 全部网关实例不可用"
+          description: "按 scripts/multi-region/failover-runbook.sh 评估切流。"
+
+      - alert: PGReplicationLag
+        # 跨 Region 逻辑复制滞后（postgres-exporter 的 pg_replication_lag，秒）
+        expr: pg_replication_lag > 30
+        for: 1m
+        labels:
+          severity: P1
+          team: platform
+        annotations:
+          summary: "PG 复制滞后 > 30s"
+          description: "看 RDS 复制状态 + 生产写入量；持续恶化考虑 failover（runbook §4）。"
+
+  - name: multi-region-p2
+    interval: 60s
+    rules:
+      - alert: DNSHealthCheckFailed
+        # 需 blackbox_exporter（job=blackbox-http）采集 probe_success
+        expr: probe_success{job="blackbox-http"} == 0
+        for: 1m
+        labels:
+          severity: P2
+          team: platform
+        annotations:
+          summary: "公网健康检查失败（{{ $labels.instance }}）"
+          description: "公网入口不可达：查 SLB / DNS 解析 / 证书。"

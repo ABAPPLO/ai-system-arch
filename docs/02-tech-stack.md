@@ -24,9 +24,9 @@
 | IaC | **Terraform** | Pulumi | 阿里云支持好 |
 | CI / CD | **GitLab CI** | Jenkins / Argo Workflows | 团队习惯 |
 | 镜像仓库 | **Harbor** | - | 私有 + 漏洞扫描 |
-| 前端框架 | **Vue 3 + TypeScript** | React | 团队栈 |
-| 前端 UI | **Element Plus** | Ant Design Vue | 后台风格匹配 |
-| 状态管理 | **Pinia** | Vuex | Vue 3 推荐 |
+| 前端框架 | **React 18 + TypeScript** | Vue 3 | 实施期改定（双前端 React + Antd，见 frontend/） |
+| 前端 UI | **Ant Design 5** | Element Plus | 实施期改定（ProComponents 后台风格） |
+| 状态管理 | **SWR + Zustand** | Redux Toolkit | 实施期改定 |
 | 构建工具 | **Vite** | Webpack | 速度 |
 | API 文档渲染 | **自研 + Stoplight Elements** | Redoc / SwaggerUI | 可控可定制 |
 | SDK 生成 | **openapi-generator** | 自研 | 多语言覆盖 |

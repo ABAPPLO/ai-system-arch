@@ -38,8 +38,21 @@ scrape_configs:
     static_configs:
       - targets: ["otel-collector:8889"]
 
-  # 基础设施
-  - job_name: kafka
+  # ===== 基础设施 exporter（docker-compose.dev.yml 同名服务）=====
+  # infra.yml 的告警全部依赖这四个 job 的指标；此前只有一个指向 broker 9092 的
+  # "kafka" job（不是 exporter，无 /metrics）→ 基础设施告警从未可能触发。
+  - job_name: kafka-exporter
     static_configs:
-      - targets: ["kafka:9092"]
-        # 实际 prod 用 kafka_exporter，dev 简化
+      - targets: ["kafka-exporter:9308"]
+
+  - job_name: postgres-exporter
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  - job_name: redis-exporter
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+
+  - job_name: node-exporter
+    static_configs:
+      - targets: ["node-exporter:9100"]

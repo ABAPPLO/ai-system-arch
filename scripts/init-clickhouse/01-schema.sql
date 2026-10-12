@@ -82,6 +82,8 @@ CREATE TABLE IF NOT EXISTS api_call_log (
 ENGINE = MergeTree
 PARTITION BY (toYYYYMM(ts), tenant_id)
 ORDER BY (tenant_id, api_id, ts)
+-- 调用日志 180 天在线（docs/04 §CH；此前无 TTL → 无限增长）。归档见 audit OSS 路径。
+TTL toDateTime(ts) + INTERVAL 180 DAY
 SETTINGS index_granularity = 8192;
 
 -- 物化视图：Kafka → MergeTree
@@ -108,7 +110,9 @@ CREATE TABLE IF NOT EXISTS api_call_stats_hourly (
 )
 ENGINE = SummingMergeTree
 PARTITION BY toYYYYMMDD(hour)
-ORDER BY (hour, tenant_id, api_id, app_id);
+ORDER BY (hour, tenant_id, api_id, app_id)
+-- 预聚合 730 天（低存储成本，供大盘长回看；明细 180 天由 api_call_log 自己 TTL）
+TTL hour + INTERVAL 730 DAY;
 
 -- ============================================================
 -- 测试数据（手动插入若干行验证）

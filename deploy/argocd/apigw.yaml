@@ -1,0 +1,63 @@
+# APISIX 进 GitOps（此前唯一入口是 scripts/kind/apisix-setup.sh 手工 helm，
+# prod ingress 指向的 apisix-gateway Service 没有任何 manifest——按仓库部署即断）。
+#
+# 两个 Application（kubectl apply -f 到目标集群的 argocd namespace）：
+#   1. apihub-apigw-config —— kustomize 应用插件 ConfigMap（chart 依赖它先存在）
+#   2. apihub-apigw       —— 官方 chart（charts.apiseven.com）+ 本仓 values
+#                             （multi-source：chart 来自 helm repo，values 来自 git）
+# 顺序：config 先 sync（app 名字母序也保证了这一点）；apisix 若先于 CM 启动会
+# crash-loop 一轮后自愈。
+#
+# 已知遗留（接入前处理）：
+#   - apisix-values.yaml 的 admin_key 是 REPLACE_ME_VIA_SEALED_SECRET 占位——
+#     生产接入时用 SealedSecret 渲染出真 values，或改用 apisix secret 引用。
+#   - dashboard.enabled=true 仅 dev/staging 应开；prod 加 per-env values 覆盖。
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: apihub-apigw-config
+  namespace: argocd
+spec:
+  project: default
+  source:
+    repoURL: git@github.com:ABAPPLO/ai-system-arch.git
+    targetRevision: main
+    path: deploy/k8s/base/apigw
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: apihub-ingress
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+---
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: apihub-apigw
+  namespace: argocd
+spec:
+  project: default
+  sources:
+    # chart 来自官方 helm repo
+    - repoURL: https://charts.apiseven.com
+      chart: apisix
+      targetRevision: 2.16.0
+      helm:
+        valueFiles:
+          - $values/deploy/k8s/base/apigw/apisix-values.yaml
+    # values 来自本仓 git（$values 引用）
+    - repoURL: git@github.com:ABAPPLO/ai-system-arch.git
+      targetRevision: main
+      ref: values
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: apihub-ingress
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true

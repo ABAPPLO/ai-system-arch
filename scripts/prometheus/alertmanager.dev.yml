@@ -1,0 +1,44 @@
+# Alertmanager dev 配置 —— docker-compose.dev.yml 挂载这份。
+#
+# 与生产版（scripts/prometheus/alertmanager.yml）的区别：生产版的钉钉 webhook
+# URL 是 ${DINGTALK_*} 占位（由部署环境展开/注入）；dev 不注入 → 字面量 URL
+# 解析失败会让 alertmanager 起不来。dev 版路由分级照抄，receiver 全部落到
+# dev-null（告警在 :9093 UI 可见、可验证路由/抑制，通知不外发）。
+#
+# 本地验证告警链路：
+#   open http://localhost:9093  → Alerts 页应能看到 Prometheus 触发的告警
+#
+# 想在 dev 真发钉钉：把下面 dev-null 换成你的机器人 webhook 再 docker compose
+# up -d alertmanager。
+
+global:
+  resolve_timeout: 5m
+
+route:
+  group_by: ['alertname', 'api_id', 'team']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: dev-null
+
+  routes:
+    - matchers: ['severity = P0']
+      receiver: dev-null
+      group_wait: 0s
+      repeat_interval: 30m
+    - matchers: ['severity = P1']
+      receiver: dev-null
+      group_wait: 30s
+      repeat_interval: 1h
+
+# 抑制规则与生产版一致（P0 压 P1/P2/P3，P1 压 P2/P3）——dev 也要能验证
+inhibit_rules:
+  - source_matchers: ['severity = P0']
+    target_matchers: ['severity =~ "P1|P2|P3"']
+    equal: ['api_id', 'team']
+  - source_matchers: ['severity = P1']
+    target_matchers: ['severity =~ "P2|P3"']
+    equal: ['api_id', 'team']
+
+receivers:
+  - name: dev-null

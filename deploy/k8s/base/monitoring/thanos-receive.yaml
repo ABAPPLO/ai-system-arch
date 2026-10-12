@@ -1,3 +1,6 @@
+# ⚠️ 未接线：本文件未被任何 overlay/ArgoCD app 引用（多 Region 全局视图的预留件，
+# 对应 docs/09 §多 Region 演进）。接入时需配套 thanos query + 对象存储配置，
+# 并给容器补 requests/limits。在此之前它只是设计占位，不代表已部署能力。
 apiVersion: apps/v1
 kind: Deployment
 metadata:

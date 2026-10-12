@@ -205,6 +205,60 @@ services:
     ports: ["9090:9090"]
     networks: [apihub]
 
+  # Alertmanager —— 告警最后一公里（此前 prometheus.yml 指向 alertmanager:9093
+  # 但本 compose 无此服务，告警全丢）。dev 用 alertmanager.dev.yml（receiver 落
+  # dev-null，:9093 UI 可验证触发/分级/抑制；通知不外发）。
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: apihub-alertmanager
+    volumes:
+      - ./scripts/prometheus/alertmanager.dev.yml:/etc/alertmanager/alertmanager.yml:ro
+    ports: ["9093:9093"]
+    networks: [apihub]
+
+  # ===== 基础设施 exporter =====
+  # 此前 infra.yml 的 8 条告警（kafka/pg/redis/node_*）依赖的指标一个都没采——
+  # 唯一的 "kafka" job 指向 broker 9092（非 exporter）→ 永远不触发。
+
+  # Kafka exporter：kafka_consumergroup_lag / kafka_consumergroup_members
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:latest
+    container_name: apihub-kafka-exporter
+    command: ["--kafka.server=kafka:9092"]
+    ports: ["9308:9308"]
+    networks: [apihub]
+
+  # PostgreSQL exporter：pg_stat_activity_count / pg_settings_max_connections 等
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: apihub-pg-exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://apihub:${PG_PASSWORD:-apihub_dev_pwd}@postgres:5432/apihub?sslmode=disable"
+    ports: ["9187:9187"]
+    networks: [apihub]
+
+  # Redis exporter：redis_memory_used_bytes / redis_connected_clients 等
+  redis-exporter:
+    image: oliver006/redis_exporter:latest
+    container_name: apihub-redis-exporter
+    environment:
+      REDIS_ADDR: "redis://redis:6379"
+      REDIS_PASSWORD: "${REDIS_PASSWORD:-apihub_dev_pwd}"
+    ports: ["9121:9121"]
+    networks: [apihub]
+
+  # Node exporter：node_cpu_seconds_total / node_filesystem_* （容器视角的宿主机指标）
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: apihub-node-exporter
+    command:
+      - --path.rootfs=/host
+    volumes:
+      - /:/host:ro,rslave
+    pid: "host"
+    ports: ["9100:9100"]
+    networks: [apihub]
+
   grafana:
     image: grafana/grafana:latest
     container_name: apihub-grafana
