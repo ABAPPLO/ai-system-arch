@@ -41,6 +41,8 @@ ignore = [
 # smoke/kind 是运维/联调脚本，subprocess+shell、/tmp 临时文件、拼 SQL 都是合理用法
 "scripts/smoke/**" = ["S"]
 "scripts/kind/**" = ["S"]
+# CI 工具链脚本：渲染 kustomize 需要起子进程（kustomize 二进制路径来自 PATH）
+"scripts/validate-overlay-coverage.py" = ["S603", "S607"]
 
 [tool.ruff.format]
 quote-style = "double"

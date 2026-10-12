@@ -1,6 +1,6 @@
-# prod 数据层连接配置 + secrets（占位）。
-# 与 kind 区别：prod 用真 cloud endpoints（确定性，提交 git，ArgoCD 管），不需 host.docker.internal + CoreDNS 运行时注入。
-# endpoints 对齐 terraform envs/prod outputs（apply 时 terraform output 替换占位）。
+# prod 数据层连接配置（ConfigMap 部分）。
+# ⚠️ Secret 部分（apihub-shared-secret/hmac-key）已迁至同目录 external-secrets.yaml
+# （ESO + 阿里云 KMS；此前 REPLACE_ME 占位 + ArgoCD selfHeal 会回滚手工填值）。
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -29,32 +29,5 @@ data:
   GATEWAY_URL_BJ: "https://api-bj.apihub.com"
   PEER_REGION_CH_HOST: "ch-bj.internal"
   PEER_REGION_CH_USER: "default"
-  PEER_REGION_CH_PASSWORD: "REPLACE_ME"       # ← prod-bj CH 凭据（apply 时 ExternalSecrets/KMS 注入，与 prod-bj 风格一致）
   PEER_REGION_PG_DSN: "postgres://apihub@pg-bj.internal:5432/apihub"
   MULTI_REGION_ACTIVE: "1"                    # C-T1 guard：un-gate Go quota splitRatio（dev/kind 不设=单 region 100%）
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: apihub-shared-secret-prod
-  namespace: apihub-system
-type: Opaque
-# stringData：apply 时填真值（占位）。真 apply 前建议换 ExternalSecrets+KMS（non-goal）。
-stringData:
-  PG_PASSWORD: "REPLACE_ME"
-  JWT_SECRET: "REPLACE_ME"
-  REDIS_PASSWORD: "REPLACE_ME"
-  CH_PASSWORD: "REPLACE_ME"
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: apihub-hmac-key
-  namespace: apihub-system
-type: Opaque
-# R2e HMAC envelope key（AES-256-GCM，32 字节 hex = 64 hex 字符）。auth/dispatcher/notification
-# 共享同一 key（同一加密域：auth 加密存的 secret 须被 dispatcher/notification 解密）。
-# apply 时由 external-secrets/KMS 注入真值（与 apihub-shared-secret-prod 同手法；ExternalSecrets 曾列 non-goal）。
-# 三服务必须同值；缺则 Pod fail-closed 起不来（apihub_core/crypto.py::_get_key 抛 RuntimeError）。
-stringData:
-  hmac_secret_key: "REPLACE_ME"

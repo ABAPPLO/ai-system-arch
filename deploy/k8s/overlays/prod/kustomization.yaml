@@ -40,8 +40,11 @@ resources:
   - ../../services/billing/deployment.yaml
   - ../../services/portal/configmap.yaml
   - ../../services/portal/deployment.yaml
+  # ARGO_MODE=k8s：step Pod 的 executor SA/Role（凡跑真 Argo 的环境都需要，见文件头注释）
+  - ../../base/argo/argo-exec-rbac.yaml
   # Task 2/3：prod 数据层 CM/Secret + HPA + Ingress
   - shared-infra-prod.yaml
+  - external-secrets.yaml
   - hpa.yaml
   - ingress.yaml
 
@@ -286,6 +289,38 @@ patches:
       - op: add
         path: /data/OTEL_RESOURCE_ATTRIBUTES
         value: "deployment.environment=prod"
+  - target: { kind: ConfigMap, name: notification-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod"
+  - target: { kind: ConfigMap, name: ai-gateway-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod"
+  - target: { kind: ConfigMap, name: billing-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod"
+  - target: { kind: ConfigMap, name: portal-config }
+    patch: |-
+      - op: add
+        path: /data/ENV
+        value: "prod"
+      - op: add
+        path: /data/OTEL_RESOURCE_ATTRIBUTES
+        value: "deployment.environment=prod"
 
   # ── envFrom：每服务追加 apihub-shared-infra-prod(CM) + apihub-shared-secret-prod(Secret) ──
   # 与 overlays/kind/patches/*-envfrom.yaml 同手法（op:add 追加到 envFrom 末尾）。
@@ -313,8 +348,18 @@ patches:
     target: { kind: Deployment, name: retry }
   - path: patches/workflow-envfrom.yaml
     target: { kind: Deployment, name: workflow }
+  - path: patches/workflow-argo-mode.yaml
+    target: { kind: ConfigMap, name: workflow-config }
+  - path: patches/notification-envfrom.yaml
+    target: { kind: Deployment, name: notification }
+  - path: patches/ai-gateway-envfrom.yaml
+    target: { kind: Deployment, name: ai-gateway }
+  - path: patches/billing-envfrom.yaml
+    target: { kind: Deployment, name: billing }
+  - path: patches/portal-envfrom.yaml
+    target: { kind: Deployment, name: portal }
 
-# images transformer：11 服务镜像 → ACR（registry.cn-shanghai.aliyuncs.com/apihub/<svc>:prod-latest）
+# images transformer：15 服务镜像 → ACR（registry.cn-shanghai.aliyuncs.com/apihub/<svc>:prod-latest）
 # prod-latest 为 ACR 仓库浮动 tag（CI 推送）；ArgoCD ImageUpdater 可后续接入（non-goal）。
 images:
   - name: registry.apihub.internal/apihub/api-registry
@@ -349,6 +394,18 @@ images:
     newTag: prod-latest
   - name: registry.apihub.internal/apihub/workflow
     newName: registry.cn-shanghai.aliyuncs.com/apihub/workflow
+    newTag: prod-latest
+  - name: registry.apihub.internal/apihub/notification
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/notification
+    newTag: prod-latest
+  - name: registry.apihub.internal/apihub/ai-gateway
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/ai-gateway
+    newTag: prod-latest
+  - name: registry.apihub.internal/apihub/billing
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/billing
+    newTag: prod-latest
+  - name: registry.apihub.internal/apihub/portal
+    newName: registry.cn-shanghai.aliyuncs.com/apihub/portal
     newTag: prod-latest
 
 # prod 走 Rollout（Argo Rollouts canary），见 docs/09-deployment.md §6.3

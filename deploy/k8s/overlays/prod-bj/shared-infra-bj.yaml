@@ -1,5 +1,6 @@
-# prod-bj 数据层连接配置 + secrets（占位）。
-# 与 prod（上海）异 region：BJ 的 PG/Redis/Kafka/CH endpoints + PEER_REGION_CH_HOST 指向 sh。
+# prod-bj 数据层连接配置（ConfigMap 部分）。
+# ⚠️ Secret 部分（apihub-shared-secret/hmac-key）已迁至同目录 external-secrets.yaml
+# （ESO + 阿里云 KMS；此前 REPLACE_ME 占位 + ArgoCD selfHeal 会回滚手工填值）。
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -22,36 +23,9 @@ data:
   CH_USERNAME: "apihub"
   PEER_REGION_CH_HOST: "ch-sh.internal"
   PEER_REGION_CH_USER: "default"
-  PEER_REGION_CH_PASSWORD: "REPLACE_ME"        # ← prod-sh CH 凭据（apply 时 ExternalSecrets/KMS 注入）
   GATEWAY_URL_SH: "https://api-sh.apihub.com"
   GATEWAY_URL_BJ: "https://api-bj.apihub.com"
   MULTI_REGION_ACTIVE: "1"                      # C-T1 guard：un-gate Go quota splitRatio（与 prod-sh 对称，缺则 bj=100% → 双活超量 1.6×）
   OTEL_EXPORTER_OTLP_ENDPOINT: "http://otel-collector.apihub-monitoring:4317"
   QUOTA_REGION_SPLIT_RATIO: "0.4"
   PEER_QUOTA_REGION_SPLIT_RATIO: "0.6"
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: apihub-shared-secret-bj
-  namespace: apihub-system
-type: Opaque
-stringData:
-  PG_PASSWORD: "REPLACE_ME"
-  JWT_SECRET: "REPLACE_ME"
-  REDIS_PASSWORD: "REPLACE_ME"
-  CH_PASSWORD: "REPLACE_ME"
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: apihub-hmac-key
-  namespace: apihub-system
-type: Opaque
-# R2e HMAC envelope key（AES-256-GCM，32 字节 hex = 64 hex 字符）。auth/dispatcher/notification
-# 共享同一 key（同一加密域：auth 加密存的 secret 须被 dispatcher/notification 解密）。
-# apply 时由 external-secrets/KMS 注入真值（与 apihub-shared-secret-bj 同手法；ExternalSecrets 曾列 non-goal）。
-# 三服务必须同值；缺则 Pod fail-closed 起不来（apihub_core/crypto.py::_get_key 抛 RuntimeError）。
-# prod-bj 须与 prod-sh 用同一 HMAC key（跨区 webhook 验签一致）。
-stringData:
-  hmac_secret_key: "REPLACE_ME"

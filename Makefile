@@ -5,6 +5,7 @@
         dev-up dev-down dev-logs dev-ps dev-reset dev-psql dev-redis-cli db-apply \
         cli-install cli-validate cli-apply-dev cli-apply-staging cli-apply-prod \
         alerts-validate \
+        overlay-coverage \
         rollout-status rollout-promote rollout-pause rollout-abort rollout-undo
 
 SHELL := /bin/bash
@@ -46,6 +47,10 @@ cli-apply-prod:  ## 推 schema/ 到 prod（强审批）
 # ===== Alerts =====
 alerts-validate:  ## 校验 Prometheus 告警规则文件（CI 用）
 	python scripts/validate-alerts.py
+
+# ===== K8s overlay =====
+overlay-coverage:  ## 校验云 overlay 覆盖完整（镜像/envFrom/ENV/ARGO_MODE，CI 用）
+	python scripts/validate-overlay-coverage.py
 
 # ===== Argo Rollouts（canary 灰度）=====
 ROLLOUT ?= dispatcher

@@ -4,11 +4,13 @@ on:
   pull_request:
     paths:
       - "deploy/**"
+      - "scripts/validate-overlay-coverage.py"
       - ".github/workflows/manifests.yml"
   push:
     branches: [main]
     paths:
       - "deploy/**"
+      - "scripts/validate-overlay-coverage.py"
 
 permissions:
   contents: read
@@ -46,13 +48,13 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        env: [dev, staging, prod]
+        env: [dev, staging, prod, prod-bj]
     steps:
       - uses: actions/checkout@v7
 
       - name: Install kustomize
         run: |
-          curl -sSL -o /tmp/kustomize.tgz "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.5.0/kustomize_v5.5.0_linux_amd64.tar.gz"
+          curl -sSL -o /tmp/kustomize.tgz "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.5.0/kustomize_v5.5.0_linux_amd64.tar.gz"
           tar -xzf /tmp/kustomize.tgz -C /tmp
           sudo mv /tmp/kustomize /usr/local/bin/
 
@@ -72,13 +74,33 @@ jobs:
           name: manifests-${{ matrix.env }}
           path: /tmp/manifests-${{ matrix.env }}.yaml
 
+  overlay-coverage:
+    # 云 overlay 覆盖完整性：每个服务必须有 ACR 镜像改写 + shared-infra envFrom +
+    # ENV=<env>（曾发生「新服务只修 kind，prod 漏配 → ImagePullBackOff + dev 密钥生效」）
+    name: Overlay coverage (staging/prod/prod-bj)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Install kustomize
+        run: |
+          curl -sSL -o /tmp/kustomize.tgz "https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize%2Fv5.5.0/kustomize_v5.5.0_linux_amd64.tar.gz"
+          tar -xzf /tmp/kustomize.tgz -C /tmp
+          sudo mv /tmp/kustomize /usr/local/bin/
+
+      - name: Install PyYAML
+        run: pip install --quiet pyyaml
+
+      - name: Check overlay coverage
+        run: python3 scripts/validate-overlay-coverage.py
+
   kubeconform:
     name: Kubeconform schema check
     runs-on: ubuntu-latest
     needs: kustomize
     strategy:
       matrix:
-        env: [dev, staging, prod]
+        env: [dev, staging, prod, prod-bj]
     steps:
       - uses: actions/checkout@v7
 

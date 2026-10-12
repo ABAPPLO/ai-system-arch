@@ -31,6 +31,10 @@ module "rds" {
   instance_type = "pg.n2.large.2c"
   storage       = 200
   password      = var.rds_password
+
+  # 备份（docs/09 §7.1）：prod 全备+日志备份各留 30 天（≈RPO 0；跨 Region 复制见 docs/09 §7.2）
+  backup_retention_days     = 30
+  backup_log_retention_days = 30
 }
 
 module "redis" {

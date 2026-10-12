@@ -49,3 +49,35 @@ variable "logical_replication" {
   type        = bool
   default     = false
 }
+
+variable "backup_period" {
+  description = "自动全备的星期（阿里云要求至少两天）"
+  type        = list(string)
+  default = [
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+    "Sunday",
+  ]
+}
+
+variable "backup_time" {
+  description = "全备窗口（UTC）。默认 18:00Z-19:00Z = 北京时间凌晨 02:00-03:00 低谷"
+  type        = string
+  default     = "18:00Z-19:00Z"
+}
+
+variable "backup_retention_days" {
+  description = "全备保留天数（7-730）。dev 默认 7；prod 建议在 envs 里覆写 30+"
+  type        = number
+  default     = 7
+}
+
+variable "backup_log_retention_days" {
+  description = "增量日志备份保留天数（7-730），日志备份开启才近似 RPO=0"
+  type        = number
+  default     = 7
+}

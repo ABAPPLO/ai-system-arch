@@ -1,0 +1,12 @@
+# staging/prod/prod-bj：workflow-svc 走真 Argo（base configmap 是 stub，仅 dev/kind 用 stub）。
+# 前提：apihub-workflow namespace 已装 Argo Workflow controller（见 docs/09-deployment.md）。
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: workflow-config
+  namespace: apihub-system
+data:
+  ARGO_MODE: k8s
+  ARGO_SERVER_INSECURE: "false"  # prod：真 CA（base 默认即 false，此处显式声明防回退）
+  # namespace 白名单（第一波安全止血引入的开关）——生产只允许业务 namespace
+  ARGO_ALLOWED_NAMESPACES: apihub-workflow
