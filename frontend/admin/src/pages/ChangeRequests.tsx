@@ -255,10 +255,11 @@ export default function ChangeRequests() {
             return {
               data,
               success: true,
+              // 未知总数的 offset 分页：满页 → 暗示还有下一页（+1），否则精确到当前页
               total:
-                data.length < (params.pageSize || 20)
-                  ? data.length
-                  : -1,
+                data.length >= (params.pageSize || 20)
+                  ? (params.current || 1) * (params.pageSize || 20) + 1
+                  : ((params.current || 1) - 1) * (params.pageSize || 20) + data.length,
             };
           } catch (e) {
             return {

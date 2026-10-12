@@ -173,9 +173,9 @@ async def test_portal_cooccurrence_forwards_to_trace(client, monkeypatch):
 
     r = await client.get("/v1/portal/analytics/co-occurrence?since=2026-01-01&min_pairs=2")
     assert r.status_code == 200
-    assert (
-        captured["url"] == "http://trace.apihub-system/v1/trace/analytics/co-occurrence"
-    ), captured["url"]
+    assert captured["url"] == "http://trace.apihub-system/v1/trace/analytics/co-occurrence", (
+        captured["url"]
+    )
     # query 透传给 trace-svc（dict(QueryParams) 值均为 str）
     assert captured["params"] == {"since": "2026-01-01", "min_pairs": "2"}, captured["params"]
     assert r.json()[0]["pair_count"] == 5

@@ -1,17 +1,35 @@
-"""计费数据访问 —— plan/subscription/billing_record CRUD。"""
+"""计费数据访问 —— plan/subscription/billing_record CRUD。
+
+⚠️ 列名以 scripts/init-db/05-billing.sql 为准：
+  billing_record(subscription_id, period_start, period_end, call_count,
+  token_count, base_charge_cents, overage_charge_cents, total_charge_cents,
+  status, details, period)
+  此前读写两侧用的是一组不存在的列名（plan_name/base_cents/total_calls...），
+  出账/查询在真实库上必失败（曾只有空 dry-run 测试掩盖）。
+"""
 
 from datetime import datetime
 from typing import Any
 
 from apihub_core import db
+from apihub_core.errors import ApiError, ErrorCode
 
 from billing.models import BillingRecordItem, SubscriptionInfo
+
+_RECORD_SELECT = """SELECT br.id, br.period, br.call_count, br.token_count,
+                           br.base_charge_cents, br.overage_charge_cents,
+                           br.total_charge_cents, br.status, br.details, br.created_at,
+                           br.tenant_id, p.name AS plan_name
+                    FROM billing_record br
+                    LEFT JOIN subscription s ON s.id = br.subscription_id
+                    LEFT JOIN plan p ON p.code = s.plan_code"""
 
 
 async def list_active_subscriptions() -> list[SubscriptionInfo]:
     async with db.admin_db_session() as conn:
         rows = await conn.fetch(
-            """SELECT s.tenant_id, s.plan_code, p.name AS plan_name,
+            """SELECT s.tenant_id, s.id AS subscription_id, s.plan_code,
+                      p.name AS plan_name, p.overage_unit_price,
                       s.period_start, s.period_end, s.status,
                       s.auto_renew, s.quota_included, s.price_cents
                FROM subscription s
@@ -29,10 +47,9 @@ async def get_billing_records(
             "SELECT COUNT(*) FROM billing_record WHERE tenant_id = $1", tenant_id
         )
         rows = await conn.fetch(
-            """SELECT id, period, plan_name, total_calls, total_tokens,
-                      base_cents, overage_cents, status, details, created_at
-               FROM billing_record WHERE tenant_id = $1
-               ORDER BY created_at DESC LIMIT $2 OFFSET $3""",
+            f"""{_RECORD_SELECT}
+                WHERE br.tenant_id = $1
+                ORDER BY br.created_at DESC LIMIT $2 OFFSET $3""",
             tenant_id,
             limit,
             offset,
@@ -50,9 +67,8 @@ async def get_admin_billing_summary(
             where += " AND br.tenant_id ILIKE $2"
             params.append(f"%{tenant_search}%")
         rows = await conn.fetch(
-            f"""SELECT br.id, br.period, br.plan_name, br.total_calls, br.total_tokens,
-                       br.base_cents, br.overage_cents, br.status, br.tenant_id, br.created_at
-                FROM billing_record br {where}
+            f"""{_RECORD_SELECT}
+                {where}
                 ORDER BY br.created_at DESC""",  # noqa: S608
             *params,
         )
@@ -60,15 +76,17 @@ async def get_admin_billing_summary(
 
 
 def _row_to_record(r) -> BillingRecordItem:
+    base = r.get("base_charge_cents", 0) or 0
+    overage = r.get("overage_charge_cents", 0) or 0
     return BillingRecordItem(
         id=str(r["id"]),
         period=r.get("period", ""),
         plan_name=r.get("plan_name", ""),
-        total_calls=r.get("total_calls", 0),
-        total_tokens=r.get("total_tokens", 0),
-        base_cents=r.get("base_cents", 0),
-        overage_cents=r.get("overage_cents", 0),
-        total_cents=(r.get("base_cents", 0) or 0) + (r.get("overage_cents", 0) or 0),
+        total_calls=r.get("call_count", 0),
+        total_tokens=r.get("token_count", 0),
+        base_cents=base,
+        overage_cents=overage,
+        total_cents=r.get("total_charge_cents") or (base + overage),
         status=r.get("status", "pending"),
         details=r.get("details"),
         created_at=r.get("created_at"),
@@ -83,21 +101,40 @@ async def insert_billing_record(
     base_cents: int,
     overage_cents: int,
     details: dict,
+    subscription_id: int | None = None,
+    period_start: datetime | None = None,
+    period_end: datetime | None = None,
     status: str = "invoiced",
 ) -> str:
+    """幂等插入：同 (tenant_id, period) 重跑出账覆盖而非重复计费。"""
     async with db.admin_db_session() as conn:
         rid = await conn.fetchval(
-            """INSERT INTO billing_record (tenant_id, period, plan_name, base_cents, overage_cents, total_calls, total_tokens, details, status)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id""",
+            """INSERT INTO billing_record
+                   (tenant_id, subscription_id, period_start, period_end,
+                    call_count, token_count, base_charge_cents, overage_charge_cents,
+                    total_charge_cents, status, details, period)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+               ON CONFLICT (tenant_id, period) DO UPDATE SET
+                    call_count = EXCLUDED.call_count,
+                    token_count = EXCLUDED.token_count,
+                    base_charge_cents = EXCLUDED.base_charge_cents,
+                    overage_charge_cents = EXCLUDED.overage_charge_cents,
+                    total_charge_cents = EXCLUDED.total_charge_cents,
+                    status = EXCLUDED.status,
+                    details = EXCLUDED.details
+               RETURNING id""",
             tenant_id,
-            period,
-            plan_name,
-            base_cents,
-            overage_cents,
+            subscription_id,
+            period_start,
+            period_end,
             details.get("total_calls", 0),
             details.get("total_tokens", 0),
-            details,
+            base_cents,
+            overage_cents,
+            base_cents + overage_cents,
             status,
+            details,
+            period,
         )
     return str(rid)
 
@@ -144,26 +181,52 @@ async def update_job_log(
     async with db.admin_db_session() as conn:
         await conn.execute(
             """UPDATE billing_job_log SET tenant_count=$1, total_base=$2, total_overage=$3, status=$4, error_msg=$5, finished_at=NOW() WHERE id=$6""",
-            job_id,
             tenant_count,
             total_base,
             total_overage,
             status,
             error_msg,
+            job_id,
         )
 
 
 async def adjust_billing_record(record_id: str, delta_cents: int, reason: str) -> None:
+    """手工调账：超额 ±delta，总额同步（reason 进 details 留审计痕迹）。"""
     async with db.admin_db_session() as conn:
-        await conn.execute(
-            "UPDATE billing_record SET overage_cents = overage_cents + $1, status='adjusted' WHERE id=$2",
+        row = await conn.fetchrow(
+            """UPDATE billing_record
+               SET overage_charge_cents = overage_charge_cents + $1,
+                   total_charge_cents = total_charge_cents + $1,
+                   status = 'adjusted',
+                   details = COALESCE(details, '{}'::jsonb) || jsonb_build_object(
+                       'adjust_reasons',
+                       COALESCE(details->'adjust_reasons', '[]'::jsonb) || to_jsonb(ARRAY[$2::text]))
+               WHERE id = $3
+               RETURNING id""",
             delta_cents,
+            reason,
             record_id,
         )
+        if row is None:
+            raise ApiError(ErrorCode.NOT_FOUND, f"billing record {record_id} not found")
 
 
 async def override_subscription(tenant_id: str, plan_code: str) -> None:
+    """改租户套餐。plan_code 必须真实存在（表无 FK，此前任意字符串都能写进去）。"""
     async with db.admin_db_session() as conn:
-        await conn.execute(
-            "UPDATE subscription SET plan_code=$1 WHERE tenant_id=$2", plan_code, tenant_id
+        exists = await conn.fetchval("SELECT 1 FROM plan WHERE code = $1", plan_code)
+        if not exists:
+            raise ApiError(ErrorCode.NOT_FOUND, f"plan '{plan_code}' not found")
+        updated = await conn.fetchval(
+            """UPDATE subscription
+               SET plan_code = $1,
+                   quota_included = p.quota_included,
+                   price_cents = p.price_cents
+               FROM plan p
+               WHERE p.code = $1 AND subscription.tenant_id = $2
+               RETURNING subscription.id""",
+            plan_code,
+            tenant_id,
         )
+        if updated is None:
+            raise ApiError(ErrorCode.NOT_FOUND, f"no subscription for tenant {tenant_id}")

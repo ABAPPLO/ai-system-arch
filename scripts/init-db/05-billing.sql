@@ -123,3 +123,8 @@ CREATE TABLE IF NOT EXISTS billing_job_log (
 );
 
 GRANT SELECT, INSERT, UPDATE ON billing_job_log TO apihub_app;
+
+-- 出账幂等：同租户同账期唯一（billing_job 重跑 ON CONFLICT 覆盖而非重复计费；
+-- quota 日聚合回填路径不写 period（NULL），部分索引排除之）
+CREATE UNIQUE INDEX IF NOT EXISTS uq_billing_tenant_period
+  ON billing_record(tenant_id, period) WHERE period IS NOT NULL;

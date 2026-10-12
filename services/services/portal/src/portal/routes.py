@@ -184,7 +184,12 @@ def register_routes(app: FastAPI) -> None:
     notif_base = settings.notification_service_url
 
     async def _notif_forward(
-        method: str, path: str, request: Request, *, json_body=None, timeout: float = 5.0  # noqa: ASYNC109  # httpx transport timeout，非 asyncio deadline
+        method: str,
+        path: str,
+        request: Request,
+        *,
+        json_body=None,
+        timeout: float = 5.0,  # noqa: ASYNC109  # httpx transport timeout，非 asyncio deadline
     ):
         """转发 webhook 操作到 notification-svc，透传用户 JWT（notification 走标准中间件验签）。"""
         async with httpx.AsyncClient(timeout=timeout) as c:

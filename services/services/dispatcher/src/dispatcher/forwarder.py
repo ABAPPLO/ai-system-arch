@@ -58,7 +58,7 @@ class HttpForwarder:
         """
         body = await request.body()
         forward_headers = _build_forward_headers(request)
-        url = _render_url(snap.backend_url, request)
+        url = _render_url(snap.backend_url, snap.path, request)
 
         request_id = request.headers.get("X-Request-Id") or new_request_id()
         start = time.perf_counter()
@@ -204,15 +204,22 @@ def _filter_response_headers(headers) -> dict[str, str]:
     return {k: v for k, v in headers.items() if k.lower() in allow}
 
 
-def _render_url(backend_url: str, request: Request) -> str:
-    """把 backend_url 中的 {path_var} 用 request 路径变量替换。
+def _render_url(backend_url: str, path_pattern: str, request: Request) -> str:
+    """把 backend_url 中的 {path_var} 用请求路径变量替换。
 
-    简化版：把请求 path 多余段直接拼到 backend_url。
-    完整实现应在 resolver 中匹配后回填 path_params 到 snap。
+    路由由 APISIX 按 api_version.path（如 /users/{id}/orders）匹配进站请求，
+    /dispatch/{rest} 里的 rest 即实际路径；用同款 pattern 对齐提取变量
+    （resolver._extract_path_params，语义与 portal try_api 的 path_params 一致）。
+    此前是占位实现：{var} 原样发给后端 → 所有带路径参数的 API 不可用。
     """
     if "{" not in backend_url:
         return backend_url
-    # 占位：实际匹配在 resolver 完成（dev 阶段简化）
+    from dispatcher.resolver import _extract_path_params
+
+    rest = request.path_params.get("rest", "")
+    params = _extract_path_params(path_pattern or "", "/" + rest)
+    for k, v in params.items():
+        backend_url = backend_url.replace("{" + k + "}", v)
     return backend_url
 
 

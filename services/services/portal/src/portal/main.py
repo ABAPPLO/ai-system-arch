@@ -13,6 +13,8 @@ app = create_app(
         "/v1/portal/auth/register",
         "/v1/portal/auth/verify-email",
         "/v1/portal/auth/login",
+        # refresh 用 refresh_token 本身做凭证（无 Authorization 头），跳过 APIKey 中间件
+        "/v1/portal/auth/refresh",
         "/docs",
         "/openapi.json",
     ),

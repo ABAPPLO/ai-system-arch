@@ -27,6 +27,7 @@ async def verify_api_key_record(api_key_plaintext: str) -> dict | None:
                 ak.id, ak.app_id, ak.scopes, ak.status, ak.expires_at,
                 ak.tenant_id, ak.hmac_secret_encrypted,
                 t.type  AS tenant_type,
+                t.status AS tenant_status,
                 t.metadata->>'is_platform_admin' AS platform_admin_flag
             FROM api_key ak
             JOIN tenant t ON t.id = ak.tenant_id
@@ -36,6 +37,11 @@ async def verify_api_key_record(api_key_plaintext: str) -> dict | None:
         )
 
         if not row:
+            return None
+
+        # 租户停用/关闭 → Key 一律拒绝（tenant-svc 的 suspend/close 宣称行为，
+        # 此前 SQL JOIN 了 tenant 却从不看 status，被封租户的 Key 照常可用）。
+        if row["tenant_status"] != "active":
             return None
 
         if row["status"] != "active":

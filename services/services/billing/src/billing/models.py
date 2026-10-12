@@ -8,8 +8,10 @@ from pydantic import BaseModel
 
 class SubscriptionInfo(BaseModel):
     tenant_id: str
+    subscription_id: int | None = None
     plan_code: str
     plan_name: str = ""
+    overage_unit_price: dict[str, Any] | None = None
     period_start: datetime | None = None
     period_end: datetime | None = None
     status: str = "active"

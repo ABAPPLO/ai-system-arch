@@ -184,8 +184,11 @@ export default function Tenants() {
             return {
               data,
               success: true,
+              // 未知总数的 offset 分页：满页 → 暗示还有下一页（+1），否则精确到当前页
               total:
-                data.length < (params.pageSize || 100) ? data.length : -1,
+                data.length >= (params.pageSize || 100)
+                  ? (params.current || 1) * (params.pageSize || 100) + 1
+                  : ((params.current || 1) - 1) * (params.pageSize || 100) + data.length,
             };
           } catch (e) {
             return {

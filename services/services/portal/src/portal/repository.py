@@ -267,7 +267,9 @@ from portal.models import (  # noqa: E402  分段 import（Phase 3 用量/计费
 async def get_billing_summary(tenant_id: str) -> dict:
     import httpx
     from apihub_core.config import get_settings
+    from apihub_core.logging import get_logger
 
+    log = get_logger(__name__)
     settings = get_settings()
     from datetime import datetime
 
@@ -275,14 +277,27 @@ async def get_billing_summary(tenant_id: str) -> dict:
     quota_url = getattr(
         settings, "quota_service_url", "http://quota.apihub-system/v1/quota/billing"
     )
+    # R1d 信任入口：集群内服务间调用带 X-Ingress-Auth（Go/Python quota 均 fail-closed 校验，
+    # 此前不带头必 401 → 被吞成全 0 数据，用户和运维都看不到故障）。
+    headers: dict[str, str] = {}
+    if settings.ingress_shared_secret:
+        headers["X-Ingress-Auth"] = settings.ingress_shared_secret
+    else:
+        log.warning(
+            "portal_quota_call_no_ingress_secret",
+            hint="INGRESS_SHARED_SECRET 未配置，quota 调用将被拒",
+        )
     try:
         async with httpx.AsyncClient(timeout=10.0) as c:
-            r = await c.get(quota_url, params={"tenant_id": tenant_id, "month": month})
+            r = await c.get(
+                quota_url, params={"tenant_id": tenant_id, "month": month}, headers=headers
+            )
         if r.status_code != 200:
             r.raise_for_status()
         return r.json()
     except httpx.HTTPError:
         # quota-svc 不可用/出错 → 降级空概览，页面仍可渲染（不 500）
+        log.warning("portal_billing_summary_degraded", tenant_id=tenant_id)
         return {
             "tenant_id": tenant_id,
             "month": month,
@@ -333,12 +348,31 @@ async def get_subscription(tenant_id: str) -> SubscriptionInfo | None:
 
 
 async def subscribe_plan(tenant_id: str, plan_code: str) -> dict:
+    """自助订阅/升降级。
+
+    此前 plan_code 是任意字符串（表无 FK）：可自填 enterprise（999999999 配额）；
+    无 active 订阅行时 UPDATE 0 行仍返回 ok（静默失败）。现在：plan 必须存在且
+    active，quota/价格随 plan 同步，找不到订阅行报错。
+    """
+    from apihub_core.errors import ApiError, ErrorCode
+
     async with db.admin_db_session() as conn:
-        await conn.execute(
-            "UPDATE subscription SET plan_code=$1 WHERE tenant_id=$2",
+        updated = await conn.fetchval(
+            """UPDATE subscription
+               SET plan_code = $1,
+                   quota_included = p.quota_included,
+                   price_cents = p.price_cents
+               FROM plan p
+               WHERE p.code = $1 AND p.status = 'active' AND subscription.tenant_id = $2
+               RETURNING subscription.id""",
             plan_code,
             tenant_id,
         )
+        if updated is None:
+            plan_exists = await conn.fetchval("SELECT 1 FROM plan WHERE code = $1", plan_code)
+            if not plan_exists:
+                raise ApiError(ErrorCode.NOT_FOUND, f"plan '{plan_code}' not found")
+            raise ApiError(ErrorCode.NOT_FOUND, "no active subscription for tenant")
     return {"ok": True, "plan_code": plan_code}
 
 

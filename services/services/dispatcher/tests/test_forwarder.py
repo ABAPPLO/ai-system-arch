@@ -391,3 +391,60 @@ def test_build_forward_headers_strips_hmac_and_bearer_credentials():
         assert h not in out_lower, f"{h} 不该透传给上游"
     # 非凭证头保留
     assert "x-request-id" in out_lower
+
+
+class TestRenderUrl:
+    """路径参数替换（此前是占位：{var} 原样发给后端）。"""
+
+    def _req(self, rest: str):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(path_params={"rest": rest})
+
+    def test_no_template_passthrough(self):
+        from dispatcher.forwarder import _render_url
+
+        assert _render_url("https://api.example.com/v1/ping", "/ping", self._req("ping")) == (
+            "https://api.example.com/v1/ping"
+        )
+
+    def test_single_path_param(self):
+        from dispatcher.forwarder import _render_url
+
+        url = _render_url(
+            "https://api.example.com/users/{id}/orders",
+            "/users/{id}/orders",
+            self._req("users/42/orders"),
+        )
+        assert url == "https://api.example.com/users/42/orders"
+
+    def test_multiple_params(self):
+        from dispatcher.forwarder import _render_url
+
+        url = _render_url(
+            "https://api.example.com/users/{user_id}/orders/{order_id}",
+            "/users/{user_id}/orders/{order_id}",
+            self._req("users/u7/orders/o9"),
+        )
+        assert url == "https://api.example.com/users/u7/orders/o9"
+
+    def test_partial_match_keeps_unmatched(self):
+        """pattern 与实际段数不齐（strict=False zip）→ 未匹配的 {var} 原样保留。"""
+        from dispatcher.forwarder import _render_url
+
+        url = _render_url(
+            "https://api.example.com/users/{id}/orders",
+            "/users/{id}/orders",
+            self._req("users/42"),  # 实际路径短一截
+        )
+        assert url == "https://api.example.com/users/42/orders"
+
+    def test_missing_rest_param(self):
+        """非 /dispatch 入口（无 rest）→ 不替换（不炸）。"""
+        from types import SimpleNamespace
+
+        from dispatcher.forwarder import _render_url
+
+        req = SimpleNamespace(path_params={})
+        url = _render_url("https://x/{id}", "/users/{id}", req)
+        assert url == "https://x/{id}"

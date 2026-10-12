@@ -24,6 +24,8 @@ app = create_app(
         "/v1/auth/register",
         "/v1/auth/verify-email",
         "/v1/auth/login",
+        # refresh 用 refresh_token 本身做凭证（无 Authorization 头），跳过 APIKey 中间件
+        "/v1/auth/refresh",
         # Admin 钉钉 SSO：浏览器跳转钉钉 IdP → 回调，发生在鉴权之前（无凭证），
         # 同其它 /v1/auth/* 公开端点；K8s NetworkPolicy / 反代限来源。
         "/v1/auth/dingtalk/authorize",
