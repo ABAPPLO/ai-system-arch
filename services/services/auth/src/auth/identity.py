@@ -67,15 +67,47 @@ async def create_user(*, email: str, password: str, phone: str, name: str) -> di
     log.info("user_registered", user_id=user_id, email=email)
     from apihub_core.config import get_settings
 
-    return _registration_response(user_id, verify_token, get_settings().env)
+    s = get_settings()
+    # 验证邮件（钉钉企业邮箱 SMTP 由 notification-svc 配置）：best-effort，
+    # 发信失败不阻塞注册（dev 无 SMTP 时走 dev token 通道，见 _registration_response）
+    try:
+        await _send_verification_email(s, email, verify_token)
+    except Exception as e:
+        log.warning("verification_email_failed", user_id=user_id, error=str(e))
+
+    return _registration_response(user_id, verify_token, s.env)
+
+
+async def _send_verification_email(settings, email: str, verify_token: str) -> dict:
+    """经 notification-svc 内部端点发注册验证邮件（X-Ingress-Auth 信任入口）。"""
+    import httpx
+
+    verify_url = f"{settings.portal_public_url}/verify-email?token={verify_token}"
+    headers: dict[str, str] = {}
+    if settings.ingress_shared_secret:
+        headers["X-Ingress-Auth"] = settings.ingress_shared_secret
+    async with httpx.AsyncClient(timeout=5.0) as c:
+        r = await c.post(
+            settings.notify_internal_url,
+            json={
+                "template_code": "email_verification",
+                "channel_type": "email",
+                "recipient": email,
+                "tenant_id": EXTERNAL_PUBLIC_TENANT,
+                "variables": {"verify_url": verify_url},
+            },
+            headers=headers,
+        )
+        r.raise_for_status()
+        return r.json()
 
 
 def _registration_response(user_id: str, verify_token: str, env: str) -> dict:
     """注册响应。verify_token 只在非 prod 返回。
 
-    dev/test/staging 无邮件通道，token 随响应返回（前端自动完成验证）；
-    prod 若返回，任何人都能即刻"验证"任意他人邮箱 → 接管账号。
-    TODO: notification-svc 接入真实发信后，删除该分支（全环境都走邮件）。
+    验证邮件经 notification-svc（钉钉企业邮箱 SMTP）投递；dev/test 仍随响应
+    返回 token 便于无 SMTP 环境联调。prod 若返回，任何人都能即刻"验证"
+    任意他人邮箱 → 接管账号，故 prod 只走邮件。
     """
     resp = {"user_id": user_id, "status": "pending", "verification_level": "email"}
     if env != "prod":

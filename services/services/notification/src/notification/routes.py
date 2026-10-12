@@ -2,9 +2,15 @@
 
 import asyncio
 
+from apihub_core.auth import require_ingress_auth
 from apihub_core.errors import ApiError, ErrorCode
-from apihub_core.tenant import require_tenant
-from fastapi import FastAPI
+from apihub_core.tenant import (
+    TenantContext,
+    clear_tenant_context,
+    require_tenant,
+    set_tenant_context,
+)
+from fastapi import FastAPI, Request
 
 from notification import channels, repository
 from notification.models import (
@@ -161,19 +167,36 @@ def register_routes(app: FastAPI) -> None:
             "provider_msg_id": result.provider_msg_id,
         }
 
+    # ===== /v1/internal/notify/send + /batch（内部服务调用）=====
+    # 无用户凭证：require_ingress_auth（fail-closed，X-Ingress-Auth）；租户归属取
+    # payload.tenant_id（缺省 external-public，注册发信场景），以 contextvar 建立
+    # 租户上下文供 db_session RLS，finally 清理防跨请求泄漏（skip_auth 路径无中间件兜底）。
+    def _internal_tenant_ctx(request: Request, payload_tenant: str | None) -> TenantContext:
+        require_ingress_auth(request)
+        tenant_id = payload_tenant or "external-public"
+        ctx = TenantContext(tenant_id=tenant_id, tenant_type="external")
+        set_tenant_context(ctx)
+        return ctx
+
     @app.post("/v1/internal/notify/send")
-    async def notify_send(payload: NotifyRequest):
-        ctx = require_tenant()
-        return await _handle_one(ctx.tenant_id, payload)
+    async def notify_send(payload: NotifyRequest, request: Request):
+        ctx = _internal_tenant_ctx(request, payload.tenant_id)
+        try:
+            return await _handle_one(ctx.tenant_id, payload)
+        finally:
+            clear_tenant_context()
 
     @app.post("/v1/internal/notify/batch")
-    async def notify_batch(payload: list[NotifyRequest]):
+    async def notify_batch(payload: list[NotifyRequest], request: Request):
         import asyncio
 
-        ctx = require_tenant()
-        results = await asyncio.gather(
-            *[_handle_one(ctx.tenant_id, r) for r in payload], return_exceptions=True
-        )
+        ctx = _internal_tenant_ctx(request, payload[0].tenant_id if payload else None)
+        try:
+            results = await asyncio.gather(
+                *[_handle_one(ctx.tenant_id, r) for r in payload], return_exceptions=True
+            )
+        finally:
+            clear_tenant_context()
         out = []
         for r in results:
             if isinstance(r, BaseException):

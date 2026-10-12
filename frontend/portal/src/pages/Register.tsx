@@ -17,15 +17,19 @@ export function Register() {
   const onFinish = async (v: RegisterForm) => {
     setLoading(true);
     try {
-      const r = await api.post<{ verify_token: string }>(
+      const r = await api.post<{ verify_token?: string }>(
         '/v1/portal/auth/register',
         v,
         { skipAuth: true },
       );
-      // dev stub：verify-email 自动激活，省去真实邮箱往返
-      await api.get(`/v1/portal/auth/verify-email?token=${r.verify_token}`, undefined);
-      message.success('注册成功，跳转登录');
-      setTimeout(() => nav('/login'), 800);
+      if (r.verify_token) {
+        // dev/test 便利通道：后端随响应返回 token（prod 不返回，只发邮件）
+        await api.get(`/v1/portal/auth/verify-email?token=${r.verify_token}`, undefined);
+        message.success('注册成功（dev 自动验证），跳转登录');
+      } else {
+        message.success('注册成功，验证邮件已发送，请查收后登录');
+      }
+      setTimeout(() => nav('/login'), 1200);
     } catch (err) {
       message.error(err instanceof Error ? err.message : String(err));
     } finally {

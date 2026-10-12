@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Register } from './pages/Register';
+import { VerifyEmail } from './pages/VerifyEmail';
 import { Login } from './pages/Login';
 import { Apps } from './pages/Apps';
 import { ApiCatalog } from './pages/ApiCatalog';
@@ -20,6 +21,7 @@ export default function App() {
       <Routes>
         <Route path="/register" element={<Register />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/apps" element={auth ? <Layout><Apps /></Layout> : <Navigate to="/login" />} />
         <Route path="/apis" element={auth ? <Layout><ApiCatalog /></Layout> : <Navigate to="/login" />} />
         <Route path="/apis/:id" element={auth ? <Layout><ApiDetail /></Layout> : <Navigate to="/login" />} />

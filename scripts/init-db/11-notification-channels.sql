@@ -82,7 +82,12 @@ INSERT INTO notification_template (code, channel_type, locale, subject_tpl, body
   ('invoice_ready', 'email', 'zh-CN',
    '【APIHub】账单 {{period}} 已生成',
    '您 {{period}} 的账单已生成，应付金额 {{amount}} 元。',
-   '{"type":"object","required":["period","amount"],"properties":{"period":{"type":"string"},"amount":{"type":"string"}}}'::jsonb)
+   '{"type":"object","required":["period","amount"],"properties":{"period":{"type":"string"},"amount":{"type":"string"}}}'::jsonb),
+  -- 注册邮箱验证（auth create_user → notification /v1/internal/notify/send，钉钉企业邮箱 SMTP 投递）
+  ('email_verification', 'email', 'zh-CN',
+   '【APIHub】请验证您的邮箱',
+   E'欢迎注册 APIHub！\n\n请访问以下链接完成邮箱验证（30 分钟内有效）：\n\n{{verify_url}}\n\n若非本人操作，请忽略本邮件。',
+   '{"type":"object","required":["verify_url"],"properties":{"verify_url":{"type":"string"}}}'::jsonb)
 ON CONFLICT (code, channel_type, locale) DO NOTHING;
 
 GRANT SELECT, INSERT, UPDATE, DELETE ON notification_channel_config, notification_log TO apihub_app;

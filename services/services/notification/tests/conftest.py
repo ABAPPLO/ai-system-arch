@@ -10,6 +10,8 @@ _ENV_DEFAULTS = {
     "REDIS_PORT": "6379",
     "ENV": "test",
     "OTEL_SERVICE_NAME": "notification-test",
+    # 内部 notify 端点 require_ingress_auth（fail-closed）用
+    "INGRESS_SHARED_SECRET": "test-ingress-secret",
 }
 for k, v in _ENV_DEFAULTS.items():
     os.environ.setdefault(k, v)

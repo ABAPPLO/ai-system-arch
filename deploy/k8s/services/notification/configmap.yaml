@@ -21,6 +21,12 @@ data:
   KAFKA_TOPIC_CALL_EVENTS: api-call-events
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector.apihub-monitoring:4317
   OTEL_SERVICE_NAME: notification
+  # 验证邮件等平台发信（钉钉企业邮箱 SMTP；密码 NOTIFICATION_SMTP_PASSWORD 走 shared-secret）
+  NOTIFICATION_SMTP_HOST: "smtp.qiye.aliyun.com"
+  NOTIFICATION_SMTP_PORT: "465"
+  NOTIFICATION_SMTP_USE_TLS: "true"
+  NOTIFICATION_SMTP_FROM_ADDR: "noreply@apihub.com"
+  NOTIFICATION_SMTP_USER: "noreply@apihub.com"
   OTEL_RESOURCE_ATTRIBUTES: deployment.environment=dev
 ---
 apiVersion: v1

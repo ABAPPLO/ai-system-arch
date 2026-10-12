@@ -454,6 +454,7 @@ class TestNotifySend:
         _fake, log = await self._setup(monkeypatch)
         r = await client.post(
             "/v1/internal/notify/send",
+            headers={"X-Ingress-Auth": "test-ingress-secret"},
             json={
                 "template_code": "task_complete",
                 "channel_type": "dingtalk",
@@ -475,6 +476,7 @@ class TestNotifySend:
         monkeypatch.setattr(_FakeChannel, "send", _bad)
         r = await client.post(
             "/v1/internal/notify/send",
+            headers={"X-Ingress-Auth": "test-ingress-secret"},
             json={
                 "template_code": "task_complete",
                 "channel_type": "dingtalk",
@@ -488,6 +490,7 @@ class TestNotifySend:
         await self._setup(monkeypatch)
         r = await client.post(
             "/v1/internal/notify/batch",
+            headers={"X-Ingress-Auth": "test-ingress-secret"},
             json=[
                 {
                     "template_code": "task_complete",
@@ -556,3 +559,104 @@ class TestWebhookSSRF:
             json={"url": "https://10.0.0.5/hook"},
         )
         assert resp.status_code == 400
+
+
+class TestInternalNotifyGuard:
+    """内部 notify 端点 fail-closed 鉴权 + payload tenant_id 归属。"""
+
+    async def test_send_without_ingress_header_401(self, client, monkeypatch):
+        async def _should_not_call(**kw):
+            raise AssertionError("must not reach handler")
+
+        monkeypatch.setattr(repo_mod, "get_active_channel_config", _should_not_call)
+        r = await client.post(
+            "/v1/internal/notify/send",
+            json={"template_code": "x", "channel_type": "email"},
+        )
+        assert r.status_code == 401
+
+    async def test_send_wrong_secret_401(self, client):
+        r = await client.post(
+            "/v1/internal/notify/send",
+            json={"template_code": "x", "channel_type": "email"},
+            headers={"X-Ingress-Auth": "wrong"},
+        )
+        assert r.status_code == 401
+
+    async def test_send_tenant_id_from_payload(self, client, monkeypatch):
+        """payload.tenant_id 决定归属（缺省 external-public），日志按它归因。"""
+        from notification import routes as routes_mod
+        from notification.channels.base import SendResult
+
+        class _FakeChannel:
+            async def send(self, message):
+                return SendResult(success=True, provider_msg_id="m1")
+
+        fake = _FakeChannel()
+        monkeypatch.setattr(routes_mod.channels, "get", lambda t: fake)
+
+        seen = {}
+
+        async def _cfg(*, tenant_id, channel_type):
+            seen["config_tenant"] = tenant_id
+            return None  # 走平台 env SMTP 配置
+
+        async def _render(*, code, channel_type, variables, locale):
+            return ("s", "b")
+
+        async def _log(**kw):
+            seen["log_tenant"] = kw["tenant_id"]
+
+        monkeypatch.setattr(repo_mod, "get_active_channel_config", _cfg)
+        monkeypatch.setattr(repo_mod, "render_template", _render)
+        monkeypatch.setattr(repo_mod, "insert_notification_log", _log)
+
+        r = await client.post(
+            "/v1/internal/notify/send",
+            json={
+                "template_code": "email_verification",
+                "channel_type": "email",
+                "recipient": "u@example.com",
+                "variables": {"verify_url": "https://x/verify?t=1"},
+                "tenant_id": "t_custom",
+            },
+            headers={"X-Ingress-Auth": "test-ingress-secret"},
+        )
+        assert r.status_code == 200
+        assert seen["config_tenant"] == "t_custom"
+        assert seen["log_tenant"] == "t_custom"
+
+    async def test_send_default_tenant_external_public(self, client, monkeypatch):
+        """无 payload.tenant_id → external-public（注册场景缺省）。"""
+        from notification import routes as routes_mod
+        from notification.channels.base import SendResult
+
+        class _FakeChannel:
+            async def send(self, message):
+                return SendResult(success=True)
+
+        monkeypatch.setattr(routes_mod.channels, "get", lambda t: _FakeChannel())
+
+        seen = {}
+
+        async def _cfg(*, tenant_id, channel_type):
+            seen["config_tenant"] = tenant_id
+            return None
+
+        async def _render(*, code, channel_type, variables, locale):
+            return ("s", "b")
+
+        async def _log(**kw):
+            seen["log_tenant"] = kw["tenant_id"]
+
+        monkeypatch.setattr(repo_mod, "get_active_channel_config", _cfg)
+        monkeypatch.setattr(repo_mod, "render_template", _render)
+        monkeypatch.setattr(repo_mod, "insert_notification_log", _log)
+
+        r = await client.post(
+            "/v1/internal/notify/send",
+            json={"template_code": "email_verification", "channel_type": "email"},
+            headers={"X-Ingress-Auth": "test-ingress-secret"},
+        )
+        assert r.status_code == 200
+        assert seen["log_tenant"] == "external-public"

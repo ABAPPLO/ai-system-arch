@@ -33,6 +33,7 @@ ESO 让 Git 只描述**映射**（KMS 凭据名 → K8s Secret 字段），值�
    apihub/shared/hmac_secret_key # 64 hex（AES-256 envelope key），两生产区同值
    apihub/shared/peer_ch_password_bj  # prod 访问北京 CH（PEER_REGION_CH_PASSWORD）
    apihub/shared/peer_ch_password_sh  # prod-bj 访问上海 CH
+   apihub/shared/smtp_password   # 平台发信 SMTP 密码（钉钉企业邮箱；notification）
    ```
 
 3. **创建 ESO 访问凭据**：RAM 子账号（只授权 KMS 凭据管家读），AK 写入

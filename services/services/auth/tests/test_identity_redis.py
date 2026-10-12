@@ -51,3 +51,98 @@ class TestRegistrationResponse:
         resp = _registration_response("u1", "tok", "prod")
         assert "verify_token" not in resp
         assert resp["status"] == "pending"
+
+
+class TestSendVerificationEmail:
+    """注册验证邮件 → notification 内部端点（X-Ingress-Auth 信任入口）。纯 mock，无需 PG。"""
+
+    async def test_calls_notify_with_token_and_tenant(self, monkeypatch):
+        import httpx
+        from auth import identity
+
+        captured = {}
+
+        class _FakeResp:
+            status_code = 200
+
+            def json(self):
+                return {"success": True}
+
+            def raise_for_status(self):
+                pass
+
+        class _FakeClient:
+            def __init__(self, *a, **kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                pass
+
+            async def post(self, url, json=None, headers=None):
+                captured["url"] = url
+                captured["json"] = json
+                captured["headers"] = headers
+                return _FakeResp()
+
+        monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+
+        class _S:
+            portal_public_url = "https://portal.example.com"
+            notify_internal_url = "http://notification/v1/internal/notify/send"
+            ingress_shared_secret = "sec-1"
+
+        result = await identity._send_verification_email(_S, "u@example.com", "tok123")
+        assert result == {"success": True}
+        assert captured["url"] == "http://notification/v1/internal/notify/send"
+        assert captured["headers"]["X-Ingress-Auth"] == "sec-1"
+        body = captured["json"]
+        assert body["template_code"] == "email_verification"
+        assert body["channel_type"] == "email"
+        assert body["recipient"] == "u@example.com"
+        assert body["tenant_id"] == "external-public"
+        assert (
+            body["variables"]["verify_url"]
+            == "https://portal.example.com/verify-email?token=tok123"
+        )
+
+    async def test_no_secret_sends_without_header(self, monkeypatch):
+        import httpx
+        from auth import identity
+
+        captured = {}
+
+        class _FakeResp:
+            status_code = 200
+
+            def json(self):
+                return {}
+
+            def raise_for_status(self):
+                pass
+
+        class _FakeClient:
+            def __init__(self, *a, **kw):
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *a):
+                pass
+
+            async def post(self, url, json=None, headers=None):
+                captured["headers"] = headers
+                return _FakeResp()
+
+        monkeypatch.setattr(httpx, "AsyncClient", _FakeClient)
+
+        class _S:
+            portal_public_url = "http://localhost:5174"
+            notify_internal_url = "http://notification/v1/internal/notify/send"
+            ingress_shared_secret = None
+
+        await identity._send_verification_email(_S, "u@example.com", "t")
+        assert "X-Ingress-Auth" not in (captured["headers"] or {})

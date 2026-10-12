@@ -15,6 +15,10 @@ def build_app():
             "/metrics",
             "/docs",
             "/openapi.json",
+            # 内部服务调用（auth 注册发验证邮件等）：无用户凭证，
+            # 走 require_ingress_auth（fail-closed）+ payload 显式 tenant_id
+            "/v1/internal/notify/send",
+            "/v1/internal/notify/batch",
         ),
         extra_lifespan=start_consumer,
     )

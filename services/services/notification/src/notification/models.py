@@ -40,6 +40,9 @@ class NotifyRequest(BaseModel):
     recipient: str = ""
     variables: dict = Field(default_factory=dict)
     locale: str = "zh-CN"
+    # 内部调用（ingress-auth 路径）时的租户归属；缺省 external-public（注册场景）。
+    # 用户态调用（带 TenantContext）忽略此字段，以鉴权上下文为准。
+    tenant_id: str | None = None
 
 
 class NotifyResult(BaseModel):
